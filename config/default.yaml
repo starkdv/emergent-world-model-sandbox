@@ -1,0 +1,103 @@
+# Emergent World-Model Sandbox Configuration
+# Author: Karan Vasa
+
+# World Settings
+world:
+  width: 100
+  height: 100
+  initial_resources: 50
+  resource_spawn_rate: 0.01
+  seed: null  # null for random, or specify integer for reproducible runs
+
+# Terrain Settings
+terrain:
+  soil_ratio: 0.7
+  rock_ratio: 0.2
+  water_ratio: 0.1
+  fertility_range: [0.3, 1.0]
+  moisture_range: [0.2, 0.8]
+
+# Agent Settings
+agents:
+  initial_population: 20
+  starting_energy: 100.0
+  max_energy: 200.0
+  metabolism_rate: 0.5
+  vision_radius: 5
+  max_age: 1000
+  inventory_size: 5
+
+# Neural Network Settings
+brain:
+  input_size: 64  # calculated from observation vector
+  hidden_layers: [32, 16]
+  output_size: 8  # number of actions
+  activation: "tanh"
+
+# Evolution Settings
+evolution:
+  selection_method: "tournament"
+  tournament_size: 5
+  mutation_rate: 0.01
+  mutation_std: 0.1
+  trait_mutation_std: 0.05
+  crossover_method: "uniform"
+  elitism_count: 2
+  generation_length: 1000  # ticks per generation
+
+# Plant Settings
+plants:
+  growth_time: 50
+  mature_age: 100
+  max_age: 500
+  seed_spawn_rate: 0.1
+  required_fertility: 0.3
+  required_moisture: 0.2
+
+# Resource Settings
+resources:
+  berry_calories: 20.0
+  berry_freshness_decay: 0.01
+  seed_energy_cost: 5.0
+
+# Simulation Settings
+simulation:
+  max_generations: 100
+  ticks_per_second: 10
+  auto_save: true
+  save_interval: 10  # generations
+
+# Visualization Settings
+visualization:
+  enabled: true
+  window_width: 1200
+  window_height: 800
+  fps: 30
+  show_vision_radius: true
+  show_agent_info: true
+  color_scheme:
+    background: [34, 34, 34]
+    soil: [139, 69, 19]
+    rock: [128, 128, 128]
+    water: [64, 164, 223]
+    agent: [0, 255, 0]
+    plant: [34, 139, 34]
+    seed: [210, 180, 140]
+    food: [255, 140, 0]
+
+# Data Collection Settings
+data_collection:
+  enabled: true
+  export_format: "csv"  # csv, json, parquet
+  collect_per_tick: false
+  collect_per_generation: true
+  track_lineage: true
+  track_behaviors: true
+  export_directory: "data/exports"
+
+# Logging Settings
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_to_file: true
+  log_directory: "data/logs"
+  console_output: true

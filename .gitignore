@@ -1,3 +1,18 @@
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Data files (exports, logs, analysis results)
+data/exports/*
+data/logs/*
+data/analysis/*
+# Keep the directory structure
+!data/exports/.gitkeep
+!data/logs/.gitkeep
+!data/analysis/.gitkeep
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

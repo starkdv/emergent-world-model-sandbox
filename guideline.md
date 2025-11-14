@@ -5,7 +5,46 @@
 
 ## General Development Principles
 
-### 1. File Organization
+### 1. Python Environment Management
+
+#### Virtual Environment (REQUIRED)
+- **ALWAYS use a virtual environment (venv)** for development
+- **NEVER install packages globally** - all packages must be installed in venv
+- Create venv at project root: `python -m venv venv`
+- Activate venv before any development work:
+  - **Windows PowerShell:** `.\venv\Scripts\Activate.ps1`
+  - **Windows CMD:** `.\venv\Scripts\activate.bat`
+  - **Linux/Mac:** `source venv/bin/activate`
+
+#### Requirements Management
+- **ALWAYS update `requirements.txt`** when adding new dependencies
+- Install packages: `pip install <package-name>`
+- Update requirements: `pip freeze > requirements.txt`
+- Install from requirements: `pip install -r requirements.txt`
+- Keep requirements organized by category (add comments in file)
+- Pin version numbers for production dependencies
+- Use `pip list` to verify installed packages
+
+#### Development Workflow
+```powershell
+# 1. Activate virtual environment
+.\venv\Scripts\Activate.ps1
+
+# 2. Install/update dependencies
+pip install -r requirements.txt
+
+# 3. Work on your code
+# ... development ...
+
+# 4. If you installed new packages
+pip freeze > requirements.txt
+
+# 5. Commit changes including updated requirements.txt
+git add requirements.txt
+git commit -m "chore: update dependencies"
+```
+
+### 2. Code Quality Standards
 - **DO NOT create unnecessary .md files** unless specifically requested
 - Keep documentation minimal and focused
 - Use clear, descriptive file names
