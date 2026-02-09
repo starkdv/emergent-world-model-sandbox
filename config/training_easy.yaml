@@ -1,0 +1,154 @@
+# Training Configuration - EASY MODE
+# Designed to help agents learn to survive
+# Based on agent_training_world_design.md principles
+# Author: Karan Vasa
+
+# World Settings - MORE FORGIVING
+world:
+  width: 100  # Smaller world = easier to find food
+  height: 50
+  initial_resources: 80  # MORE food spawns (was 50)
+  resource_spawn_rate: 0.05  # MUCH more frequent spawning (was 0.01)
+  seed: null
+  allow_stacking: false  # If false, enforces one object per tile (prevents overlapping)
+
+# Terrain Settings - FLATTER, EASIER
+terrain:
+  soil_ratio: 0.85  # More passable terrain
+  rock_ratio: 0.10  # Fewer obstacles
+  water_ratio: 0.05  # Less water
+  fertility_range: [0.5, 1.0]  # Higher fertility
+  moisture_range: [0.4, 0.9]  # More moisture
+
+# Agent Settings - EASIER SURVIVAL
+agents:
+  initial_population: 10  # Fewer agents = less competition
+  starting_energy: 700.0  # MASSIVELY INCREASED (was 150) - give agents time to learn!
+  max_energy: 1000.0  # MUCH HIGHER MAX (was 300) - allow energy storage
+  metabolism_rate: 0.015  # EVEN SLOWER DECAY (was 0.03) - double survival time!
+  vision_radius: 10  # Better vision (was 5)
+  max_age: 5000  # MUCH LONGER LIFESPAN (was 500) - let agents live and learn!
+  inventory_size: 5
+
+# Neural Network Settings
+brain:
+  input_size: 64
+  hidden_layers: [32, 16]
+  output_size: 8
+  activation: "tanh"
+
+# Evolution Settings - GENTLER MUTATIONS
+evolution:
+  selection_method: "tournament"
+  tournament_size: 5
+  mutation_rate: 0.01
+  mutation_std: 0.05  # SMALLER MUTATIONS (was 0.1)
+  trait_mutation_std: 0.02  # SMALLER (was 0.05)
+  crossover_method: "uniform"
+  elitism_count: 3  # Keep more survivors
+  generation_length: 1000
+
+# Plant Settings - MORE GENEROUS
+plants:
+  growth_time: 50  # Faster growth (was 50)
+  mature_age: 100  # Faster maturity (was 100)
+  max_age: 600  # Live longer
+  seed_spawn_rate: 0.15  # More seeds (was 0.1)
+  required_fertility: 0.3  # Easier to grow (was 0.3)
+  required_moisture: 0.2  # Easier (was 0.2)
+  germination_success_rate: 0.9  # Higher success (was 0.75)
+  fertility_consumption_per_tick: 0.005  # Less consumption
+  moisture_consumption_per_tick: 0.003  # Less consumption
+  seed_max_age: 300  # Seeds last longer
+
+# Resource Settings - MORE VALUABLE
+resources:
+  berry_calories: 35.0  # MORE ENERGY FROM FOOD (was 20)
+  berry_freshness_decay: 0.005  # VERY SLOW decay (was 0.005) - keeps ecosystem cycle alive while maintaining freshness!
+  seed_drop_chance: 0.8  # More seeds
+  seed_energy_cost: 3.0  # Cheaper to plant (was 5.0)
+  min_resources: 20  # Higher threshold for safety spawns (was 10)
+
+# Action Energy Costs - MUCH LOWER for sustainable movement
+action_costs:
+  move_forward: 0.3  # REDUCED from 2.0 - was the main energy drain!
+  turn: 0.1  # REDUCED from 0.5
+  pick_up: 0.2  # REDUCED from 1.0
+  drop: 0.1  # REDUCED from 1.0
+  eat: 0.1  # REDUCED from 1.0
+  use: 0.5  # REDUCED from 2.0
+  wait: 0.0  # REDUCED from 0.1 - waiting should be free!
+
+# Soil Dynamics Settings - MORE FORGIVING
+soil:
+  fertility_recovery_rate: 0.001  # Faster recovery
+  fertility_return_on_death: 0.2  # More nutrients returned
+  moisture_evaporation_rate: 0.0001  # Slower evaporation
+  moisture_recovery_rate: 0.0012  # Faster recovery
+  max_fertility: 1.0
+  min_fertility: 0.0
+  max_moisture: 1.0
+  min_moisture: 0.0
+
+# Simulation Settings
+simulation:
+  max_generations: 100
+  ticks_per_second: 10
+  auto_save: true
+  save_interval: 10
+
+# Visualization Settings
+visualization:
+  enabled: true
+  window_width: 1000
+  window_height: 800
+  tile_size: 16  # Smaller tiles for smaller world
+  target_fps: 30
+  show_vision_radius: true
+  show_agent_info: true
+  color_scheme:
+    background: [34, 34, 34]
+    soil: [139, 69, 19]
+    rock: [128, 128, 128]
+    water: [64, 164, 223]
+    agent: [0, 255, 0]
+    plant: [34, 139, 34]
+    seed: [210, 180, 140]
+    berry: [220, 20, 60]
+
+# Learning Settings (for --learning flag)
+learning:
+  enabled: false  # Set via command line
+  learning_rate: 0.01
+  discount_factor: 0.95
+  batch_size: 16
+  buffer_capacity: 1000
+  epsilon: 0.2  # Exploration rate (12% random actions) - balanced with anti-spin penalties
+
+# Reproduction Settings - NEW!
+reproduction:
+  enabled: true  # Enable in-simulation reproduction
+  energy_threshold: 0.60  # 60% of max_energy required
+  min_age: 100  # Minimum age in ticks
+  energy_split: 0.20  # parent keeps 90%
+  mutation_std: 0.02  # Mutation standard deviation
+  cooldown_ticks: 70  # Minimum ticks between reproductions
+  max_population: 50  # Maximum total population (agents won't reproduce above this)
+
+# Calamity Settings - Environmental Disasters
+calamity:
+  enabled: true  # Enable periodic calamities
+  interval: 700  # Ticks between calamities (500 = occurs every 500 ticks)
+  destruction_rate: 0.70  # Percentage of food/plants destroyed (0.30 = 30%)
+  affect_plants: true  # Whether to destroy plants
+  affect_food: true  # Whether to destroy berries/food
+  affect_seeds: false  # Whether to destroy seeds (false = seeds survive)
+
+# Logging Settings (for --log flag)
+logging:
+  enabled: false  # Set via command line
+  level: "INFO"
+  log_to_file: true
+  log_directory: "data/logs"
+  log_frequency: 1  # Log states every N ticks (1 = every tick, 10 = every 10 ticks)
+  console_output: true

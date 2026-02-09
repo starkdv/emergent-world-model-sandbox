@@ -1,0 +1,148 @@
+# Emergent World-Model Sandbox Configuration
+# Author: Karan Vasa
+
+# World Settings
+world:
+  width: 100
+  height: 100
+  initial_resources: 50
+  resource_spawn_rate: 0.01
+  seed: null  # null for random, or specify integer for reproducible runs
+  allow_stacking: false  # If false, enforces one object per tile (prevents overlapping)
+
+# Terrain Settings
+terrain:
+  soil_ratio: 0.7
+  rock_ratio: 0.2
+  water_ratio: 0.1
+  fertility_range: [0.3, 1.0]
+  moisture_range: [0.2, 0.8]
+
+# Agent Settings
+agents:
+  initial_population: 20
+  starting_energy: 100.0
+  max_energy: 200.0
+  metabolism_rate: 0.5
+  vision_radius: 5
+  max_age: 1000
+  inventory_size: 5
+
+# Neural Network Settings
+brain:
+  input_size: 64  # calculated from observation vector
+  hidden_layers: [32, 16]
+  output_size: 8  # number of actions
+  activation: "tanh"
+
+# Evolution Settings
+evolution:
+  selection_method: "tournament"
+  tournament_size: 5
+  mutation_rate: 0.01
+  mutation_std: 0.1
+  trait_mutation_std: 0.05
+  crossover_method: "uniform"
+  elitism_count: 2
+  generation_length: 1000  # ticks per generation
+
+# Plant Settings
+plants:
+  growth_time: 50
+  mature_age: 100
+  max_age: 500
+  seed_spawn_rate: 0.1
+  required_fertility: 0.3
+  required_moisture: 0.2
+  germination_success_rate: 0.75  # 75% chance seed successfully germinates
+  fertility_consumption_per_tick: 0.001  # How much fertility plants consume
+  moisture_consumption_per_tick: 0.0005  # How much moisture plants consume
+  seed_max_age: 200  # Maximum age before seed rots (in ticks)
+
+# Resource Settings
+resources:
+  berry_calories: 20.0
+  berry_freshness_decay: 0.01
+  seed_drop_chance: 0.7  # Chance for decomposed berries to drop seeds
+  seed_energy_cost: 5.0
+
+# Soil Dynamics Settings
+soil:
+  fertility_recovery_rate: 0.0005  # Per tick recovery for empty soil
+  fertility_return_on_death: 0.15  # Nutrients returned when plant dies
+  moisture_evaporation_rate: 0.0002  # Natural moisture loss
+  moisture_recovery_rate: 0.0008  # Rain/groundwater replenishment per tick
+  max_fertility: 1.0
+  min_fertility: 0.0
+  max_moisture: 1.0
+  min_moisture: 0.0
+
+# Simulation Settings
+simulation:
+  max_generations: 100
+  ticks_per_second: 10
+  auto_save: true
+  save_interval: 10  # generations
+
+# Visualization Settings
+visualization:
+  enabled: true
+  window_width: 1200
+  window_height: 800
+  fps: 30
+  show_vision_radius: true
+  show_agent_info: true
+  color_scheme:
+    background: [34, 34, 34]
+    soil: [139, 69, 19]
+    rock: [128, 128, 128]
+    water: [64, 164, 223]
+    agent: [0, 255, 0]
+    plant: [34, 139, 34]
+    seed: [210, 180, 140]
+    food: [255, 140, 0]
+
+# Data Collection Settings
+data_collection:
+  enabled: true
+  export_format: "csv"  # csv, json, parquet
+  collect_per_tick: false
+  collect_per_generation: true
+  track_lineage: true
+  track_behaviors: true
+  export_directory: "data/exports"
+
+# Learning Settings (for --learning flag)
+learning:
+  enabled: false  # Set via command line
+  learning_rate: 0.01
+  discount_factor: 0.95
+  batch_size: 16
+  buffer_capacity: 1000
+  epsilon: 0.15  # Exploration rate
+
+# Reproduction Settings
+reproduction:
+  enabled: false  # Enable in-simulation reproduction
+  energy_threshold: 0.60  # 60% of max_energy required
+  min_age: 100  # Minimum age in ticks
+  energy_split: 0.40  # Parent loses this percentage of energy
+  mutation_std: 0.02  # Mutation standard deviation
+  cooldown_ticks: 50  # Minimum ticks between reproductions
+  max_population: 100  # Maximum total population (agents won't reproduce above this)
+
+# Calamity Settings - Environmental Disasters
+calamity:
+  enabled: false  # Enable periodic calamities
+  interval: 500  # Ticks between calamities
+  destruction_rate: 0.30  # Percentage of resources destroyed (0.30 = 30%)
+  affect_plants: true  # Whether to destroy plants
+  affect_food: true  # Whether to destroy berries/food
+  affect_seeds: false  # Whether to destroy seeds (false = seeds survive for recovery)
+
+# Logging Settings
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_to_file: true
+  log_directory: "data/logs"
+  console_output: true
