@@ -140,14 +140,23 @@ def clone_agent(
         metabolism_rate=parent.metabolism_rate
     )
     
-    # LAMARCKIAN INHERITANCE: Copy trained weights from parent
-    # This is the key to passing learned knowledge to offspring
-    child.brain.weights = [w.copy() for w in parent.brain.weights]
-    child.brain.biases = [b.copy() for b in parent.brain.biases]
+    # LAMARCKIAN INHERITANCE: The genome already contains the trained weights
+    # from the parent's end-of-life state (updated via AgentLearner._sync_genome_weights)
+    # No need to copy brain.weights/biases anymore - they're automatically loaded from genome
     
     # Apply mutation if requested
     if mutate:
-        mutate_weights(child.brain, mutation_std)
+        mutate_genome_weights(child.genome, mutation_std)
+        # Recreate brain with mutated genome to apply changes
+        child.brain = child.brain.__class__(
+            child.genome,
+            input_size=child.brain.input_size,
+            encoder_layers=child.brain.encoder_layers,
+            gru_hidden_size=child.brain.gru_hidden_size,
+            output_size=child.brain.output_size
+        )
+        # Reset hidden state
+        child.h = child.brain.initial_state()
     
     # Reset life-specific state
     child.age = 0
@@ -158,25 +167,21 @@ def clone_agent(
     return child
 
 
-def mutate_weights(brain, std: float = 0.02):
+def mutate_genome_weights(genome: Genome, std: float = 0.02):
     """
-    Apply Gaussian noise mutation to brain weights.
+    Apply Gaussian noise mutation to genome weights.
     
-    Mutates weights and biases in-place.
+    Mutates the flat weight array in-place.
+    Works with Brain v2 architecture where all parameters are stored
+    in genome.weights as a flat array.
     
     Args:
-        brain: The Brain object to mutate
+        genome: The Genome object containing weights to mutate
         std: Standard deviation of Gaussian noise
     """
-    # Mutate all weight matrices
-    for i in range(len(brain.weights)):
-        noise = np.random.normal(0.0, std, size=brain.weights[i].shape)
-        brain.weights[i] += noise
-    
-    # Mutate all bias vectors
-    for i in range(len(brain.biases)):
-        noise = np.random.normal(0.0, std, size=brain.biases[i].shape)
-        brain.biases[i] += noise
+    # Apply Gaussian noise to all weights
+    noise = np.random.normal(0.0, std, size=genome.weights.shape)
+    genome.weights += noise
 
 
 def next_generation(
@@ -256,12 +261,13 @@ class EvolutionStats:
         if len(population) < 2:
             return 0.0
         
-        # Sample weights from first layer for efficiency
+        # Calculate pairwise distances between genome weights
         distances = []
         for i in range(len(population)):
-            for j in range(i + 1, len(population)):                # Calculate L2 distance between weight matrices
-                w1 = population[i].brain.weights[0].flatten()
-                w2 = population[j].brain.weights[0].flatten()
+            for j in range(i + 1, len(population)):
+                # Calculate L2 distance between genome weight arrays
+                w1 = population[i].genome.weights
+                w2 = population[j].genome.weights
                 dist = np.linalg.norm(w1 - w2)
                 distances.append(dist)
         

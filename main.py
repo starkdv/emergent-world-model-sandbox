@@ -206,10 +206,16 @@ Examples:
         # Initialize world model logger if requested
         world_model_logger = None
         if args.world_model_log:
-            from utils.data.agent_logger import WorldModelLogger
-            world_model_logger = WorldModelLogger(args.log_dir, args.log_frequency)
+            from utils.data.async_logger import AsyncWorldModelLogger
+            world_model_logger = AsyncWorldModelLogger(
+                output_dir=args.log_dir,
+                log_every_n_ticks=args.log_frequency,
+                batch_size=100,
+                flush_interval=2.0
+            )
             Agent.world_model_logger = world_model_logger
-            print(f"World Model Logging: Enabled")
+            print(f"World Model Logging: Enabled (async mode for high performance)")
+
         
         # Create world
         print("\n" + "="*60)
@@ -342,7 +348,8 @@ Examples:
         brain_cfg = config['brain']
         weight_count = Brain.calculate_weight_count(
             input_size=brain_cfg['input_size'],
-            hidden_sizes=brain_cfg['hidden_layers'],
+            encoder_layers=brain_cfg['encoder_layers'],
+            gru_hidden_size=brain_cfg['gru_hidden_size'],
             output_size=brain_cfg['output_size']
         )
         

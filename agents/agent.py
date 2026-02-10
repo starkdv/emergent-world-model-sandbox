@@ -103,11 +103,17 @@ class Agent:
         self.genome = genome
         self.brain = Brain(genome)
         self.traits = genome.traits.copy()
-        self.fitness = 0.0        # Learning components
+        self.fitness = 0.0
+        
+        # GRU hidden state (memory)
+        self.h = self.brain.initial_state()
+        
+        # Learning components
         self.learner: Optional['AgentLearner'] = None
         self.last_observation: Optional[np.ndarray] = None
+        self.last_hidden_state: Optional[np.ndarray] = None
         self.learning_enabled = True  # Can be disabled for pure evolution
-        self.epsilon = 0.20  # Exploration rate (20% random actions) - balanced with anti-spin penalties
+        self.temperature = 1.0  # Sampling temperature for exploration
           # Apply trait-based modifications
         self.metabolism_rate = metabolism_rate * self.traits.get('metabolism_rate', 1.0)
         self.vision_radius = int(self.traits.get('vision_radius', 5.0))
@@ -155,13 +161,16 @@ class Agent:
             self.die(world)
             
             # Store terminal experience if learning
-            if self.learning_enabled and self.learner and self.last_observation is not None:
+            if self.learning_enabled and self.learner and self.last_observation is not None and self.last_hidden_state is not None:
                 terminal_obs = self.observe(world)
+                terminal_h = self.brain.initial_state()  # Dead state
                 self.learner.store_experience(
                     self.last_observation,
-                    0,  # Doesn't matter
+                    self.last_hidden_state,
+                    0,  # Action doesn't matter
                     -1.0,  # Death penalty
                     terminal_obs,
+                    terminal_h,
                     True  # Episode done
                 )
             return# Get observation and decide action
@@ -183,8 +192,11 @@ class Agent:
         # Force EAT when hungry with food (50% threshold for safety)
         if self.energy < self.max_energy * 0.5 and has_food:
             action = Action.EAT
+            # Still need to update hidden state even for forced action
+            _, self.h, _ = self.brain.decide(observation, self.h, temperature=self.temperature)
         else:
-            action = self.brain.decide(observation, epsilon=self.epsilon)
+            # Use brain to decide action (samples from policy)
+            action, self.h, _ = self.brain.decide(observation, self.h, temperature=self.temperature)
         
         # Store observation before action for logging
         obs_before = observation.copy()
@@ -228,13 +240,16 @@ class Agent:
         
         # Learning step
         if self.learning_enabled and self.learner:
-            # Store experience (if we have previous observation)
-            if self.last_observation is not None:
+            # Store experience (if we have previous observation and hidden state)
+            if self.last_observation is not None and self.last_hidden_state is not None:
+                # Note: self.h has already been updated to h_next by brain.decide above
                 self.learner.store_experience(
                     self.last_observation,
+                    self.last_hidden_state,
                     action.value,
                     reward,
                     obs_after,
+                    self.h,  # Current (next) hidden state
                     False  # Not done yet
                 )
             
@@ -244,8 +259,9 @@ class Agent:
                 if self.age % 100 == 0:  # Log every 100 ticks
                     print(f"  Agent {self.id} trained at age {self.age}: buffer={len(self.learner.replay_buffer)}, loss={loss:.4f}")
             
-            # Store current observation for next step
+            # Store current observation and hidden state for next step
             self.last_observation = obs_after.copy()
+            self.last_hidden_state = self.h.copy()
 
         
     def observe(self, world: 'World') -> np.ndarray:
@@ -544,6 +560,9 @@ class Agent:
         
         self.alive = False
         
+        # Reset hidden state (agent's memory is lost on death)
+        self.h = self.brain.initial_state()
+        
         # Death penalty to fitness (proportional to how early the death was)
         # Dying young = big penalty, dying old = small penalty
         age_ratio = self.age / self.max_age
@@ -684,7 +703,11 @@ class Agent:
                 if not occupied:                    
                     offspring.x = x
                     offspring.y = y
-                      # Enable learning if parent has it
+                    
+                    # Offspring starts with fresh memory (no inherited hidden state)
+                    offspring.h = offspring.brain.initial_state()
+                    
+                    # Enable learning if parent has it
                     if self.learner:
                         offspring.enable_learning(
                             learning_rate=self.learner.learning_rate,
@@ -693,8 +716,8 @@ class Agent:
                             buffer_capacity=1000  # Use default capacity
                         )
                     
-                    # Inherit parent's exploration rate
-                    offspring.epsilon = self.epsilon
+                    # Inherit parent's temperature
+                    offspring.temperature = self.temperature
                     
                     return offspring
         

@@ -28,10 +28,11 @@ agents:
   max_age: 1000
   inventory_size: 5
 
-# Neural Network Settings
+# Neural Network Settings (Brain v2 with GRU + Actor-Critic)
 brain:
   input_size: 64  # calculated from observation vector
-  hidden_layers: [32, 16]
+  encoder_layers: [32]  # Encoder MLP hidden layers
+  gru_hidden_size: 32  # GRU hidden state size (memory)
   output_size: 8  # number of actions
   activation: "tanh"
 
@@ -135,7 +136,7 @@ reproduction:
 calamity:
   enabled: true  # Enable periodic calamities
   interval: 500  # Ticks between calamities
-  destruction_rate: 0.30  # Percentage of resources destroyed (0.30 = 30%)
+  destruction_rate: 0.70  # Percentage of resources destroyed (0.30 = 30%)
   affect_plants: true  # Whether to destroy plants
   affect_food: true  # Whether to destroy berries/food
   affect_seeds: false  # Whether to destroy seeds (false = seeds survive for recovery)

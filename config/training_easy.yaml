@@ -30,10 +30,11 @@ agents:
   max_age: 5000  # MUCH LONGER LIFESPAN (was 500) - let agents live and learn!
   inventory_size: 5
 
-# Neural Network Settings
+# Neural Network Settings (Brain v2 with GRU + Actor-Critic)
 brain:
   input_size: 64
-  hidden_layers: [32, 16]
+  encoder_layers: [32]  # Encoder MLP hidden layers
+  gru_hidden_size: 32  # GRU hidden state size (memory)
   output_size: 8
   activation: "tanh"
 

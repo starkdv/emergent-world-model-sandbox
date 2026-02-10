@@ -101,27 +101,58 @@ class TestBrain:
     def test_brain_initialization(self):
         """Test brain is correctly initialized from genome."""
         trait_config = create_default_trait_config()
-        weight_count = Brain.calculate_weight_count(64, [32, 16], 8)
+        weight_count = Brain.calculate_weight_count(
+            input_size=64,
+            encoder_layers=[32],
+            gru_hidden_size=32,
+            output_size=8
+        )
         genome = Genome.random(weight_count, trait_config)
         
-        brain = Brain(genome, input_size=64, hidden_sizes=[32, 16], output_size=8)
+        brain = Brain(
+            genome,
+            input_size=64,
+            encoder_layers=[32],
+            gru_hidden_size=32,
+            output_size=8
+        )
         
-        assert len(brain.weights) == 3  # Input->H1, H1->H2, H2->Output
-        assert len(brain.biases) == 3
+        # Brain v2 uses structured params dict instead of separate weights/biases lists
+        assert hasattr(brain, 'params')
+        assert 'encoder_weights' in brain.params
+        assert 'gru' in brain.params
+        assert 'policy_head' in brain.params
+        assert 'value_head' in brain.params
     
     def test_forward_pass(self):
         """Test forward pass through network."""
         trait_config = create_default_trait_config()
-        weight_count = Brain.calculate_weight_count(64, [32, 16], 8)
+        weight_count = Brain.calculate_weight_count(
+            input_size=64,
+            encoder_layers=[32],
+            gru_hidden_size=32,
+            output_size=8
+        )
         genome = Genome.random(weight_count, trait_config)
-        brain = Brain(genome)
+        brain = Brain(
+            genome,
+            input_size=64,
+            encoder_layers=[32],
+            gru_hidden_size=32,
+            output_size=8
+        )
         
         obs = np.random.randn(64)
-        probs = brain.forward(obs)
+        h = brain.initial_state()
+        
+        # Brain v2 returns (probs, value, h_next)
+        probs, value, h_next = brain.forward(obs, h)
         
         assert len(probs) == 8
         assert np.isclose(np.sum(probs), 1.0)  # Probabilities sum to 1
         assert np.all(probs >= 0) and np.all(probs <= 1)  # Valid probabilities
+        assert isinstance(value, (float, np.floating))  # Value head output
+        assert h_next.shape == h.shape  # Hidden state maintained
     
     def test_decide_action(self):
         """Test action decision from observation."""
