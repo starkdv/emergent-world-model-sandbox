@@ -273,7 +273,7 @@ class Agent:
             
         Returns:
             Normalized observation vector        """
-        from agents.observation import build_observation
+        from utils.agents import build_observation
         return build_observation(self, world)
     
     def execute_action(self, action: Action, world: 'World') -> ActionResult:

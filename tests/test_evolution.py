@@ -15,7 +15,8 @@ import yaml
 from world.world import World
 from world.objects import WorldObject, EdibleComponent, SeedComponent, PlantComponent
 from agents import Agent, Genome, create_default_trait_config
-from agents.evolution import EvolutionConfig, next_generation, calculate_fitness, EvolutionStats
+from agents.evolution import EvolutionConfig, next_generation
+from utils.agents import calculate_fitness, EvolutionStats
 
 
 def load_config(config_path='config/training_easy.yaml'):

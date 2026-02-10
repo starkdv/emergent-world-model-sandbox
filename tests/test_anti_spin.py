@@ -3,7 +3,7 @@ Quick test to verify anti-spinning penalties work.
 """
 
 import yaml
-from agents.learning import RewardShaper
+from utils.agents import RewardShaper
 from agents.actions import Action, ActionResult
 from agents.genome import Genome
 from agents.agent import Agent

@@ -8,7 +8,7 @@ from world.world import World
 from world.objects import EdibleComponent, WorldObject, PlantComponent
 from agents.agent import Agent
 from agents.genome import Genome
-from agents.observation import build_observation
+from utils.agents import build_observation
 
 # Load config
 with open('config/training_easy.yaml', 'r') as f:

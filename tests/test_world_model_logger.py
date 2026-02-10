@@ -48,7 +48,7 @@ def test_world_model_logger(tmp_path):
         Agent.world_model_logger = logger
         
         # Run a few ticks manually to generate transitions
-        from agents.observation import build_observation
+        from utils.agents import build_observation
         
         for tick in range(5):
             world.tick = tick

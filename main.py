@@ -359,7 +359,7 @@ Examples:
         # Load pre-trained weights if requested
         pretrained_weights = None
         if args.load_weights:
-            from agents.learning import BestAgentTracker
+            from utils.agents import BestAgentTracker
             pretrained_weights = BestAgentTracker.load_best_weights(args.load_weights)
             if pretrained_weights is not None:
                 print(f"Loaded pre-trained weights ({len(pretrained_weights)} values)")
@@ -367,7 +367,7 @@ Examples:
         # Initialize best agent tracker if saving weights
         best_agent_tracker = None
         if args.save_weights:
-            from agents.learning import BestAgentTracker
+            from utils.agents import BestAgentTracker
             best_agent_tracker = BestAgentTracker()
         
         # Spawn agents on passable tiles
@@ -396,7 +396,7 @@ Examples:
                 
                 # Initialize with pre-trained weights if available
                 if pretrained_weights is not None:
-                    from agents.learning import BestAgentTracker
+                    from utils.agents import BestAgentTracker
                     BestAgentTracker.initialize_agent_from_weights(
                         agent, 
                         pretrained_weights,
