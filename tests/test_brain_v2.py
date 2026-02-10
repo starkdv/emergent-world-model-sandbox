@@ -183,8 +183,8 @@ class TestBrainV2:
         obs = np.random.randn(64)
         h = brain.initial_state()
         
-        # Mask all actions except WAIT (index 0)
-        action_mask = np.array([True, False, False, False, False, False, False, False])
+        # Mask all actions except WAIT (index 7)
+        action_mask = np.array([False, False, False, False, False, False, False, True])
         
         # Sample many times to verify masking works
         actions = []
