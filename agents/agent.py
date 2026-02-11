@@ -190,13 +190,24 @@ class Agent:
                     break
         
         # Force EAT when hungry with food (50% threshold for safety)
+        action_mask = self.get_action_mask(world)
         if self.energy < self.max_energy * 0.5 and has_food:
             action = Action.EAT
             # Still need to update hidden state even for forced action
-            _, self.h, _ = self.brain.decide(observation, self.h, temperature=self.temperature)
+            _, _, self.h = self.brain.forward(
+                observation,
+                self.h,
+                action_mask=action_mask,
+                temperature=self.temperature
+            )
         else:
             # Use brain to decide action (samples from policy)
-            action, self.h, _ = self.brain.decide(observation, self.h, temperature=self.temperature)
+            action, self.h, _ = self.brain.decide(
+            observation,
+            self.h,
+            action_mask=action_mask,
+            temperature=self.temperature
+        )
         
         # Store observation before action for logging
         obs_before = observation.copy()
@@ -263,7 +274,102 @@ class Agent:
             self.last_observation = obs_after.copy()
             self.last_hidden_state = self.h.copy()
 
-        
+    def get_action_mask(self, world: 'World') -> np.ndarray:
+        """
+        Binary mask over Action enum (1 = valid, 0 = invalid).
+        """
+        from world.objects import EdibleComponent
+        mask = np.ones(len(Action), dtype=np.float32)
+
+        # MOVE_FORWARD
+        nx = self.x + self.direction[0]
+        ny = self.y + self.direction[1]
+        if not world.is_valid_position(nx, ny):
+            mask[Action.MOVE_FORWARD] = 0.0
+        else:
+            if not world.tiles[ny][nx].is_passable():
+                mask[Action.MOVE_FORWARD] = 0.0
+
+        # PICK_UP
+        tile = world.tiles[self.y][self.x]
+        if not tile.object_ids or len(self.inventory) >= self.inventory_size:
+            mask[Action.PICK_UP] = 0.0
+
+        # DROP
+        if not self.inventory:
+            mask[Action.DROP] = 0.0
+
+        # EAT
+        has_food = False
+        for obj_id in self.inventory:
+            obj = world.objects.get(obj_id)
+            if obj and obj.has_component(EdibleComponent):
+                has_food = True
+                break
+        if not has_food:
+            mask[Action.EAT] = 0.0
+
+        from world.objects import SeedComponent, FertilizerComponent
+
+        # USE: valid only if we actually have a usable item AND a valid target tile
+        can_use = False
+
+        # Current tile target checks
+        tile = world.tiles[self.y][self.x]
+        tile_can_plant_here = tile.can_support_plant()
+
+        # If stacking is off and current tile already has objects, planting here will fail
+        if not world.allow_stacking and tile.object_ids:
+            tile_can_plant_here = False
+
+        for obj_id in self.inventory:
+            obj = world.objects.get(obj_id)
+            if obj is None:
+                continue
+
+            # Seed use: require plantable tile (or nearby plantable empty tile if you allow that in _use())
+            if obj.get_component(SeedComponent) is not None:
+                # Your _use() tries nearby tiles if stacking disabled & occupied,
+                # so allow USE if *either* here is plantable OR there exists a nearby plantable empty tile.
+                if tile_can_plant_here:
+                    can_use = True
+                    break
+
+                # If your _use() places seed nearby when current tile blocked, mirror that logic in the mask:
+                found_spot = False
+                if not world.allow_stacking and tile.object_ids:
+                    for dx in [-1, 0, 1]:
+                        for dy in [-1, 0, 1]:
+                            if dx == 0 and dy == 0:
+                                continue
+                            nx, ny = self.x + dx, self.y + dy
+                            if 0 <= nx < world.width and 0 <= ny < world.height:
+                                t2 = world.tiles[ny][nx]
+                                if t2.can_support_plant() and (world.allow_stacking or not t2.object_ids):
+                                    found_spot = True
+                                    break
+                        if found_spot:
+                            break
+
+                if found_spot:
+                    can_use = True
+                    break
+
+            # Fertilizer use: allow if tile is soil-like (or if your tile always accepts fertility changes)
+            if obj.get_component(FertilizerComponent) is not None:
+                # Your _use() directly modifies tile.fertility, so allow it whenever on a tile that has fertility.
+                # If only soil should allow it, tighten this to: tile.terrain_type == TerrainType.SOIL
+                can_use = True
+                break
+
+        if not can_use:
+            mask[Action.USE] = 0.0
+
+        # TURN_LEFT, TURN_RIGHT, WAIT always valid
+        return mask
+
+
+    
     def observe(self, world: 'World') -> np.ndarray:
         """
         Build observation vector from world state.
@@ -354,13 +460,13 @@ class Agent:
         """Rotate direction 90° counter-clockwise."""
         dx, dy = self.direction
         self.direction = (dy, -dx)  # Rotate left
-        return ActionResult(True, 0.1, "Turned left")  # Reduced from 0.5
+        return ActionResult(True, 0.25, "Turned left")  # Reduced from 0.5
     
     def _turn_right(self) -> ActionResult:
         """Rotate direction 90° clockwise."""
         dx, dy = self.direction
         self.direction = (-dy, dx)  # Rotate right
-        return ActionResult(True, 0.1, "Turned right")  # Reduced from 0.5
+        return ActionResult(True, 0.25, "Turned right")  # Reduced from 0.5
     def _pick_up(self, world: 'World') -> ActionResult:
         """Pick up object from current tile, prioritizing food."""
         from world.objects import EdibleComponent, SeedComponent

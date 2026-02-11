@@ -121,7 +121,7 @@ class AgentLearner:
         
         for exp in experiences:
             # Forward pass to get current state value and action probs
-            probs, value, _ = brain.forward(exp.observation, exp.hidden_state)
+            probs, value, h_out = brain.forward(exp.observation, exp.hidden_state)
             
             # Forward pass to get next state value
             if exp.done:
@@ -153,7 +153,7 @@ class AgentLearner:
             
             # Simplified gradient update using parameter perturbation
             # This avoids complex backprop through GRU
-            self._update_parameters_simple(brain, exp, advantage, td_target, probs)
+            self._update_parameters_simple(brain, exp, advantage, td_target, probs, h_out, value)
         
         # Sync updated parameters back to genome
         self._sync_genome_weights(brain)
@@ -173,7 +173,9 @@ class AgentLearner:
         exp: Experience,
         advantage: float,
         td_target: float,
-        probs: np.ndarray
+        probs: np.ndarray,
+        h_out: np.ndarray,
+        value: float
     ) -> None:
         """
         Simple parameter update using gradients.
@@ -187,6 +189,8 @@ class AgentLearner:
             advantage: TD advantage
             td_target: TD target for value
             probs: Current action probabilities
+            h_out: GRU hidden state after processing observation
+            value: Current state value
         """
         # Policy gradient: ∇θ log π(a|s) * A
         # Simplified: update policy head to increase prob of action if advantage > 0
@@ -194,32 +198,28 @@ class AgentLearner:
         action_gradient[exp.action] -= 1.0  # Gradient of log π
         action_gradient *= advantage * self.learning_rate
         
-        # Get GRU output (hidden state after processing observation)
-        _, _, h = brain.forward(exp.observation, exp.hidden_state)
         
         # Update policy head
-        brain.params['policy_head']['W'] -= np.outer(h, action_gradient)
+        brain.params['policy_head']['W'] -= np.outer(h_out, action_gradient)
         brain.params['policy_head']['b'] -= action_gradient
         
-        # Value gradient: ∇θ (V(s) - target)^2 = 2 * (V(s) - target) * ∇θ V(s)
-        _, value, _ = brain.forward(exp.observation, exp.hidden_state)
         value_error = value - td_target
         value_gradient = 2 * value_error * self.learning_rate
         
         # Update value head
-        brain.params['value_head']['W'] -= h.reshape(-1, 1) * value_gradient
+        brain.params['value_head']['W'] -= np.outer(h_out, value_gradient)
         brain.params['value_head']['b'] -= value_gradient
         
         # Entropy gradient: encourage higher entropy (more exploration)
         # This is already incorporated via the entropy bonus in the loss
         # For simplicity, we apply a small perturbation to encoder to encourage variation
-        if abs(advantage) > 0.1:  # Only update encoder for significant errors
-            # Small update to encoder to adjust representations
-            lr_encoder = self.learning_rate * 0.1  # Smaller LR for encoder
-            for i in range(len(brain.params['encoder_weights'])):
-                # Small random perturbation scaled by advantage
-                perturbation = np.random.randn(*brain.params['encoder_weights'][i].shape) * 0.001
-                brain.params['encoder_weights'][i] -= perturbation * advantage * lr_encoder
+        # if abs(advantage) > 0.1:  # Only update encoder for significant errors
+        #     # Small update to encoder to adjust representations
+        #     lr_encoder = self.learning_rate * 0.1  # Smaller LR for encoder
+        #     for i in range(len(brain.params['encoder_weights'])):
+        #         # Small random perturbation scaled by advantage
+        #         perturbation = np.random.randn(*brain.params['encoder_weights'][i].shape) * 0.001
+        #         brain.params['encoder_weights'][i] -= perturbation * advantage * lr_encoder
     
     
     def _sync_genome_weights(self, brain: 'Brain') -> None:
@@ -242,10 +242,21 @@ class AgentLearner:
         
         # 2. GRU (3 gates: reset, update, candidate)
         gru = brain.params['gru']
-        for gate in ['r', 'z', 'h']:
-            flat_weights.extend(gru[f'W{gate}_input'].flatten())
-            flat_weights.extend(gru[f'W{gate}_hidden'].flatten())
-            flat_weights.extend(gru[f'b{gate}'].flatten())
+
+        # Reset gate
+        flat_weights.extend(gru['Wr_input'].flatten())
+        flat_weights.extend(gru['Wr_hidden'].flatten())
+        flat_weights.extend(gru['br'].flatten())
+
+        # Update gate
+        flat_weights.extend(gru['Wz_input'].flatten())
+        flat_weights.extend(gru['Wz_hidden'].flatten())
+        flat_weights.extend(gru['bz'].flatten())
+
+        # Candidate
+        flat_weights.extend(gru['Wh_input'].flatten())
+        flat_weights.extend(gru['Wh_hidden'].flatten())
+        flat_weights.extend(gru['bh'].flatten())
         
         # 3. Policy head
         flat_weights.extend(brain.params['policy_head']['W'].flatten())
