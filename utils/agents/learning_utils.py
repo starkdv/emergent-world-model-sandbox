@@ -185,15 +185,17 @@ class RewardShaper:
         
         self.last_position = current_position
         
+        nearest_food_dist = self._find_nearest_food_distance(agent, world)
+
         # ===== WAIT: Allow strategic resting when energy is good =====
         if action == Action.WAIT:
             self.consecutive_waits += 1
             
             # REWARD waiting when energy is high (conservation strategy)
             if agent.energy > agent.max_energy * 0.7:
-                reward += 0.1  # Small bonus for resting when full
+                reward += 0.02   # Small bonus for resting when full
             elif agent.energy > agent.max_energy * 0.5:
-                pass  # Neutral - neither reward nor penalize
+                reward -= 0.02  # Neutral - neither reward nor penalize
             else:
                 # Penalty for waiting when energy is low (should be finding food)
                 if self.consecutive_waits > 3:
@@ -202,6 +204,10 @@ class RewardShaper:
             # Extra penalty if energy is critically low and waiting
             if agent.energy < agent.max_energy * 0.3:
                 reward -= 0.3
+
+            # If food is visible nearby, waiting should be discouraged (should go pick it up / move onto it)
+            if nearest_food_dist is not None and nearest_food_dist <= 3.0:
+                reward -= 0.25
         else:
             self.consecutive_waits = 0
         
@@ -284,16 +290,19 @@ class RewardShaper:
           # ===== SUCCESS BONUSES =====
         if action_result.success:
             if "Picked up" in action_result.message:
-                reward += 3.0  # Found and picked up food/item!
+                reward += 1.0  # Found and picked up food/item!
             elif "Planted" in action_result.message:
                 reward += 2.0  # Good for ecosystem
             elif action == Action.MOVE_FORWARD:
-                reward += 0.1  # Small bonus for successful movement        else:
+                reward += 0.25  # Small bonus for successful movement        
+        else:
             # Penalty for failed actions (EAT handled separately above)
             if action == Action.PICK_UP:
                 reward -= 0.8  # Increased penalty for failed pickup (was 0.5)
             elif action == Action.MOVE_FORWARD:
                 reward -= 0.05  # Tiny penalty for bumping into walls
+            elif action == Action.DROP:
+                reward -= 0.3
             else:
                 reward -= 0.05  # Small penalty for other failures        # ===== Inventory and hunger interaction =====
         from world.objects import EdibleComponent
@@ -338,20 +347,31 @@ class RewardShaper:
         if len(self.last_actions) > 8:
             self.last_actions.pop(0)
         
-        if len(self.last_actions) >= 6:
-            recent = self.last_actions[-6:]
+        if len(self.last_actions) >= 8:
+            recent = self.last_actions[-8:]
             turn_count = sum(1 for a in recent if a in [Action.TURN_LEFT, Action.TURN_RIGHT])
             move_count = sum(1 for a in recent if a == Action.MOVE_FORWARD)
-            
-            # Heavy penalty for spinning (lots of turns, no movement)
-            if turn_count >= 4 and move_count == 0:
+
+            # If >60% of last 8 are turns, penalize
+            if turn_count >= 5:
+                reward -= 1.5
+
+            # If mostly turning and almost no movement, heavy penalty
+            if turn_count >= 6 and move_count <= 1:
+                reward -= 3.0
+                # Extra penalty if it's literally not changing position (steps_without_movement already tracks this)
+                if self.steps_without_movement > 2:
+                    reward -= 2.0
+
+            # Also penalize excessive turning in place regardless
+            if self.steps_without_movement > 4 and turn_count >= 5:
                 reward -= 2.0
         
         # ===== Critical energy state penalties/urgency =====
         if agent.energy < agent.max_energy * 0.2:
             # Critical energy - bonus for moving (finding food)
             if action == Action.MOVE_FORWARD and action_result.success:
-                reward += 1.0  # Extra reward for actively seeking
+                reward += 0.05 * min(3, self.consecutive_same_action)
             # Penalty for waiting when critical
             if action == Action.WAIT:
                 reward -= 1.0
@@ -359,6 +379,10 @@ class RewardShaper:
         # Death penalty
         if not agent.alive:
             reward -= 10.0
+
+        if action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
+            reward -= 0.05  # Small penalty for turning to encourage purposeful movement
+
         
         return reward
     

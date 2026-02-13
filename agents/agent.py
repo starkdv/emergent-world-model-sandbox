@@ -331,7 +331,7 @@ class Agent:
             if obj.get_component(SeedComponent) is not None:
                 # Your _use() tries nearby tiles if stacking disabled & occupied,
                 # so allow USE if *either* here is plantable OR there exists a nearby plantable empty tile.
-                if tile_can_plant_here:
+                if tile_can_plant_here and (world.allow_stacking or not tile.object_ids):
                     can_use = True
                     break
 
@@ -357,10 +357,11 @@ class Agent:
 
             # Fertilizer use: allow if tile is soil-like (or if your tile always accepts fertility changes)
             if obj.get_component(FertilizerComponent) is not None:
-                # Your _use() directly modifies tile.fertility, so allow it whenever on a tile that has fertility.
-                # If only soil should allow it, tighten this to: tile.terrain_type == TerrainType.SOIL
-                can_use = True
-                break
+                # Only allow fertilizer if it can actually improve something
+                # (Tune threshold as needed)
+                if tile.can_support_plant() and tile.fertility < 0.85:
+                    can_use = True
+                    break
 
         if not can_use:
             mask[Action.USE] = 0.0
@@ -423,7 +424,7 @@ class Agent:
         self.energy -= result.energy_cost
         
         # Update fitness based on action outcomes
-        if result.success:
+        if result.success and action not in [Action.WAIT, Action.TURN_LEFT, Action.TURN_RIGHT]:
             self.fitness += 0.1  # Small reward for successful action
         else:
             self.fitness -= 0.05  # Small penalty for failed action
@@ -590,12 +591,22 @@ class Agent:
         
         tile = world.tiles[self.y][self.x]
         
-        # Try to use first item
-        obj_id = self.inventory[0]
-        obj = world.objects.get(obj_id)
-        
-        if obj is None:
-            return ActionResult(False, 0.05, "Object not found")  # Reduced from 0.5
+        # Pick the first usable item (seed or fertilizer) from inventory
+        obj_id = None
+        obj = None
+
+        for cand_id in list(self.inventory):
+            cand = world.objects.get(cand_id)
+            if cand is None:
+                continue
+            if (cand.get_component(SeedComponent) is not None or
+                cand.get_component(FertilizerComponent) is not None):
+                obj_id = cand_id
+                obj = cand
+                break
+
+        if obj_id is None or obj is None:
+            return ActionResult(False, 0.1, "No usable item")
         
         # Check if it's a seed
         seed = obj.get_component(SeedComponent)
@@ -654,7 +665,7 @@ class Agent:
     
     def _wait(self) -> ActionResult:
         """Do nothing (conserve energy)."""
-        return ActionResult(True, 0.0, "Waiting")  # FREE - was 0.1
+        return ActionResult(True, 0.3, "Waiting")  # FREE - was 0.1
     def die(self, world: 'World') -> None:
         """
         Handle agent death.
