@@ -146,7 +146,7 @@ class RewardShaper:
         reward = 0.0
         
         # ===== DENSE REWARD #1: Base survival =====
-        reward += 0.05  # Small survival reward
+        reward += 0.02  # Keep survival signal, but avoid rewarding idling too strongly
         
         # ===== ANTI-SPAM: Penalize repeating the same action =====
         if action == self.last_action:
@@ -163,13 +163,13 @@ class RewardShaper:
         # Track if agent moved to a new position
         if self.last_position is not None:
             if current_position != self.last_position:
-                # Agent moved! Small reward
+                # Agent moved! Reward active behavior
                 self.steps_without_movement = 0
-                reward += 0.1  # Reduced from 0.2
+                reward += 0.18
                 
                 # Extra bonus for visiting new tiles
                 if current_position not in self.positions_visited:
-                    reward += 0.15  # Reduced from 0.3
+                    reward += 0.25
                     self.positions_visited.add(current_position)
                     
                     # Keep visited set from growing too large
@@ -187,27 +187,23 @@ class RewardShaper:
         
         nearest_food_dist = self._find_nearest_food_distance(agent, world)
 
-        # ===== WAIT: Allow strategic resting when energy is good =====
+        # ===== WAIT: Discourage passive policies =====
         if action == Action.WAIT:
             self.consecutive_waits += 1
             
-            # REWARD waiting when energy is high (conservation strategy)
-            if agent.energy > agent.max_energy * 0.7:
-                reward += 0.02   # Small bonus for resting when full
-            elif agent.energy > agent.max_energy * 0.5:
-                reward -= 0.02  # Neutral - neither reward nor penalize
-            else:
-                # Penalty for waiting when energy is low (should be finding food)
-                if self.consecutive_waits > 3:
-                    reward -= 0.1 * min(self.consecutive_waits - 3, 10)
+            # Always apply a small immediate wait cost, then escalate for repeats
+            reward -= 0.06
+
+            if self.consecutive_waits > 2:
+                reward -= 0.12 * min(self.consecutive_waits - 2, 10)
             
             # Extra penalty if energy is critically low and waiting
             if agent.energy < agent.max_energy * 0.3:
-                reward -= 0.3
+                reward -= 0.5
 
             # If food is visible nearby, waiting should be discouraged (should go pick it up / move onto it)
             if nearest_food_dist is not None and nearest_food_dist <= 3.0:
-                reward -= 0.25
+                reward -= 0.35
         else:
             self.consecutive_waits = 0
         
@@ -352,20 +348,20 @@ class RewardShaper:
             turn_count = sum(1 for a in recent if a in [Action.TURN_LEFT, Action.TURN_RIGHT])
             move_count = sum(1 for a in recent if a == Action.MOVE_FORWARD)
 
-            # If >60% of last 8 are turns, penalize
-            if turn_count >= 5:
-                reward -= 1.5
+            # If turning dominates recent actions, penalize harder.
+            if turn_count >= 4:
+                reward -= 2.0
 
             # If mostly turning and almost no movement, heavy penalty
-            if turn_count >= 6 and move_count <= 1:
-                reward -= 3.0
-                # Extra penalty if it's literally not changing position (steps_without_movement already tracks this)
+            if turn_count >= 5 and move_count <= 1:
+                reward -= 4.0
+                # Extra penalty if it's literally not changing position
                 if self.steps_without_movement > 2:
-                    reward -= 2.0
+                    reward -= 3.0
 
             # Also penalize excessive turning in place regardless
-            if self.steps_without_movement > 4 and turn_count >= 5:
-                reward -= 2.0
+            if self.steps_without_movement > 2 and turn_count >= 4:
+                reward -= 3.0
         
         # ===== Critical energy state penalties/urgency =====
         if agent.energy < agent.max_energy * 0.2:
@@ -381,7 +377,9 @@ class RewardShaper:
             reward -= 10.0
 
         if action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
-            reward -= 0.05  # Small penalty for turning to encourage purposeful movement
+            reward -= 0.12
+            if self.steps_without_movement >= 2:
+                reward -= 0.25
 
         
         return reward

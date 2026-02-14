@@ -17,9 +17,16 @@ Author: Karan Vasa
 Date: November 15, 2025
 """
 
-from random import random
+import random
 import numpy as np
 from typing import Tuple, TYPE_CHECKING
+
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except Exception:
+    torch = None
+    TORCH_AVAILABLE = False
 
 # Import utility classes from utils.agents
 from utils.agents import Experience, ReplayBuffer, RewardShaper
@@ -46,7 +53,9 @@ class AgentLearner:
         discount_factor: float = 0.95,
         batch_size: int = 32,
         buffer_capacity: int = 1000,
-        entropy_coef: float = 0.01  # Entropy bonus coefficient
+        entropy_coef: float = 0.01,  # Entropy bonus coefficient
+        compute_backend: str = "auto",
+        compute_device: str = "auto",
     ):
         """
         Initialize the learner.
@@ -57,6 +66,8 @@ class AgentLearner:
             batch_size: Batch size for learning updates
             buffer_capacity: Size of experience replay buffer
             entropy_coef: Coefficient for entropy bonus (encourages exploration)
+            compute_backend: 'auto', 'numpy', or 'torch'
+            compute_device: 'auto', 'cpu', 'cuda', or 'mps' (when using torch)
         """
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
@@ -64,6 +75,51 @@ class AgentLearner:
         self.entropy_coef = entropy_coef
         self.replay_buffer = ReplayBuffer(buffer_capacity)
         self.reward_shaper = RewardShaper()
+
+        self.compute_backend, self.compute_device = self._resolve_compute_backend(
+            compute_backend,
+            compute_device,
+        )
+
+    def _resolve_compute_backend(self, compute_backend: str, compute_device: str) -> tuple[str, str]:
+        """
+        Resolve compute backend/device with safe fallbacks.
+        """
+        backend = (compute_backend or "auto").lower()
+        device = (compute_device or "auto").lower()
+
+        if backend not in {"auto", "numpy", "torch"}:
+            backend = "auto"
+
+        if backend == "numpy":
+            return "numpy", "cpu"
+
+        if backend == "torch" and not TORCH_AVAILABLE:
+            return "numpy", "cpu"
+
+        if backend == "auto":
+            if TORCH_AVAILABLE and torch.cuda.is_available():
+                return "torch", "cuda"
+            if TORCH_AVAILABLE and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return "torch", "mps"
+            return "numpy", "cpu"
+
+        # backend == "torch"
+        if device == "auto":
+            if torch.cuda.is_available():
+                return "torch", "cuda"
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return "torch", "mps"
+            return "torch", "cpu"
+
+        if device == "cuda" and not torch.cuda.is_available():
+            return "torch", "cpu"
+
+        if device == "mps":
+            if not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
+                return "torch", "cpu"
+
+        return "torch", device
     
     def store_experience(
         self,
@@ -113,47 +169,11 @@ class AgentLearner:
             return 0.0
         
         experiences = self.replay_buffer.sample(self.batch_size)
-        
-        total_loss = 0.0
-        total_policy_loss = 0.0
-        total_value_loss = 0.0
-        total_entropy = 0.0
-        
-        for exp in experiences:
-            # Forward pass to get current state value and action probs
-            probs, value, h_out = brain.forward(exp.observation, exp.hidden_state)
-            
-            # Forward pass to get next state value
-            if exp.done:
-                next_value = 0.0
-            else:
-                _, next_value, _ = brain.forward(exp.next_observation, exp.next_hidden_state)
-            
-            # Compute TD target and advantage
-            td_target = exp.reward + self.discount_factor * next_value * (1 - int(exp.done))
-            advantage = td_target - value
-            
-            # Policy loss: -log π(a|s) * A
-            log_prob = np.log(probs[exp.action] + 1e-8)
-            policy_loss = -log_prob * advantage
-            
-            # Value loss: 0.5 * (V(s) - target)^2
-            value_loss = 0.5 * (value - td_target) ** 2
-            
-            # Entropy: -Σ π(a) log π(a)  (we want to maximize this, so minimize negative)
-            entropy = -np.sum(probs * np.log(probs + 1e-8))
-            
-            # Total loss
-            loss = policy_loss + value_loss - self.entropy_coef * entropy
-            
-            total_loss += abs(loss)
-            total_policy_loss += abs(policy_loss)
-            total_value_loss += value_loss
-            total_entropy += entropy
-            
-            # Simplified gradient update using parameter perturbation
-            # This avoids complex backprop through GRU
-            self._update_parameters_simple(brain, exp, advantage, td_target, probs, h_out, value)
+
+        if self.compute_backend == "torch" and TORCH_AVAILABLE:
+            total_loss, total_policy_loss, total_value_loss, total_entropy = self._learn_vectorized_torch(brain, experiences)
+        else:
+            total_loss, total_policy_loss, total_value_loss, total_entropy = self._learn_vectorized_numpy(brain, experiences)
         
         # Sync updated parameters back to genome
         self._sync_genome_weights(brain)
@@ -167,59 +187,163 @@ class AgentLearner:
         
         return total_loss / len(experiences)
     
-    def _update_parameters_simple(
+    def _forward_batch_numpy(
         self,
         brain: 'Brain',
-        exp: Experience,
-        advantage: float,
-        td_target: float,
-        probs: np.ndarray,
-        h_out: np.ndarray,
-        value: float
-    ) -> None:
+        obs_batch: np.ndarray,
+        h_batch: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Simple parameter update using gradients.
-        
-        Updates policy head and value head based on losses.
-        For encoder and GRU, we use a simplified approach.
-        
-        Args:
-            brain: Brain to update
-            exp: Experience tuple
-            advantage: TD advantage
-            td_target: TD target for value
-            probs: Current action probabilities
-            h_out: GRU hidden state after processing observation
-            value: Current state value
+        Batched forward pass using numpy arrays.
         """
-        # Policy gradient: ∇θ log π(a|s) * A
-        # Simplified: update policy head to increase prob of action if advantage > 0
+        x = obs_batch
+
+        for i in range(len(brain.params['encoder_weights'])):
+            x = np.tanh(x @ brain.params['encoder_weights'][i] + brain.params['encoder_biases'][i])
+
+        gru = brain.params['gru']
+        r = 1.0 / (1.0 + np.exp(-np.clip(x @ gru['Wr_input'] + h_batch @ gru['Wr_hidden'] + gru['br'], -20, 20)))
+        z = 1.0 / (1.0 + np.exp(-np.clip(x @ gru['Wz_input'] + h_batch @ gru['Wz_hidden'] + gru['bz'], -20, 20)))
+        h_tilde = np.tanh(x @ gru['Wh_input'] + (r * h_batch) @ gru['Wh_hidden'] + gru['bh'])
+        h_next = (1 - z) * h_batch + z * h_tilde
+
+        logits = h_next @ brain.params['policy_head']['W'] + brain.params['policy_head']['b']
+        logits = logits - np.max(logits, axis=1, keepdims=True)
+        exp_logits = np.exp(logits)
+        probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
+
+        values = (h_next @ brain.params['value_head']['W'] + brain.params['value_head']['b']).squeeze(-1)
+        return probs, values, h_next
+
+    def _learn_vectorized_numpy(self, brain: 'Brain', experiences: list[Experience]) -> tuple[float, float, float, float]:
+        """
+        Vectorized numpy learning step over a full batch.
+        """
+        obs = np.stack([exp.observation for exp in experiences], axis=0)
+        hidden = np.stack([exp.hidden_state for exp in experiences], axis=0)
+        actions = np.array([exp.action for exp in experiences], dtype=np.int64)
+        rewards = np.array([exp.reward for exp in experiences], dtype=np.float32)
+        next_obs = np.stack([exp.next_observation for exp in experiences], axis=0)
+        next_hidden = np.stack([exp.next_hidden_state for exp in experiences], axis=0)
+        dones = np.array([1 if exp.done else 0 for exp in experiences], dtype=np.float32)
+
+        probs, values, h_out = self._forward_batch_numpy(brain, obs, hidden)
+        _, next_values, _ = self._forward_batch_numpy(brain, next_obs, next_hidden)
+        next_values = next_values * (1.0 - dones)
+
+        td_target = rewards + self.discount_factor * next_values
+        advantage = td_target - values
+
+        batch_idx = np.arange(len(experiences))
+        selected = np.clip(probs[batch_idx, actions], 1e-8, 1.0)
+        policy_loss = -np.log(selected) * advantage
+        value_loss = 0.5 * (values - td_target) ** 2
+        entropy = -np.sum(probs * np.log(np.clip(probs, 1e-8, 1.0)), axis=1)
+        loss = policy_loss + value_loss - self.entropy_coef * entropy
+
         action_gradient = probs.copy()
-        action_gradient[exp.action] -= 1.0  # Gradient of log π
-        action_gradient *= advantage * self.learning_rate
-        
-        
-        # Update policy head
-        brain.params['policy_head']['W'] -= np.outer(h_out, action_gradient)
-        brain.params['policy_head']['b'] -= action_gradient
-        
-        value_error = value - td_target
-        value_gradient = 2 * value_error * self.learning_rate
-        
-        # Update value head
-        brain.params['value_head']['W'] -= np.outer(h_out, value_gradient)
-        brain.params['value_head']['b'] -= value_gradient
-        
-        # Entropy gradient: encourage higher entropy (more exploration)
-        # This is already incorporated via the entropy bonus in the loss
-        # For simplicity, we apply a small perturbation to encoder to encourage variation
-        # if abs(advantage) > 0.1:  # Only update encoder for significant errors
-        #     # Small update to encoder to adjust representations
-        #     lr_encoder = self.learning_rate * 0.1  # Smaller LR for encoder
-        #     for i in range(len(brain.params['encoder_weights'])):
-        #         # Small random perturbation scaled by advantage
-        #         perturbation = np.random.randn(*brain.params['encoder_weights'][i].shape) * 0.001
-        #         brain.params['encoder_weights'][i] -= perturbation * advantage * lr_encoder
+        action_gradient[batch_idx, actions] -= 1.0
+        action_gradient *= (advantage * self.learning_rate)[:, None]
+
+        brain.params['policy_head']['W'] -= h_out.T @ action_gradient
+        brain.params['policy_head']['b'] -= np.sum(action_gradient, axis=0)
+
+        value_gradient = 2.0 * (values - td_target) * self.learning_rate
+        dW_value = np.sum(h_out * value_gradient[:, None], axis=0).reshape(-1, 1)
+        dB_value = np.array([np.sum(value_gradient)], dtype=brain.params['value_head']['b'].dtype)
+
+        brain.params['value_head']['W'] -= dW_value
+        brain.params['value_head']['b'] -= dB_value
+
+        return float(np.sum(np.abs(loss))), float(np.sum(np.abs(policy_loss))), float(np.sum(value_loss)), float(np.sum(entropy))
+
+    def _forward_batch_torch(self, brain: 'Brain', obs_batch, h_batch, device):
+        """
+        Batched forward pass using torch tensors.
+        """
+        x = obs_batch
+
+        for i in range(len(brain.params['encoder_weights'])):
+            w = torch.as_tensor(brain.params['encoder_weights'][i], dtype=torch.float32, device=device)
+            b = torch.as_tensor(brain.params['encoder_biases'][i], dtype=torch.float32, device=device)
+            x = torch.tanh(x @ w + b)
+
+        gru = brain.params['gru']
+        wr_i = torch.as_tensor(gru['Wr_input'], dtype=torch.float32, device=device)
+        wr_h = torch.as_tensor(gru['Wr_hidden'], dtype=torch.float32, device=device)
+        br = torch.as_tensor(gru['br'], dtype=torch.float32, device=device)
+        wz_i = torch.as_tensor(gru['Wz_input'], dtype=torch.float32, device=device)
+        wz_h = torch.as_tensor(gru['Wz_hidden'], dtype=torch.float32, device=device)
+        bz = torch.as_tensor(gru['bz'], dtype=torch.float32, device=device)
+        wh_i = torch.as_tensor(gru['Wh_input'], dtype=torch.float32, device=device)
+        wh_h = torch.as_tensor(gru['Wh_hidden'], dtype=torch.float32, device=device)
+        bh = torch.as_tensor(gru['bh'], dtype=torch.float32, device=device)
+
+        r = torch.sigmoid(torch.clamp(x @ wr_i + h_batch @ wr_h + br, -20, 20))
+        z = torch.sigmoid(torch.clamp(x @ wz_i + h_batch @ wz_h + bz, -20, 20))
+        h_tilde = torch.tanh(x @ wh_i + (r * h_batch) @ wh_h + bh)
+        h_next = (1 - z) * h_batch + z * h_tilde
+
+        pw = torch.as_tensor(brain.params['policy_head']['W'], dtype=torch.float32, device=device)
+        pb = torch.as_tensor(brain.params['policy_head']['b'], dtype=torch.float32, device=device)
+        logits = h_next @ pw + pb
+        probs = torch.softmax(logits, dim=1)
+
+        vw = torch.as_tensor(brain.params['value_head']['W'], dtype=torch.float32, device=device)
+        vb = torch.as_tensor(brain.params['value_head']['b'], dtype=torch.float32, device=device)
+        values = (h_next @ vw + vb).squeeze(-1)
+        return probs, values, h_next
+
+    def _learn_vectorized_torch(self, brain: 'Brain', experiences: list[Experience]) -> tuple[float, float, float, float]:
+        """
+        Vectorized torch learning step (uses GPU when available).
+        """
+        device = torch.device(self.compute_device)
+
+        obs = torch.as_tensor(np.stack([exp.observation for exp in experiences], axis=0), dtype=torch.float32, device=device)
+        hidden = torch.as_tensor(np.stack([exp.hidden_state for exp in experiences], axis=0), dtype=torch.float32, device=device)
+        actions = torch.as_tensor([exp.action for exp in experiences], dtype=torch.long, device=device)
+        rewards = torch.as_tensor([exp.reward for exp in experiences], dtype=torch.float32, device=device)
+        next_obs = torch.as_tensor(np.stack([exp.next_observation for exp in experiences], axis=0), dtype=torch.float32, device=device)
+        next_hidden = torch.as_tensor(np.stack([exp.next_hidden_state for exp in experiences], axis=0), dtype=torch.float32, device=device)
+        dones = torch.as_tensor([1 if exp.done else 0 for exp in experiences], dtype=torch.float32, device=device)
+
+        probs, values, h_out = self._forward_batch_torch(brain, obs, hidden, device)
+        _, next_values, _ = self._forward_batch_torch(brain, next_obs, next_hidden, device)
+        next_values = next_values * (1.0 - dones)
+
+        td_target = rewards + self.discount_factor * next_values
+        advantage = td_target - values
+
+        batch_idx = torch.arange(len(experiences), device=device)
+        selected = torch.clamp(probs[batch_idx, actions], 1e-8, 1.0)
+        policy_loss = -torch.log(selected) * advantage
+        value_loss = 0.5 * (values - td_target) ** 2
+        entropy = -torch.sum(probs * torch.log(torch.clamp(probs, 1e-8, 1.0)), dim=1)
+        loss = policy_loss + value_loss - self.entropy_coef * entropy
+
+        action_gradient = probs.clone()
+        action_gradient[batch_idx, actions] -= 1.0
+        action_gradient = action_gradient * (advantage * self.learning_rate).unsqueeze(1)
+
+        dW_policy = h_out.transpose(0, 1) @ action_gradient
+        dB_policy = torch.sum(action_gradient, dim=0)
+
+        value_gradient = 2.0 * (values - td_target) * self.learning_rate
+        dW_value = torch.sum(h_out * value_gradient.unsqueeze(1), dim=0).unsqueeze(1)
+        dB_value = torch.sum(value_gradient).unsqueeze(0)
+
+        brain.params['policy_head']['W'] -= dW_policy.detach().cpu().numpy()
+        brain.params['policy_head']['b'] -= dB_policy.detach().cpu().numpy()
+        brain.params['value_head']['W'] -= dW_value.detach().cpu().numpy()
+        brain.params['value_head']['b'] -= dB_value.detach().cpu().numpy()
+
+        return (
+            float(torch.sum(torch.abs(loss)).detach().cpu().item()),
+            float(torch.sum(torch.abs(policy_loss)).detach().cpu().item()),
+            float(torch.sum(value_loss).detach().cpu().item()),
+            float(torch.sum(entropy).detach().cpu().item()),
+        )
     
     
     def _sync_genome_weights(self, brain: 'Brain') -> None:

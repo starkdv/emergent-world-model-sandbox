@@ -91,6 +91,7 @@ visualization:
   window_width: 1200
   window_height: 800
   fps: 30
+  target_fps: 30  # Used by GUI loop
   show_vision_radius: true
   show_agent_info: true
   color_scheme:
@@ -118,9 +119,20 @@ learning:
   enabled: false  # Set via command line
   learning_rate: 0.01
   discount_factor: 0.95
-  batch_size: 16
+  batch_size: 12  # Lower batch to reduce per-update compute cost
   buffer_capacity: 1000
   epsilon: 0.15  # Exploration rate
+  train_interval_ticks: 3  # More frequent policy updates to avoid passive collapse
+  max_updates_per_tick: 12  # Initial global cap of learner updates per world tick
+  stagger_updates: true  # Spread training across ticks by agent id
+  adaptive_budget: true  # Auto-tune learning budget based on frame time
+  min_updates_per_tick: 4  # Lower adaptive bound (maintain enough learning pressure)
+  max_budget_updates_per_tick: 20  # Upper adaptive bound for high-pop stability
+  budget_adjust_step: 1  # Budget change step when tuning
+  budget_high_frame_factor: 1.10  # Reduce budget when frame > target*factor
+  budget_low_frame_factor: 0.80  # Increase budget with healthy headroom
+  compute_backend: auto  # auto | numpy | torch
+  compute_device: auto  # auto | cpu | cuda | mps
 
 # Reproduction Settings
 reproduction:
@@ -130,7 +142,7 @@ reproduction:
   energy_split: 0.40  # Parent loses this percentage of energy
   mutation_std: 0.02  # Mutation standard deviation
   cooldown_ticks: 50  # Minimum ticks between reproductions
-  max_population: 100  # Maximum total population (agents won't reproduce above this)
+  max_population: 100 # Maximum total population (agents won't reproduce above this)
 
 # Calamity Settings - Environmental Disasters
 calamity:

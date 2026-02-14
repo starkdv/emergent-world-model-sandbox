@@ -18,7 +18,6 @@ import numpy as np
 from agents.actions import Action, ActionResult, DIRECTIONS
 from agents.brain import Brain
 from agents.genome import Genome
-import utils.agents.agent_utils as agent_utils
 
 if TYPE_CHECKING:
     from world.world import World
@@ -265,17 +264,8 @@ class Agent:
                     False  # Not done yet
                 )
             
-            # Learn when world scheduler grants a training slot (staggered + capped)
-            has_enough_experience = len(self.learner.replay_buffer) >= self.learner.batch_size
-            can_train_now = False
-
-            if has_enough_experience:
-                if hasattr(world, 'try_acquire_learning_slot'):
-                    can_train_now = world.try_acquire_learning_slot(self.id, self.age)
-                else:
-                    can_train_now = (self.age % 3 == 0)
-
-            if can_train_now:
+            # Learn periodically (every 3 ticks for faster adaptation)
+            if self.age % 3 == 0 and len(self.learner.replay_buffer) >= self.learner.batch_size:
                 loss = self.learner.learn(self.brain)
                 if self.age % 100 == 0:  # Log every 100 ticks
                     print(f"  Agent {self.id} trained at age {self.age}: buffer={len(self.learner.replay_buffer)}, loss={loss:.4f}")
@@ -287,9 +277,97 @@ class Agent:
     def get_action_mask(self, world: 'World') -> np.ndarray:
         """
         Binary mask over Action enum (1 = valid, 0 = invalid).
-        Delegates to agent_utils.
         """
-        return agent_utils.get_action_mask(self, world)
+        from world.objects import EdibleComponent
+        mask = np.ones(len(Action), dtype=np.float32)
+
+        # MOVE_FORWARD
+        nx = self.x + self.direction[0]
+        ny = self.y + self.direction[1]
+        if not world.is_valid_position(nx, ny):
+            mask[Action.MOVE_FORWARD] = 0.0
+        else:
+            if not world.tiles[ny][nx].is_passable():
+                mask[Action.MOVE_FORWARD] = 0.0
+
+        # PICK_UP
+        tile = world.tiles[self.y][self.x]
+        if not tile.object_ids or len(self.inventory) >= self.inventory_size:
+            mask[Action.PICK_UP] = 0.0
+
+        # DROP
+        if not self.inventory:
+            mask[Action.DROP] = 0.0
+
+        # EAT
+        has_food = False
+        for obj_id in self.inventory:
+            obj = world.objects.get(obj_id)
+            if obj and obj.has_component(EdibleComponent):
+                has_food = True
+                break
+        if not has_food:
+            mask[Action.EAT] = 0.0
+
+        from world.objects import SeedComponent, FertilizerComponent
+
+        # USE: valid only if we actually have a usable item AND a valid target tile
+        can_use = False
+
+        # Current tile target checks
+        tile = world.tiles[self.y][self.x]
+        tile_can_plant_here = tile.can_support_plant()
+
+        # If stacking is off and current tile already has objects, planting here will fail
+        if not world.allow_stacking and tile.object_ids:
+            tile_can_plant_here = False
+
+        for obj_id in self.inventory:
+            obj = world.objects.get(obj_id)
+            if obj is None:
+                continue
+
+            # Seed use: require plantable tile (or nearby plantable empty tile if you allow that in _use())
+            if obj.get_component(SeedComponent) is not None:
+                # Your _use() tries nearby tiles if stacking disabled & occupied,
+                # so allow USE if *either* here is plantable OR there exists a nearby plantable empty tile.
+                if tile_can_plant_here and (world.allow_stacking or not tile.object_ids):
+                    can_use = True
+                    break
+
+                # If your _use() places seed nearby when current tile blocked, mirror that logic in the mask:
+                found_spot = False
+                if not world.allow_stacking and tile.object_ids:
+                    for dx in [-1, 0, 1]:
+                        for dy in [-1, 0, 1]:
+                            if dx == 0 and dy == 0:
+                                continue
+                            nx, ny = self.x + dx, self.y + dy
+                            if 0 <= nx < world.width and 0 <= ny < world.height:
+                                t2 = world.tiles[ny][nx]
+                                if t2.can_support_plant() and (world.allow_stacking or not t2.object_ids):
+                                    found_spot = True
+                                    break
+                        if found_spot:
+                            break
+
+                if found_spot:
+                    can_use = True
+                    break
+
+            # Fertilizer use: allow if tile is soil-like (or if your tile always accepts fertility changes)
+            if obj.get_component(FertilizerComponent) is not None:
+                # Only allow fertilizer if it can actually improve something
+                # (Tune threshold as needed)
+                if tile.can_support_plant() and tile.fertility < 0.85:
+                    can_use = True
+                    break
+
+        if not can_use:
+            mask[Action.USE] = 0.0
+
+        # TURN_LEFT, TURN_RIGHT, WAIT always valid
+        return mask
 
 
     
@@ -327,21 +405,21 @@ class Agent:
         result = ActionResult(True, 0.0)
         
         if action == Action.MOVE_FORWARD:
-            result = agent_utils.execute_move_forward(self, world)
+            result = self._move_forward(world)
         elif action == Action.TURN_LEFT:
-            result = agent_utils.execute_turn_left(self)
+            result = self._turn_left()
         elif action == Action.TURN_RIGHT:
-            result = agent_utils.execute_turn_right(self)
+            result = self._turn_right()
         elif action == Action.PICK_UP:
-            result = agent_utils.execute_pick_up(self, world)
+            result = self._pick_up(world)
         elif action == Action.DROP:
-            result = agent_utils.execute_drop(self, world)
+            result = self._drop(world)
         elif action == Action.EAT:
-            result = agent_utils.execute_eat(self, world)
+            result = self._eat(world)
         elif action == Action.USE:
-            result = agent_utils.execute_use(self, world)
+            result = self._use(world)
         elif action == Action.WAIT:
-            result = agent_utils.execute_wait(self)
+            result = self._wait()
           # Deduct energy cost
         self.energy -= result.energy_cost
         
@@ -360,6 +438,234 @@ class Agent:
         
         return result
     
+    def _move_forward(self, world: 'World') -> ActionResult:
+        """Move one tile in current direction."""
+        new_x = self.x + self.direction[0]
+        new_y = self.y + self.direction[1]
+        
+        # Check bounds
+        if not (0 <= new_x < world.width and 0 <= new_y < world.height):
+            return ActionResult(False, 0.2, "Out of bounds")  # Reduced from 1.0
+        
+        # Check if tile is passable
+        tile = world.tiles[new_y][new_x]
+        if not tile.is_passable():
+            return ActionResult(False, 0.2, "Tile blocked")  # Reduced from 1.0
+        
+        # Move agent
+        self.x = new_x
+        self.y = new_y
+        return ActionResult(True, 0.3, "Moved forward")  # Reduced from 2.0
+    
+    def _turn_left(self) -> ActionResult:
+        """Rotate direction 90° counter-clockwise."""
+        dx, dy = self.direction
+        self.direction = (dy, -dx)  # Rotate left
+        return ActionResult(True, 0.25, "Turned left")  # Reduced from 0.5
+    
+    def _turn_right(self) -> ActionResult:
+        """Rotate direction 90° clockwise."""
+        dx, dy = self.direction
+        self.direction = (-dy, dx)  # Rotate right
+        return ActionResult(True, 0.25, "Turned right")  # Reduced from 0.5
+    def _pick_up(self, world: 'World') -> ActionResult:
+        """Pick up object from current tile, prioritizing food."""
+        from world.objects import EdibleComponent, SeedComponent
+        
+        if len(self.inventory) >= self.inventory_size:
+            return ActionResult(False, 0.1, "Inventory full")  # Reduced from 1.0
+        
+        tile = world.tiles[self.y][self.x]
+        if not tile.object_ids:
+            return ActionResult(False, 0.1, "No objects here")  # Reduced from 1.0
+        
+        # Prioritize edible items first
+        obj_id_to_pick = None
+        for obj_id in tile.object_ids:
+            obj = world.objects.get(obj_id)
+            if obj and obj.has_component(EdibleComponent):
+                obj_id_to_pick = obj_id
+                break
+        
+        # If no food, pick up seeds (useful for planting)
+        if obj_id_to_pick is None:
+            for obj_id in tile.object_ids:
+                obj = world.objects.get(obj_id)
+                if obj and obj.has_component(SeedComponent):
+                    obj_id_to_pick = obj_id
+                    break
+        
+        # If still nothing, pick first object
+        if obj_id_to_pick is None:
+            obj_id_to_pick = tile.object_ids[0]
+        
+        obj = world.objects.get(obj_id_to_pick)
+        if obj is None:
+            return ActionResult(False, 0.1, "Object not found")  # Reduced from 1.0
+        
+        # Add to inventory and remove from world tile
+        self.inventory.append(obj_id_to_pick)
+        tile.object_ids.remove(obj_id_to_pick)
+        
+        obj_type = "food" if obj.has_component(EdibleComponent) else "object"
+        return ActionResult(True, 0.2, f"Picked up {obj_type} {obj_id_to_pick}")  # Reduced from 1.0
+    def _drop(self, world: 'World') -> ActionResult:
+        """Drop held object onto current tile or nearby if occupied."""
+        if not self.inventory:
+            return ActionResult(False, 0.05, "Inventory empty")  # Reduced from 0.5
+        
+        # Drop last object
+        obj_id = self.inventory.pop()
+        obj = world.objects.get(obj_id)
+        
+        if obj is None:
+            return ActionResult(False, 0.05, "Object not found")  # Reduced from 0.5
+        
+        # Check stacking configuration
+        tile = world.tiles[self.y][self.x]
+        
+        if world.allow_stacking or not tile.object_ids:
+            # Stacking allowed OR tile is empty - drop here
+            tile.object_ids.append(obj_id)
+            obj.x = self.x
+            obj.y = self.y
+            return ActionResult(True, 0.1, f"Dropped object {obj_id}")  # Reduced from 1.0
+        
+        # Stacking disabled and tile occupied - try nearby tiles
+        nearby_positions = [
+            (self.x + dx, self.y + dy)
+            for dx in [-1, 0, 1]
+            for dy in [-1, 0, 1]
+            if (dx != 0 or dy != 0)
+        ]
+        
+        for nx, ny in nearby_positions:
+            if world.is_valid_position(nx, ny):
+                nearby_tile = world.get_tile(nx, ny)
+                if nearby_tile and not nearby_tile.object_ids:
+                    # Found empty spot
+                    nearby_tile.object_ids.append(obj_id)
+                    obj.x = nx
+                    obj.y = ny
+                    return ActionResult(True, 0.1, f"Dropped object {obj_id} nearby")  # Reduced from 1.0
+        
+        # No empty spots - put back in inventory
+        self.inventory.append(obj_id)
+        return ActionResult(False, 0.05, "No space to drop (tile occupied)")  # Reduced from 0.5
+    
+    def _eat(self, world: 'World') -> ActionResult:
+        """Consume edible object from inventory."""
+        from world.objects import EdibleComponent
+        
+        if not self.inventory:
+            return ActionResult(False, 0.05, "Nothing to eat")  # Reduced from 0.5
+        
+        # Find edible item
+        for obj_id in self.inventory:
+            obj = world.objects.get(obj_id)
+            if obj is None:
+                continue
+            
+            edible = obj.get_component(EdibleComponent)
+            if edible is not None:
+                # Consume the food
+                energy_gained = edible.calories * edible.freshness
+                self.energy = min(self.max_energy, self.energy + energy_gained)
+                
+                # Remove from inventory and world
+                self.inventory.remove(obj_id)
+                world.remove_object(obj_id)
+                  # Fitness reward for eating
+                self.fitness += energy_gained * 0.1
+                
+                return ActionResult(True, 0.1, f"Ate food, gained {energy_gained:.1f} energy")  # Reduced from 1.0
+        
+        return ActionResult(False, 0.05, "No edible items")  # Reduced from 0.5
+    def _use(self, world: 'World') -> ActionResult:
+        """Use/plant object (e.g., plant seed, apply fertilizer)."""
+        from world.objects import SeedComponent, FertilizerComponent
+        import random
+        
+        if not self.inventory:
+            return ActionResult(False, 0.05, "Nothing to use")  # Reduced from 0.5
+        
+        tile = world.tiles[self.y][self.x]
+        
+        # Pick the first usable item (seed or fertilizer) from inventory
+        obj_id = None
+        obj = None
+
+        for cand_id in list(self.inventory):
+            cand = world.objects.get(cand_id)
+            if cand is None:
+                continue
+            if (cand.get_component(SeedComponent) is not None or
+                cand.get_component(FertilizerComponent) is not None):
+                obj_id = cand_id
+                obj = cand
+                break
+
+        if obj_id is None or obj is None:
+            return ActionResult(False, 0.1, "No usable item")
+        
+        # Check if it's a seed
+        seed = obj.get_component(SeedComponent)
+        if seed is not None:
+            # Plant the seed
+            if tile.can_support_plant():
+                # Check stacking configuration
+                if world.allow_stacking or not tile.object_ids:
+                    # Stacking allowed OR tile is empty - plant here
+                    self.inventory.remove(obj_id)
+                    tile.object_ids.append(obj_id)
+                    obj.x = self.x
+                    obj.y = self.y
+                    self.fitness += 1.0
+                    return ActionResult(True, 0.5, "Planted seed")  # Reduced from 2.0
+                else:
+                    # Stacking disabled and tile occupied - try nearby tiles
+                    directions = [(-1, 0), (1, 0), (0, -1), (0, 1), 
+                                (-1, -1), (-1, 1), (1, -1), (1, 1)]
+                    nearby_positions = [
+                        (self.x + dx, self.y + dy) 
+                        for dx, dy in directions
+                    ]
+                    random.shuffle(nearby_positions)
+                    
+                    for nx, ny in nearby_positions:
+                        if 0 <= nx < world.width and 0 <= ny < world.height:
+                            nearby_tile = world.tiles[ny][nx]
+                            if nearby_tile.can_support_plant() and not nearby_tile.object_ids:
+                                # Found empty plantable spot
+                                self.inventory.remove(obj_id)
+                                nearby_tile.object_ids.append(obj_id)
+                                obj.x = nx
+                                obj.y = ny
+                                self.fitness += 1.0
+                                return ActionResult(True, 0.5, f"Planted seed nearby at ({nx}, {ny})")  # Reduced from 2.0
+                    
+                    # No empty tiles nearby - keep in inventory
+                    return ActionResult(False, 0.1, "Cannot plant - tile occupied and no space nearby")  # Reduced from 0.5
+            else:
+                return ActionResult(False, 0.1, "Cannot plant here")  # Reduced from 1.0
+        
+        # Check if it's fertilizer
+        fertilizer = obj.get_component(FertilizerComponent)
+        if fertilizer is not None:
+            # Apply fertilizer to tile
+            tile.fertility = min(1.0, tile.fertility + fertilizer.fertility_boost)
+            
+            # Remove from inventory and world
+            self.inventory.remove(obj_id)
+            world.remove_object(obj_id)
+            
+            return ActionResult(True, 0.5, "Applied fertilizer")  # Reduced from 2.0
+        
+        return ActionResult(False, 0.1, "Cannot use this object")  # Reduced from 1.0
+    
+    def _wait(self) -> ActionResult:
+        """Do nothing (conserve energy)."""
+        return ActionResult(True, 0.3, "Waiting")  # FREE - was 0.1
     def die(self, world: 'World') -> None:
         """
         Handle agent death.
@@ -524,9 +830,7 @@ class Agent:
                             learning_rate=self.learner.learning_rate,
                             discount_factor=self.learner.discount_factor,
                             batch_size=self.learner.batch_size,
-                            buffer_capacity=1000,  # Use default capacity
-                            compute_backend=self.learner.compute_backend,
-                            compute_device=self.learner.compute_device,
+                            buffer_capacity=1000  # Use default capacity
                         )
                     
                     # Inherit parent's temperature
@@ -544,9 +848,7 @@ class Agent:
         learning_rate: float = 0.001,
         discount_factor: float = 0.95,
         batch_size: int = 32,
-        buffer_capacity: int = 1000,
-        compute_backend: str = "auto",
-        compute_device: str = "auto",
+        buffer_capacity: int = 1000
     ) -> None:
         """
         Enable reinforcement learning for this agent.
@@ -556,8 +858,6 @@ class Agent:
             discount_factor: Discount factor for future rewards
             batch_size: Batch size for learning updates
             buffer_capacity: Size of experience replay buffer
-            compute_backend: 'auto', 'numpy', or 'torch'
-            compute_device: 'auto', 'cpu', 'cuda', or 'mps'
         """
         from agents.learning import AgentLearner
         
@@ -565,9 +865,7 @@ class Agent:
             learning_rate=learning_rate,
             discount_factor=discount_factor,
             batch_size=batch_size,
-            buffer_capacity=buffer_capacity,
-            compute_backend=compute_backend,
-            compute_device=compute_device,
+            buffer_capacity=buffer_capacity
         )
         self.learning_enabled = True
         self.last_observation = None

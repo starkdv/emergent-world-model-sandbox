@@ -801,7 +801,11 @@ class PygameRenderer:
             self.render()
             
             # Maintain target FPS
-            self.clock.tick(self.target_fps)
+            frame_time_ms = self.clock.tick(self.target_fps)
+
+            # Adaptive training budget control (if world supports it)
+            if hasattr(self.world, 'adapt_learning_budget'):
+                self.world.adapt_learning_budget(frame_time_ms, self.target_fps)
         
         # Cleanup
         pygame.quit()

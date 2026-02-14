@@ -59,7 +59,16 @@ class World:
         safety_spawn_rate: float = 0.01,
         min_resources: int = 10,
         seed_max_age: int = 200,
-        allow_stacking: bool = False  # NEW: Controls object stacking
+        allow_stacking: bool = False,  # NEW: Controls object stacking
+        learning_train_interval_ticks: int = 3,
+        learning_max_updates_per_tick: int = 16,
+        learning_enable_stagger: bool = True,
+        learning_adaptive_budget: bool = True,
+        learning_min_updates_per_tick: int = 2,
+        learning_max_budget_updates_per_tick: int = 24,
+        learning_budget_adjust_step: int = 1,
+        learning_budget_high_frame_factor: float = 1.10,
+        learning_budget_low_frame_factor: float = 0.80,
     ):
         """
         Initialize a new world with generated terrain.
@@ -88,6 +97,15 @@ class World:
             safety_spawn_rate: Safety net spawn probability
             min_resources: Minimum resources before safety spawning
             seed_max_age: Maximum age before seed rots (in ticks)
+            learning_train_interval_ticks: Minimum ticks between training attempts per agent
+            learning_max_updates_per_tick: Max agent training updates allowed per world tick
+            learning_enable_stagger: Whether to stagger training by agent id to avoid synchronization spikes
+            learning_adaptive_budget: Enable adaptive update-budget tuning based on frame time
+            learning_min_updates_per_tick: Lower bound for adaptive training budget
+            learning_max_budget_updates_per_tick: Upper bound for adaptive training budget
+            learning_budget_adjust_step: Step size when adjusting adaptive training budget
+            learning_budget_high_frame_factor: Decrease budget when frame_ms > target_ms * this factor
+            learning_budget_low_frame_factor: Increase budget when frame_ms < target_ms * this factor
             
         Raises:
             ValueError: If dimensions are invalid or ratios don't sum to 1.0
@@ -118,6 +136,29 @@ class World:
         # Calamity config (can be set after init)
         self.calamity_config: Optional[dict] = None
         self.last_calamity_tick: int = 0
+
+        # Learning scheduler config
+        self.learning_train_interval_ticks = max(1, int(learning_train_interval_ticks))
+        self.learning_max_updates_per_tick = max(0, int(learning_max_updates_per_tick))
+        self.learning_enable_stagger = bool(learning_enable_stagger)
+        self._learning_updates_this_tick = 0
+
+        # Adaptive learning budget config
+        self.learning_adaptive_budget = bool(learning_adaptive_budget)
+        self.learning_min_updates_per_tick = max(0, int(learning_min_updates_per_tick))
+        self.learning_max_budget_updates_per_tick = max(
+            self.learning_min_updates_per_tick,
+            int(learning_max_budget_updates_per_tick)
+        )
+        self.learning_budget_adjust_step = max(1, int(learning_budget_adjust_step))
+        self.learning_budget_high_frame_factor = max(1.0, float(learning_budget_high_frame_factor))
+        self.learning_budget_low_frame_factor = max(0.0, min(1.0, float(learning_budget_low_frame_factor)))
+
+        # Clamp initial budget into adaptive bounds
+        self.learning_max_updates_per_tick = min(
+            self.learning_max_budget_updates_per_tick,
+            max(self.learning_min_updates_per_tick, self.learning_max_updates_per_tick)
+        )
         
         # Initialize world systems with configuration
         self.systems = WorldSystemManager(
@@ -388,6 +429,7 @@ class World:
         Author: Karan Vasa
         """
         self.tick += 1
+        self._learning_updates_this_tick = 0
         
         # Check for calamity event
         self._check_calamity()
@@ -403,6 +445,69 @@ class World:
         from agents.agent import Agent
         if Agent.logger is not None:
             Agent.logger.log_all_states(self.tick, self.agents)
+
+    def try_acquire_learning_slot(self, agent_id: int, agent_age: int) -> bool:
+        """
+        Try to reserve one learning update slot for an agent this tick.
+
+        Applies interval-based training and a global per-tick budget to
+        prevent synchronized training spikes from tanking GUI FPS.
+
+        Args:
+            agent_id: Unique agent id
+            agent_age: Current age (ticks)
+
+        Returns:
+            True if the agent may run a learning update now, False otherwise
+        """
+        if self.learning_max_updates_per_tick <= 0:
+            return False
+
+        if self.learning_enable_stagger:
+            should_train_this_tick = ((agent_age + agent_id) % self.learning_train_interval_ticks) == 0
+        else:
+            should_train_this_tick = (agent_age % self.learning_train_interval_ticks) == 0
+
+        if not should_train_this_tick:
+            return False
+
+        if self._learning_updates_this_tick >= self.learning_max_updates_per_tick:
+            return False
+
+        self._learning_updates_this_tick += 1
+        return True
+
+    def adapt_learning_budget(self, frame_time_ms: float, target_fps: int) -> None:
+        """
+        Adapt learning budget based on measured frame time.
+
+        This keeps simulation responsive by lowering training load when frame
+        time spikes, and increasing it again when there's headroom.
+
+        Args:
+            frame_time_ms: Measured frame time in milliseconds
+            target_fps: Renderer target FPS
+        """
+        if not self.learning_adaptive_budget:
+            return
+
+        if target_fps <= 0:
+            return
+
+        target_frame_ms = 1000.0 / float(target_fps)
+        high_threshold = target_frame_ms * self.learning_budget_high_frame_factor
+        low_threshold = target_frame_ms * self.learning_budget_low_frame_factor
+
+        if frame_time_ms > high_threshold:
+            self.learning_max_updates_per_tick = max(
+                self.learning_min_updates_per_tick,
+                self.learning_max_updates_per_tick - self.learning_budget_adjust_step
+            )
+        elif frame_time_ms < low_threshold:
+            self.learning_max_updates_per_tick = min(
+                self.learning_max_budget_updates_per_tick,
+                self.learning_max_updates_per_tick + self.learning_budget_adjust_step
+            )
     
     def _update_agents(self) -> None:
         """Update all agents in the world."""

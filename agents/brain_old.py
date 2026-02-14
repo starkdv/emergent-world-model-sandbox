@@ -20,7 +20,6 @@ import numpy as np
 from typing import TYPE_CHECKING, Tuple, Optional
 
 from agents.actions import Action
-import utils.agents.brain_utils as brain_utils
 
 if TYPE_CHECKING:
     from agents.genome import Genome
@@ -76,15 +75,95 @@ class Brain:
         self.output_size = output_size
         
         # Unpack weights from genome into structured parameters
-        self.params = brain_utils.unpack_weights(
-            genome.weights,
-            self.input_size,
-            self.encoder_layers,
-            self.gru_hidden_size,
-            self.output_size
-        )
+        self.params = self._unpack_weights(genome.weights)
     
-
+    def _unpack_weights(self, flat_weights: np.ndarray) -> dict:
+        """
+        Unpack flattened weight vector into structured parameters.
+        
+        Creates separate dictionaries for:
+        - Encoder (feedforward layers)
+        - GRU (recurrent update gates)
+        - Policy head (action logits)
+        - Value head (state value)
+        
+        Args:
+            flat_weights: Flattened weight vector from genome
+            
+        Returns:
+            Dictionary of parameter matrices and biases
+        """
+        params = {
+            'encoder_weights': [],
+            'encoder_biases': [],
+            'gru': {},
+            'policy_head': {},
+            'value_head': {}
+        }
+        
+        idx = 0
+        
+        # 1. Encoder MLP
+        encoder_sizes = [self.input_size] + self.encoder_layers
+        for i in range(len(encoder_sizes) - 1):
+            in_size = encoder_sizes[i]
+            out_size = encoder_sizes[i + 1]
+            
+            # Weight matrix
+            w_size = in_size * out_size
+            w = flat_weights[idx:idx + w_size].reshape(in_size, out_size)
+            params['encoder_weights'].append(w)
+            idx += w_size
+            
+            # Bias vector
+            b = flat_weights[idx:idx + out_size]
+            params['encoder_biases'].append(b)
+            idx += out_size
+        
+        # Encoder output size
+        encoder_out = self.encoder_layers[-1]
+        
+        # 2. GRU parameters
+        # GRU has 3 gates: reset (r), update (z), candidate (h_tilde)
+        # Each gate: W_input @ x + W_hidden @ h + bias
+        
+        # Reset gate
+        params['gru']['Wr_input'] = flat_weights[idx:idx + encoder_out * self.gru_hidden_size].reshape(encoder_out, self.gru_hidden_size)
+        idx += encoder_out * self.gru_hidden_size
+        params['gru']['Wr_hidden'] = flat_weights[idx:idx + self.gru_hidden_size * self.gru_hidden_size].reshape(self.gru_hidden_size, self.gru_hidden_size)
+        idx += self.gru_hidden_size * self.gru_hidden_size
+        params['gru']['br'] = flat_weights[idx:idx + self.gru_hidden_size]
+        idx += self.gru_hidden_size
+        
+        # Update gate
+        params['gru']['Wz_input'] = flat_weights[idx:idx + encoder_out * self.gru_hidden_size].reshape(encoder_out, self.gru_hidden_size)
+        idx += encoder_out * self.gru_hidden_size
+        params['gru']['Wz_hidden'] = flat_weights[idx:idx + self.gru_hidden_size * self.gru_hidden_size].reshape(self.gru_hidden_size, self.gru_hidden_size)
+        idx += self.gru_hidden_size * self.gru_hidden_size
+        params['gru']['bz'] = flat_weights[idx:idx + self.gru_hidden_size]
+        idx += self.gru_hidden_size
+        
+        # Candidate hidden state
+        params['gru']['Wh_input'] = flat_weights[idx:idx + encoder_out * self.gru_hidden_size].reshape(encoder_out, self.gru_hidden_size)
+        idx += encoder_out * self.gru_hidden_size
+        params['gru']['Wh_hidden'] = flat_weights[idx:idx + self.gru_hidden_size * self.gru_hidden_size].reshape(self.gru_hidden_size, self.gru_hidden_size)
+        idx += self.gru_hidden_size * self.gru_hidden_size
+        params['gru']['bh'] = flat_weights[idx:idx + self.gru_hidden_size]
+        idx += self.gru_hidden_size
+        
+        # 3. Policy head (GRU hidden → action logits)
+        params['policy_head']['W'] = flat_weights[idx:idx + self.gru_hidden_size * self.output_size].reshape(self.gru_hidden_size, self.output_size)
+        idx += self.gru_hidden_size * self.output_size
+        params['policy_head']['b'] = flat_weights[idx:idx + self.output_size]
+        idx += self.output_size
+        
+        # 4. Value head (GRU hidden → scalar value)
+        params['value_head']['W'] = flat_weights[idx:idx + self.gru_hidden_size].reshape(self.gru_hidden_size, 1)
+        idx += self.gru_hidden_size
+        params['value_head']['b'] = flat_weights[idx:idx + 1]
+        idx += 1
+        
+        return params
     
     def initial_state(self) -> np.ndarray:
         """
@@ -136,7 +215,7 @@ class Brain:
         logits = logits / temperature
         
         # Softmax to get probabilities
-        probs = brain_utils.softmax(logits)
+        probs = self._softmax(logits)
         
         # 4. Value head: Estimate state value
         value = float(h_next @ self.params['value_head']['W'] + self.params['value_head']['b'])
@@ -145,7 +224,13 @@ class Brain:
     
     def _gru_step(self, x: np.ndarray, h: np.ndarray) -> np.ndarray:
         """
-        Single GRU step - delegates to brain_utils.
+        Single GRU step.
+        
+        GRU equations:
+            r = sigmoid(x @ Wr_input + h @ Wr_hidden + br)   # reset gate
+            z = sigmoid(x @ Wz_input + h @ Wz_hidden + bz)   # update gate
+            h_tilde = tanh(x @ Wh_input + (r * h) @ Wh_hidden + bh)  # candidate
+            h_next = (1 - z) * h + z * h_tilde               # new hidden state
         
         Args:
             x: Current input (encoder output)
@@ -154,7 +239,21 @@ class Brain:
         Returns:
             New hidden state
         """
-        return brain_utils.gru_step(x, h, self.params['gru'])
+        gru = self.params['gru']
+        
+        # Reset gate
+        r = self._sigmoid(x @ gru['Wr_input'] + h @ gru['Wr_hidden'] + gru['br'])
+        
+        # Update gate
+        z = self._sigmoid(x @ gru['Wz_input'] + h @ gru['Wz_hidden'] + gru['bz'])
+        
+        # Candidate hidden state
+        h_tilde = np.tanh(x @ gru['Wh_input'] + (r * h) @ gru['Wh_hidden'] + gru['bh'])
+        
+        # New hidden state
+        h_next = (1 - z) * h + z * h_tilde
+        
+        return h_next
     
     def decide(
         self,
@@ -186,6 +285,26 @@ class Brain:
         return Action(action_idx), h_next, value
     
     @staticmethod
+    def _sigmoid(x: np.ndarray) -> np.ndarray:
+        """Sigmoid activation function."""
+        return 1.0 / (1.0 + np.exp(-np.clip(x, -20, 20)))
+    
+    @staticmethod
+    def _softmax(x: np.ndarray) -> np.ndarray:
+        """
+        Compute softmax probabilities.
+        
+        Args:
+            x: Input logits
+            
+        Returns:
+            Probability distribution
+        """
+        # Subtract max for numerical stability
+        exp_x = np.exp(x - np.max(x))
+        return exp_x / np.sum(exp_x)
+    
+    @staticmethod
     def calculate_weight_count(
         input_size: int = 64,
         encoder_layers: list[int] = None,
@@ -194,7 +313,6 @@ class Brain:
     ) -> int:
         """
         Calculate total number of weights needed for the network.
-        Delegates to brain_utils.
         
         Args:
             input_size: Size of observation vector
@@ -205,9 +323,34 @@ class Brain:
         Returns:
             Total number of weights (including biases)
         """
-        return brain_utils.calculate_weight_count(
-            input_size, encoder_layers, gru_hidden_size, output_size
-        )
+        if encoder_layers is None:
+            encoder_layers = [32]
+        
+        total = 0
+        
+        # 1. Encoder weights
+        encoder_sizes = [input_size] + encoder_layers
+        for i in range(len(encoder_sizes) - 1):
+            in_size = encoder_sizes[i]
+            out_size = encoder_sizes[i + 1]
+            total += in_size * out_size + out_size  # weights + biases
+        
+        encoder_out = encoder_layers[-1]
+        
+        # 2. GRU weights (3 gates: reset, update, candidate)
+        # Each gate: input_weights + hidden_weights + bias
+        for _ in range(3):
+            total += encoder_out * gru_hidden_size  # input weights
+            total += gru_hidden_size * gru_hidden_size  # hidden weights
+            total += gru_hidden_size  # bias
+        
+        # 3. Policy head
+        total += gru_hidden_size * output_size + output_size  # weights + bias
+        
+        # 4. Value head
+        total += gru_hidden_size + 1  # weight + bias (scalar output)
+        
+        return total
     
     def get_action_preferences(self, observation: np.ndarray, h: np.ndarray) -> dict[str, float]:
         """

@@ -24,6 +24,9 @@ from utils.agents.evolution_utils import (
     adaptive_mutation_std
 )
 
+# Import utility modules (not individual functions)
+from utils.agents import brain_utils, agent_utils
+
 __all__ = [
     # Perception
     'build_observation',
@@ -39,4 +42,8 @@ __all__ = [
     'EvolutionStats',
     'calculate_fitness',
     'adaptive_mutation_std',
+    
+    # Utility modules
+    'brain_utils',
+    'agent_utils',
 ]

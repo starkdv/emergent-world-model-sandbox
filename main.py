@@ -227,6 +227,7 @@ Examples:
         plant_cfg = config['plants']
         resource_cfg = config['resources']
         soil_cfg = config['soil']
+        learning_cfg = config.get('learning', {})
         world = World(
             width=world_cfg['width'],
             height=world_cfg['height'],
@@ -252,7 +253,16 @@ Examples:
             safety_spawn_rate=world_cfg['resource_spawn_rate'],
             min_resources=resource_cfg.get('min_resources', 20),  # From config, default 20
             seed_max_age=plant_cfg['seed_max_age'],
-            allow_stacking=world_cfg.get('allow_stacking', False)  # NEW: Get from config
+            allow_stacking=world_cfg.get('allow_stacking', False),  # NEW: Get from config
+            learning_train_interval_ticks=learning_cfg.get('train_interval_ticks', 3),
+            learning_max_updates_per_tick=learning_cfg.get('max_updates_per_tick', 16),
+            learning_enable_stagger=learning_cfg.get('stagger_updates', True),
+            learning_adaptive_budget=learning_cfg.get('adaptive_budget', True),
+            learning_min_updates_per_tick=learning_cfg.get('min_updates_per_tick', 2),
+            learning_max_budget_updates_per_tick=learning_cfg.get('max_budget_updates_per_tick', 24),
+            learning_budget_adjust_step=learning_cfg.get('budget_adjust_step', 1),
+            learning_budget_high_frame_factor=learning_cfg.get('budget_high_frame_factor', 1.10),
+            learning_budget_low_frame_factor=learning_cfg.get('budget_low_frame_factor', 0.80),
         )
         
         print(f"World created: {world.width}x{world.height}")
@@ -409,7 +419,9 @@ Examples:
                         learning_rate=args.learning_rate,
                         discount_factor=0.95,
                         batch_size=16,
-                        buffer_capacity=1000
+                        buffer_capacity=1000,
+                        compute_backend=learning_cfg.get('compute_backend', 'auto'),
+                        compute_device=learning_cfg.get('compute_device', 'auto'),
                     )
                 
                 world.add_agent(agent)
@@ -417,6 +429,20 @@ Examples:
             
             attempts += 1
         print(f"Agents spawned: {len(world.agents)} agents")
+
+        if args.learning and world.agents:
+            sample_agent = next(iter(world.agents.values()))
+            if sample_agent.learner is not None:
+                print(
+                    f"Learning backend: {sample_agent.learner.compute_backend} "
+                    f"(device: {sample_agent.learner.compute_device})"
+                )
+                print(
+                    "Learning scheduler: "
+                    f"interval={world.learning_train_interval_ticks}, "
+                    f"budget={world.learning_max_updates_per_tick}/tick, "
+                    f"adaptive={'on' if world.learning_adaptive_budget else 'off'}"
+                )
         
         if agents_spawned < initial_population:
             print(f"Warning: Only spawned {agents_spawned}/{initial_population} agents (not enough passable tiles)")        # Set up reproduction configuration from config file
