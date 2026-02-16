@@ -24,6 +24,7 @@ from world.objects import (
     EdibleComponent,
     FertilizerComponent
 )
+from world.object_registry import ObjectRegistry
 
 
 class PlantGrowthSystem:
@@ -50,6 +51,9 @@ class PlantGrowthSystem:
         """
         Update all plants in the world.
         
+        Applies growth_multiplier from any TileEffectSpec objects on the
+        same tile (e.g. sand slows growth).
+        
         Args:
             world: World instance to update
             
@@ -63,7 +67,10 @@ class PlantGrowthSystem:
                 continue
             
             plant = obj.get_component(PlantComponent)
-            plant.age += 1
+            
+            # Apply growth multiplier from tile effects
+            growth_mult = _get_tile_growth_multiplier(world, obj.x, obj.y)
+            plant.age += growth_mult
             
             # Check if plant died of old age
             if not plant.is_alive():
@@ -155,8 +162,15 @@ class SeedGerminationSystem:
             
             # Check if ready to attempt germination
             if seed.time_in_soil >= seed.grow_time:
-                # Probability check for germination success
-                if random.random() < self.germination_success_rate:
+                # Apply germination multiplier from tile effects
+                germ_mult = _get_tile_germination_multiplier(world, obj.x, obj.y)
+                effective_rate = self.germination_success_rate * germ_mult
+                
+                # Also check if any object on tile blocks growth
+                if _tile_blocks_growth(world, obj.x, obj.y):
+                    # Growth is blocked — seed stays alive and keeps waiting
+                    continue
+                elif random.random() < effective_rate:
                     seeds_to_germinate.append((obj_id, obj.x, obj.y, seed.plant_type))
                 else:
                     # Seed failed to germinate - remove it
@@ -175,14 +189,24 @@ class SeedGerminationSystem:
             # Remove seed
             world.remove_object(obj_id)
             
-            # Create plant
-            plant_obj = WorldObject(x, y)
-            plant_obj.add_component(PlantComponent(
-                mature_age=self.plant_mature_age,
-                max_age=self.plant_max_age,
-                spawn_resource_type="berry",
-                spawn_rate=0.1
-            ))
+            # Look up what this seed grows into via registry
+            # plant_type comes from SeedComponent.plant_type (= SeedSpec.grows_into)
+            defn = ObjectRegistry.get(plant_type)
+            if defn is not None:
+                plant_obj = ObjectRegistry.create(
+                    plant_type, x, y,
+                    mature_age=self.plant_mature_age,
+                    plant_max_age=self.plant_max_age,
+                )
+            else:
+                # Fallback for unregistered plant types
+                plant_obj = WorldObject(x, y)
+                plant_obj.add_component(PlantComponent(
+                    mature_age=self.plant_mature_age,
+                    max_age=self.plant_max_age,
+                    spawn_resource_type="berry",
+                    spawn_rate=0.1
+                ))
             world.add_object(plant_obj)
 
 
@@ -226,8 +250,8 @@ class DecaySystem:
         Author: Karan Vasa
         """
         objects_to_remove = []
-        seeds_to_spawn = []
-        decomposed_positions = []
+        seeds_to_spawn = []  # (x, y, decompose_into_type_id)
+        decomposed_positions = []  # (x, y, nutrient_return)
         
         for obj_id, obj in world.objects.items():
             if not obj.has_component(EdibleComponent):
@@ -235,40 +259,66 @@ class DecaySystem:
             
             edible = obj.get_component(EdibleComponent)
             
+            # Per-type decay rate from registry, fallback to global
+            physics = ObjectRegistry.get_physics(obj)
+            rate = physics.decay_rate if (physics and physics.decay_rate > 0) else self.decay_rate
+            
             # Reduce freshness
-            edible.freshness -= self.decay_rate
+            edible.freshness -= rate
             
             # Handle completely spoiled items
             if edible.freshness <= 0.0:
                 objects_to_remove.append(obj_id)
-                decomposed_positions.append((obj.x, obj.y))
                 
-                # Chance to drop seed when decomposing
-                if random.random() < self.seed_drop_chance:
-                    seeds_to_spawn.append((obj.x, obj.y))
+                # Per-type decomposition chain from registry
+                if physics and physics.decompose_into:
+                    chance = physics.decompose_chance
+                    nutrient = physics.nutrient_return
+                    if random.random() < chance:
+                        seeds_to_spawn.append((obj.x, obj.y, physics.decompose_into))
+                    decomposed_positions.append((obj.x, obj.y, nutrient))
+                else:
+                    # Legacy fallback: global seed_drop_chance
+                    if random.random() < self.seed_drop_chance:
+                        seeds_to_spawn.append((obj.x, obj.y, "berry_seed"))
+                    decomposed_positions.append((obj.x, obj.y, 0.0))
         
         # Remove spoiled objects
         for obj_id in objects_to_remove:
             world.remove_object(obj_id)
         
-        # Return nutrients to soil from decomposed berries
+        # Return nutrients to soil from decomposed items
         if self.soil_system:
-            for x, y in decomposed_positions:
-                self.soil_system.return_nutrients_to_soil(world, x, y)
+            for x, y, nutrient in decomposed_positions:
+                if nutrient > 0:
+                    # Per-type nutrient return
+                    tile = world.get_tile(x, y)
+                    if tile and tile.is_plantable():
+                        tile.fertility = min(1.0, tile.fertility + nutrient)
+                else:
+                    # Fallback to global nutrient return
+                    self.soil_system.return_nutrients_to_soil(world, x, y)
         
-        # Spawn seeds from decomposed fruit
-        for x, y in seeds_to_spawn:
+        # Spawn decomposition products (seeds, etc.)
+        for x, y, spawn_type_id in seeds_to_spawn:
             if world.is_valid_position(x, y):
-                # Create seed at the decomposition location
-                seed = WorldObject(x, y)
-                seed.add_component(SeedComponent(
-                    plant_type="berry_plant",
-                    grow_time=50,
-                    required_fertility=0.3,
-                    required_moisture=0.2,
-                    max_age=self.seed_max_age
-                ))
-                world.add_object(seed)
+                defn = ObjectRegistry.get(spawn_type_id)
+                if defn is not None:
+                    spawn_obj = ObjectRegistry.create(
+                        spawn_type_id, x, y,
+                        seed_max_age=self.seed_max_age,
+                    )
+                else:
+                    # Fallback for unregistered types
+                    spawn_obj = WorldObject(x, y)
+                    spawn_obj.add_component(SeedComponent(
+                        plant_type="berry_plant",
+                        grow_time=50,
+                        required_fertility=0.3,
+                        required_moisture=0.2,
+                        max_age=self.seed_max_age
+                    ))
+                world.add_object(spawn_obj)
 
 
 class FertilizerSystem:
@@ -492,8 +542,10 @@ class ResourceSpawnSystem:
             if not plant.is_mature():
                 continue
             
-            # Chance to spawn resource
-            if random.random() < plant.spawn_rate:
+            # Chance to spawn resource (modulated by tile effects)
+            spawn_mult = _get_tile_spawn_rate_multiplier(world, obj.x, obj.y)
+            effective_rate = plant.spawn_rate * spawn_mult
+            if random.random() < effective_rate:
                 self._spawn_resource_near(world, obj.x, obj.y, plant.spawn_resource_type)
         
         # Safety net: spawn resources if world is depleted
@@ -548,7 +600,18 @@ class ResourceSpawnSystem:
                 if len(objects_here) >= 1:  # Max 1 object per tile in no-stacking mode
                     continue
             
-            # Spawn resource based on type
+            # Spawn resource via registry (with legacy fallback)
+            defn = ObjectRegistry.get(resource_type)
+            if defn is not None:
+                new_obj = ObjectRegistry.create(
+                    resource_type, x, y,
+                    calories=self.berry_calories,
+                    seed_max_age=self.seed_max_age,
+                )
+                world.add_object(new_obj)
+                return True
+            
+            # Legacy fallback for unregistered types
             if resource_type == "berry":
                 berry = WorldObject(x, y)
                 berry.add_component(EdibleComponent(
@@ -558,7 +621,6 @@ class ResourceSpawnSystem:
                 ))
                 world.add_object(berry)
                 return True
-            
             elif resource_type == "seed":
                 seed = WorldObject(x, y)
                 seed.add_component(SeedComponent(
@@ -645,6 +707,7 @@ class WorldSystemManager:
         )
         self.decay = DecaySystem(decay_rate, seed_drop_chance, self.soil_dynamics, seed_max_age)
         self.fertilizer = FertilizerSystem()
+        self.tile_effect = TileEffectSystem()
         self.resource_spawn = ResourceSpawnSystem(
             berry_calories,
             safety_spawn_rate,
@@ -657,12 +720,13 @@ class WorldSystemManager:
         Run all systems in order.
         
         Execution order:
-        1. Plant growth (aging)
-        2. Seed germination (creates new plants)
+        1. Plant growth (aging, with tile-effect growth_multiplier)
+        2. Seed germination (with tile-effect germination_multiplier)
         3. Decay (removes spoiled items)
         4. Fertilizer effects (boosts soil)
         5. Soil dynamics (manages soil resources)
-        6. Resource spawning (creates new resources)
+        6. Tile effects (sand spreading, fertility/moisture clamping)
+        7. Resource spawning (with tile-effect spawn_rate_multiplier)
         
         Args:
             world: World instance to update
@@ -674,4 +738,269 @@ class WorldSystemManager:
         self.decay.update(world)
         self.fertilizer.update(world)
         self.soil_dynamics.update(world)
+        self.tile_effect.update(world)
         self.resource_spawn.update(world)
+
+
+# ---------------------------------------------------------------------------
+# Tile-effect helpers (used by growth/germination/spawn systems)
+# ---------------------------------------------------------------------------
+
+def _get_tile_effect_objects(world: 'World', x: int, y: int):
+    """Yield TileEffectSpec for every object at (x, y) that has one."""
+    tile = world.get_tile(x, y)
+    if not tile:
+        return
+    for obj_id in tile.object_ids:
+        obj = world.objects.get(obj_id)
+        if obj is None:
+            continue
+        te = ObjectRegistry.get_tile_effect(obj)
+        if te is not None:
+            yield te
+
+
+def _get_tile_growth_multiplier(world: 'World', x: int, y: int) -> float:
+    """Return the combined growth multiplier at a tile (multiplicative)."""
+    mult = 1.0
+    for te in _get_tile_effect_objects(world, x, y):
+        mult *= te.growth_multiplier
+    return mult
+
+
+def _get_tile_germination_multiplier(world: 'World', x: int, y: int) -> float:
+    """Return the combined germination multiplier at a tile."""
+    mult = 1.0
+    for te in _get_tile_effect_objects(world, x, y):
+        mult *= te.germination_multiplier
+    return mult
+
+
+def _get_tile_spawn_rate_multiplier(world: 'World', x: int, y: int) -> float:
+    """Return the combined spawn-rate multiplier at a tile."""
+    mult = 1.0
+    for te in _get_tile_effect_objects(world, x, y):
+        mult *= te.spawn_rate_multiplier
+    return mult
+
+
+def _tile_blocks_growth(world: 'World', x: int, y: int) -> bool:
+    """Return True if any object at (x, y) has blocks_growth=True."""
+    tile = world.get_tile(x, y)
+    if not tile:
+        return False
+    for obj_id in tile.object_ids:
+        obj = world.objects.get(obj_id)
+        if obj is None:
+            continue
+        interaction = ObjectRegistry.get_interaction(obj)
+        if interaction.blocks_growth:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# TileEffectSystem – spreading, fertility/moisture clamping
+# ---------------------------------------------------------------------------
+
+class TileEffectSystem:
+    """
+    System that handles tile-effect objects (sand, etc.).
+
+    Per tick this system:
+    1. Clamps fertility / moisture on tiles where effect objects sit.
+    2. Tracks how long neighbouring *soil* tiles have gone without a
+       blocking object (plant) nearby.
+    3. When the spread interval is exceeded and the random check passes,
+       converts the neighbour tile and spawns a new tile-effect object.
+
+    Author: Karan Vasa
+    """
+
+    def __init__(self):
+        """Initialise the system with an empty exposure tracker."""
+        # Maps (x, y, source_type_id) -> ticks without a blocker
+        self._exposure_ticks: Dict[tuple, int] = {}
+        # Maps (x, y, type_id) -> ticks a blocker has been present (for reclaim)
+        self._reclaim_ticks: Dict[tuple, int] = {}
+
+    def update(self, world: 'World') -> None:
+        """
+        Run the tile-effect system for one tick.
+
+        Args:
+            world: World instance to update.
+        """
+        from world.tiles import TerrainType
+
+        objects_to_spawn: List[tuple] = []   # (type_id, x, y)
+        tiles_to_convert: List[tuple] = []   # (x, y, terrain_str)
+        objects_to_remove: List[int] = []    # obj_ids of reclaimed effect objects
+        tiles_to_reclaim: List[tuple] = []   # (x, y, terrain_str, fertility_restore)
+
+        # Collect all tile-effect sources
+        effect_sources: List[tuple] = []  # (obj, TileEffectSpec)
+        for obj_id, obj in world.objects.items():
+            te = ObjectRegistry.get_tile_effect(obj)
+            if te is not None:
+                effect_sources.append((obj, te))
+
+        # 1) Clamp fertility / moisture on tiles with effect objects
+        for obj, te in effect_sources:
+            tile = world.get_tile(obj.x, obj.y)
+            if tile:
+                if te.fertility_override >= 0:
+                    tile.fertility = min(tile.fertility, te.fertility_override)
+                if te.moisture_override >= 0:
+                    tile.moisture = min(tile.moisture, te.moisture_override)
+
+        # 2) Evaluate reclamation: if a blocker sits on the effect tile
+        #    long enough, convert back and remove the effect object.
+        active_reclaim_keys: Set[tuple] = set()
+
+        for obj, te in effect_sources:
+            if not te.reclaim_terrain or te.reclaim_interval <= 0:
+                continue
+            key = (obj.x, obj.y, obj.type_id)
+            active_reclaim_keys.add(key)
+
+            has_blocker = self._tile_has_blocker(
+                world, obj.x, obj.y, te.spread_blocked_by
+            )
+            if has_blocker:
+                current = self._reclaim_ticks.get(key, 0) + 1
+                self._reclaim_ticks[key] = current
+                if current >= te.reclaim_interval:
+                    objects_to_remove.append(obj.id)
+                    tiles_to_reclaim.append((
+                        obj.x, obj.y, te.reclaim_terrain, 0.3
+                    ))
+                    self._reclaim_ticks[key] = 0
+            else:
+                self._reclaim_ticks[key] = 0
+
+        # Prune stale reclaim entries
+        stale_reclaim = [k for k in self._reclaim_ticks if k not in active_reclaim_keys]
+        for k in stale_reclaim:
+            del self._reclaim_ticks[k]
+
+        # 3) Evaluate spread for each effect source
+        active_spread_keys: Set[tuple] = set()
+
+        for obj, te in effect_sources:
+            if not te.spread_type_id:
+                continue
+
+            # Check each tile within spread_radius
+            for dy in range(-te.spread_radius, te.spread_radius + 1):
+                for dx in range(-te.spread_radius, te.spread_radius + 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    # Manhattan distance
+                    if abs(dx) + abs(dy) > te.spread_radius:
+                        continue
+
+                    nx, ny = obj.x + dx, obj.y + dy
+                    tile = world.get_tile(nx, ny)
+                    if tile is None:
+                        continue
+
+                    # Only spread to soil tiles
+                    if tile.terrain_type != TerrainType.SOIL:
+                        continue
+
+                    # Check if tile already has the effect object
+                    already_has_effect = False
+                    for oid in tile.object_ids:
+                        nearby_obj = world.objects.get(oid)
+                        if nearby_obj and getattr(nearby_obj, 'type_id', '') == te.spread_type_id:
+                            already_has_effect = True
+                            break
+                    if already_has_effect:
+                        continue
+
+                    key = (nx, ny, te.spread_type_id)
+                    active_spread_keys.add(key)
+
+                    # Check if a blocking object is present on the neighbour tile
+                    has_blocker = self._tile_has_blocker(world, nx, ny, te.spread_blocked_by)
+                    if has_blocker:
+                        # Reset exposure counter
+                        self._exposure_ticks[key] = 0
+                        continue
+
+                    # Increment exposure timer
+                    current = self._exposure_ticks.get(key, 0) + 1
+                    self._exposure_ticks[key] = current
+
+                    # Check if spread should trigger
+                    if current >= te.spread_interval:
+                        if random.random() < te.spread_chance:
+                            objects_to_spawn.append((te.spread_type_id, nx, ny))
+                            if te.converts_terrain:
+                                tiles_to_convert.append((nx, ny, te.converts_terrain))
+                            # Reset counter after successful spread
+                            self._exposure_ticks[key] = 0
+
+        # Prune exposure entries that are no longer near an effect source
+        stale_keys = [k for k in self._exposure_ticks if k not in active_spread_keys]
+        for k in stale_keys:
+            del self._exposure_ticks[k]
+
+        # Apply terrain conversions
+        for x, y, terrain_str in tiles_to_convert:
+            tile = world.get_tile(x, y)
+            if tile:
+                try:
+                    tile.terrain_type = TerrainType(terrain_str)
+                except ValueError:
+                    pass  # Unknown terrain string, skip silently
+
+        # Spawn new tile-effect objects
+        for type_id, x, y in objects_to_spawn:
+            defn = ObjectRegistry.get(type_id)
+            if defn is not None:
+                new_obj = ObjectRegistry.create(type_id, x, y)
+                world.add_object(new_obj)
+
+        # Apply reclamation: remove effect objects and convert terrain back
+        for obj_id in objects_to_remove:
+            world.remove_object(obj_id)
+
+        for x, y, terrain_str, fertility_restore in tiles_to_reclaim:
+            tile = world.get_tile(x, y)
+            if tile:
+                try:
+                    tile.terrain_type = TerrainType(terrain_str)
+                    # Give the reclaimed tile a small fertility boost
+                    tile.fertility = max(tile.fertility, fertility_restore)
+                except ValueError:
+                    pass
+
+    @staticmethod
+    def _tile_has_blocker(world: 'World', x: int, y: int, blocked_by: list) -> bool:
+        """
+        Check whether any object on the tile has a category in blocked_by.
+
+        Args:
+            world: World instance.
+            x: Tile X.
+            y: Tile Y.
+            blocked_by: List of category strings that block spreading.
+
+        Returns:
+            True if a blocker is present.
+        """
+        if not blocked_by:
+            return False
+        tile = world.get_tile(x, y)
+        if not tile:
+            return False
+        for obj_id in tile.object_ids:
+            obj = world.objects.get(obj_id)
+            if obj is None:
+                continue
+            cat = ObjectRegistry.get_category(obj)
+            if cat in blocked_by:
+                return True
+        return False

@@ -12,9 +12,10 @@ world:
 
 # Terrain Settings
 terrain:
-  soil_ratio: 0.7
+  soil_ratio: 0.695
   rock_ratio: 0.2
   water_ratio: 0.1
+  sand_ratio: 0.005
   fertility_range: [0.3, 1.0]
   moisture_range: [0.2, 0.8]
 
@@ -99,6 +100,7 @@ visualization:
     soil: [139, 69, 19]
     rock: [128, 128, 128]
     water: [64, 164, 223]
+    sand: [210, 180, 120]
     agent: [0, 255, 0]
     plant: [34, 139, 34]
     seed: [210, 180, 140]
@@ -159,3 +161,19 @@ logging:
   log_to_file: true
   log_directory: "data/logs"
   console_output: true
+
+# Sand / Tile-Effect Tuning
+# These override the built-in sand definition so you can tweak without code.
+sand:
+  spread_interval: 200     # Ticks a neighbour must be unprotected before spread (higher = slower)
+  spread_chance: 0.05      # Per-tick probability once interval met (lower = slower)
+  spread_radius: 1         # Manhattan distance for spreading (1 = adjacent only)
+  spread_blocked_by:       # Object categories that block spreading
+    - plant
+  germination_multiplier: 0.1   # Multiplier on germination chance (0.1 = 10× harder)
+  growth_multiplier: 0.1        # Multiplier on plant growth speed (0.1 = 10× slower)
+  spawn_rate_multiplier: 0.3    # Multiplier on food production (0.3 = 70% less)
+  fertility_override: 0.05      # Clamp fertility to this on sand tiles (-1 = no clamp)
+  moisture_override: 0.05       # Clamp moisture to this on sand tiles (-1 = no clamp)
+  reclaim_terrain: "soil"       # Terrain to convert back to when a blocker is present ("" = disabled)
+  reclaim_interval: 150         # Ticks a plant must sit on sand before it reclaims to soil (0 = disabled)

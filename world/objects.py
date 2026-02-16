@@ -235,6 +235,7 @@ class WorldObject:
         WorldObject._next_id += 1
         self.x = x
         self.y = y
+        self.type_id: str = ""  # Set by ObjectRegistry.create() for fast lookup
         self.components: Dict[str, Component] = {}
     
     def add_component(self, component: Component) -> None:
@@ -292,4 +293,5 @@ class WorldObject:
     def __repr__(self) -> str:
         """String representation of the object."""
         component_names = ", ".join(self.components.keys())
-        return f"WorldObject(id={self.id}, pos=({self.x}, {self.y}), components=[{component_names}])"
+        tid = f", type={self.type_id!r}" if self.type_id else ""
+        return f"WorldObject(id={self.id}, pos=({self.x}, {self.y}){tid}, components=[{component_names}])"

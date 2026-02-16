@@ -19,10 +19,12 @@ class TerrainType(Enum):
         SOIL: Plantable terrain with variable fertility
         ROCK: Impassable, non-plantable terrain
         WATER: Water terrain, affects moisture of nearby tiles
+        SAND: Low-fertility terrain, passable but poor for growth
     """
     SOIL = "soil"
     ROCK = "rock"
     WATER = "water"
+    SAND = "sand"
 
 
 class Tile:
@@ -108,16 +110,19 @@ class Tile:
         Returns:
             True if tile is passable, False otherwise
         """
-        return self.terrain_type != TerrainType.ROCK
+        return self.terrain_type not in (TerrainType.ROCK,)
     
     def is_plantable(self) -> bool:
         """
         Check if seeds can be planted on this tile.
         
+        Sand terrain *technically* allows planting, but with heavy
+        penalties applied by the TileEffectSpec system.
+        
         Returns:
             True if tile can support plants, False otherwise
         """
-        return self.terrain_type == TerrainType.SOIL
+        return self.terrain_type in (TerrainType.SOIL, TerrainType.SAND)
     
     def can_support_plant(self) -> bool:
         """

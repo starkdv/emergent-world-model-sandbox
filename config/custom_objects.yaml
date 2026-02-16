@@ -1,0 +1,215 @@
+# Custom Object Definitions
+# =========================================================================
+# This file demonstrates how to create new object types for the simulation.
+# Place your custom objects under the `objects:` key and include this file
+# in your main config, or pass it via '--objects config/custom_objects.yaml'.
+#
+# Each top-level key under `objects:` becomes the unique type_id.
+# All fields below are optional — omit a section to skip that component.
+#
+# Author: Karan Vasa
+# =========================================================================
+
+objects:
+
+  # ------------------------------------------------------------------
+  # Example 1: Superfood — high-calorie but decays fast
+  # ------------------------------------------------------------------
+  superfood:
+    display_name: "Superfood"
+    category: "food"
+    edible:
+      calories: 80.0         # 4x normal berry
+      toxicity: 0.0
+      freshness: 1.0
+    physics:
+      decay_rate: 0.05       # Decays 5x faster than berries
+      decompose_into: ""     # Disappears on decomposition (no seed)
+      decompose_chance: 0.0
+      nutrient_return: 0.3   # Returns more nutrients to soil
+    interaction:
+      pickable: true
+      usable: false
+      passable: true
+      blocks_growth: false
+    observation:
+      vision_encoding: 0.95  # Slightly different from berry (1.0)
+      value_source: "freshness"
+    render:
+      char: "S"
+      color: [255, 215, 0]        # Gold
+
+  # ------------------------------------------------------------------
+  # Example 2: Poisonous mushroom — agents learn to avoid it
+  # ------------------------------------------------------------------
+  mushroom:
+    display_name: "Poisonous Mushroom"
+    category: "food"
+    edible:
+      calories: -15.0        # Negative! Drains energy when eaten
+      toxicity: 0.8
+      freshness: 1.0
+    physics:
+      decay_rate: 0.005
+      decompose_into: ""
+      decompose_chance: 0.0
+      nutrient_return: 0.05
+    interaction:
+      pickable: true
+      usable: false
+      passable: true
+      blocks_growth: false
+    observation:
+      vision_encoding: 0.85
+      value_source: "freshness"
+    render:
+      char: "M"
+      color: [128, 0, 128]        # Purple
+
+  # ------------------------------------------------------------------
+  # Example 3: Oak tree — slow growing, blocks sand spread, long-lived
+  # ------------------------------------------------------------------
+  oak_plant:
+    display_name: "Oak Tree"
+    category: "plant"
+    plant:
+      mature_age: 300        # 3x slower to mature than berry plant
+      max_age: 2000          # Lives 4x longer
+      produces: "acorn"      # Produces acorns (define acorn too!)
+      spawn_rate: 0.03       # Lower production rate
+    physics:
+      nutrient_return: 0.25  # Returns more nutrients on death
+    interaction:
+      pickable: false
+      usable: false
+      passable: true
+      blocks_growth: false
+    observation:
+      vision_encoding: 0.70
+      value_source: "maturity"
+    render:
+      char: "T"
+      color: [0, 100, 0]          # Dark green
+
+  # ------------------------------------------------------------------
+  # Example 4: Acorn — seed for oak tree
+  # ------------------------------------------------------------------
+  acorn:
+    display_name: "Acorn"
+    category: "seed"
+    seed:
+      grows_into: "oak_plant"
+      grow_time: 120         # Takes longer to germinate
+      required_fertility: 0.4
+      required_moisture: 0.3
+      max_age: 400           # Lasts longer than berry seeds
+    physics:
+      nutrient_return: 0.0
+    interaction:
+      pickable: true
+      usable: true
+      passable: true
+      blocks_growth: false
+    observation:
+      vision_encoding: 0.55
+      value_source: "viability"
+    render:
+      char: "a"
+      color: [139, 90, 43]        # Brown
+
+  # ------------------------------------------------------------------
+  # Example 5: Wall (obstacle) — not pickable, blocks movement
+  # ------------------------------------------------------------------
+  wall:
+    display_name: "Stone Wall"
+    category: "structure"
+    interaction:
+      pickable: false
+      usable: false
+      passable: false        # Blocks agent movement
+      blocks_growth: true    # Seeds can't grow here
+    physics:
+      decay_rate: 0.0
+      decompose_into: ""
+      decompose_chance: 0.0
+      nutrient_return: 0.0
+    observation:
+      vision_encoding: 0.05
+      value_source: "none"
+    render:
+      char: "#"
+      color: [128, 128, 128]      # Gray
+
+  # ------------------------------------------------------------------
+  # Example 6: Oasis — tile effect that BOOSTS growth (opposite of sand)
+  # ------------------------------------------------------------------
+  oasis:
+    display_name: "Oasis"
+    category: "terrain"
+    interaction:
+      pickable: false
+      usable: false
+      passable: true
+      blocks_growth: false
+    tile_effect:
+      germination_multiplier: 2.0     # 2x easier germination
+      growth_multiplier: 2.0          # 2x faster growth
+      spawn_rate_multiplier: 1.5      # 50% more food production
+      spread_type_id: ""              # Does NOT spread
+      spread_radius: 0
+      spread_interval: 0
+      spread_blocked_by: []
+      spread_chance: 0.0
+      converts_terrain: ""
+      fertility_override: -1.0        # -1 = no override (keep natural)
+      moisture_override: -1.0
+      reclaim_terrain: ""             # No reclamation
+      reclaim_interval: 0
+    physics:
+      decay_rate: 0.0
+      decompose_into: ""
+      decompose_chance: 0.0
+      nutrient_return: 0.0
+    observation:
+      vision_encoding: 0.20
+      value_source: "none"
+    render:
+      char: "O"
+      color: [0, 191, 255]        # Deep sky blue
+
+  # ------------------------------------------------------------------
+  # Example 7: Lava — deadly tile effect that spreads aggressively
+  # ------------------------------------------------------------------
+  lava:
+    display_name: "Lava"
+    category: "terrain"
+    interaction:
+      pickable: false
+      usable: false
+      passable: true         # Agents can walk on it (but it's dangerous)
+      blocks_growth: true    # Nothing grows here
+    tile_effect:
+      germination_multiplier: 0.0     # Impossible to germinate
+      growth_multiplier: 0.0          # No growth
+      spawn_rate_multiplier: 0.0      # No food production
+      spread_type_id: "lava"          # Spreads by placing more lava
+      spread_radius: 1
+      spread_interval: 300            # 300 ticks before spreading
+      spread_blocked_by: ["plant"]    # Plants block lava spread
+      spread_chance: 0.03
+      converts_terrain: ""            # No terrain conversion
+      fertility_override: 0.0         # Kills fertility
+      moisture_override: 0.0          # Kills moisture
+      reclaim_terrain: "soil"         # Plants can reclaim lava tiles
+      reclaim_interval: 500           # 500 ticks with a plant to reclaim
+    physics:
+      decay_rate: 0.0
+      decompose_into: ""
+      decompose_chance: 0.0
+      nutrient_return: 0.0
+    observation:
+      vision_encoding: 0.10
+      value_source: "none"
+    render:
+      char: "L"
+      color: [255, 69, 0]         # Orange-red

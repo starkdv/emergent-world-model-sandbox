@@ -129,10 +129,6 @@ class Brain:
         
         # Apply action mask if provided
         if action_mask is not None:
-            # Forward-movement instinct: boost MOVE_FORWARD probability
-            # when the tile ahead is passable (learnable prior)
-            if action_mask[Action.MOVE_FORWARD.value] > 0:
-                logits[Action.MOVE_FORWARD.value] += 0.5
             # Set logits of invalid actions to very negative value
             logits = np.where(action_mask > 0, logits, -1e9)
         

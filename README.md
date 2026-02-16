@@ -17,6 +17,8 @@ This project implements a **2D grid world** where:
 ## Key Features
 
 - 🌱 **Emergent Agriculture**: Agents discover seed planting and farming through evolution
+- 🏜️ **Environmental Hazards**: Sand terrain spreads and degrades soil unless trees block it
+- 🧩 **Custom Object System**: Define new objects via YAML — foods, plants, terrain effects, structures
 - 🤝 **Cooperation**: Group behaviors emerge without explicit programming
 - 🧠 **Neural Evolution**: Agents use evolved neural networks to make decisions
 - 🔬 **Scientific Analysis**: Comprehensive data collection and visualization tools
@@ -54,6 +56,9 @@ python main.py --gui --seed 42
 # Run with custom configuration
 python main.py --config config/custom.yaml --gui
 
+# Run with custom objects (add superfoods, mushrooms, etc.)
+python main.py --gui --objects config/custom_objects.yaml
+
 # Run with CSV logging for analysis
 python main.py --gui --log --log-frequency 10
 
@@ -84,12 +89,13 @@ See [INSPECTION_GUIDE.md](INSPECTION_GUIDE.md) for detailed object inspection in
 
 ```
 emergent_world_model/
-├── world/          # World physics and environment
-├── agents/         # Agent behavior and evolution
+├── world/          # World physics, tiles, objects, systems, object registry
+├── agents/         # Agent behavior, brain, evolution, learning
 ├── simulation/     # Simulation management
-├── utils/          # Utilities and visualization
-├── config/         # Configuration files
-└── data/           # Exported data and logs
+├── utils/          # Utilities, rendering, data collection
+├── config/         # Configuration files & custom object definitions
+├── tests/          # 198+ unit tests
+└── data/           # Exported data, logs, weights
 ```
 
 ## Core Concepts
@@ -118,12 +124,73 @@ Complex behaviors emerge from combinations of primitive actions:
 ## Configuration
 
 Key simulation parameters:
-- World size and terrain generation
+- World size and terrain generation (soil, rock, water, sand ratios)
 - Population size and genetic parameters
 - Resource availability and growth rates
 - Visualization and data collection settings
 
 See `config/default.yaml` for full configuration options.
+
+## Custom Objects
+
+Create new world objects entirely from YAML — no code changes required.
+See `config/custom_objects.yaml` for a full reference with 7 example objects.
+
+### Quick Example
+
+Add an `objects:` section to your config **or** use a separate file with `--objects`:
+
+```yaml
+# config/my_objects.yaml
+objects:
+  superfood:
+    display_name: "Superfood"
+    category: "food"
+    edible:
+      calories: 80.0
+      toxicity: 0.0
+      freshness: 1.0
+    physics:
+      decay_rate: 0.05
+    interaction:
+      pickable: true
+    observation:
+      vision_encoding: 0.95
+      value_source: "freshness"
+```
+
+```bash
+python main.py --gui --objects config/my_objects.yaml
+```
+
+### Object Components
+
+| Component     | Purpose                                      |
+|---------------|----------------------------------------------|
+| `edible`      | Food with calories, toxicity, freshness decay |
+| `seed`        | Plantable seed that grows into a plant       |
+| `plant`       | Grows, matures, produces resources           |
+| `fertilizer`  | Boosts soil fertility in a radius            |
+| `interaction` | Controls pickable, usable, passable, blocks_growth |
+| `tile_effect` | Environmental multipliers, spreading, terrain conversion |
+| `physics`     | Decay, decomposition, nutrient return        |
+| `observation` | How agents perceive the object               |
+
+### Tile Effect System
+
+Objects with `tile_effect` modify the environment around them:
+
+- **Growth/germination multipliers** — sand uses 0.1 (10x slower)
+- **Spawn rate multiplier** — reduce food production on affected tiles
+- **Spreading** — converts neighbouring soil tiles over time (tracked per-tick)
+- **Blocked by** — plants can prevent spread (e.g. trees block sand)
+- **Terrain conversion** — permanently changes tile type (sand, rock, etc.)
+- **Fertility/moisture override** — clamps tile values
+
+Built-in terrain hazard: **Sand** (5% of default map)
+- 10x harder germination, 10x slower growth, 70% less food
+- Spreads to adjacent soil every 200 ticks if no plant is nearby
+- Shows as sandy beige `:` in console, warm colour in GUI
 
 ## Data Analysis
 

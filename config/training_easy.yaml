@@ -14,9 +14,10 @@ world:
 
 # Terrain Settings - FLATTER, EASIER
 terrain:
-  soil_ratio: 0.85  # More passable terrain
+  soil_ratio: 0.83  # More passable terrain
   rock_ratio: 0.10  # Fewer obstacles
   water_ratio: 0.05  # Less water
+  sand_ratio: 0.02  # Minimal sand in easy mode
   fertility_range: [0.5, 1.0]  # Higher fertility
   moisture_range: [0.4, 0.9]  # More moisture
 

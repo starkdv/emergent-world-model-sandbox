@@ -16,6 +16,7 @@ import yaml
 from world.world import World
 from world.objects import WorldObject, EdibleComponent, SeedComponent, PlantComponent
 from world.tiles import TerrainType
+from world.object_registry import ObjectRegistry, register_builtin_objects
 from agents import Agent, Genome, Brain, create_default_trait_config
 from utils.render import ConsoleRenderer
 from utils.ui.pygame_renderer import PygameRenderer
@@ -164,6 +165,13 @@ Examples:
         help='Save best agent weights at end of run'
     )
     
+    parser.add_argument(
+        '--objects',
+        type=str,
+        default=None,
+        help='Path to custom object definitions YAML file (e.g., config/custom_objects.yaml)'
+    )
+    
     args = parser.parse_args()
     
     try:
@@ -228,6 +236,47 @@ Examples:
         resource_cfg = config['resources']
         soil_cfg = config['soil']
         learning_cfg = config.get('learning', {})
+        
+        # Initialize object registry BEFORE world creation so sand objects
+        # can be spawned on SAND terrain tiles during terrain generation.
+        register_builtin_objects()
+
+        # Apply sand config overrides from YAML (if present)
+        sand_cfg = config.get('sand', {})
+        if sand_cfg:
+            sand_defn = ObjectRegistry.get('sand')
+            if sand_defn and sand_defn.tile_effect:
+                te = sand_defn.tile_effect
+                te.spread_interval = sand_cfg.get('spread_interval', te.spread_interval)
+                te.spread_chance = sand_cfg.get('spread_chance', te.spread_chance)
+                te.spread_radius = sand_cfg.get('spread_radius', te.spread_radius)
+                te.spread_blocked_by = sand_cfg.get('spread_blocked_by', te.spread_blocked_by)
+                te.germination_multiplier = sand_cfg.get('germination_multiplier', te.germination_multiplier)
+                te.growth_multiplier = sand_cfg.get('growth_multiplier', te.growth_multiplier)
+                te.spawn_rate_multiplier = sand_cfg.get('spawn_rate_multiplier', te.spawn_rate_multiplier)
+                te.fertility_override = sand_cfg.get('fertility_override', te.fertility_override)
+                te.moisture_override = sand_cfg.get('moisture_override', te.moisture_override)
+                te.reclaim_terrain = sand_cfg.get('reclaim_terrain', te.reclaim_terrain)
+                te.reclaim_interval = sand_cfg.get('reclaim_interval', te.reclaim_interval)
+                print(f"Sand tuning: interval={te.spread_interval}, chance={te.spread_chance}, radius={te.spread_radius}, reclaim={te.reclaim_terrain}@{te.reclaim_interval}")
+        
+        # Load custom object definitions from config if present
+        if 'objects' in config:
+            loaded = ObjectRegistry.load_from_config(config['objects'])
+            print(f"Loaded {loaded} custom object definitions from config")
+        
+        # Load custom objects from a separate YAML file (--objects flag)
+        if args.objects:
+            objects_path = Path(args.objects)
+            if objects_path.exists():
+                with open(objects_path, 'r') as f:
+                    objects_data = yaml.safe_load(f)
+                if objects_data and 'objects' in objects_data:
+                    loaded = ObjectRegistry.load_from_config(objects_data['objects'])
+                    print(f"Loaded {loaded} custom object definitions from {args.objects}")
+            else:
+                print(f"Warning: Objects file not found: {args.objects}")
+        
         world = World(
             width=world_cfg['width'],
             height=world_cfg['height'],
@@ -235,6 +284,7 @@ Examples:
             soil_ratio=terrain_cfg['soil_ratio'],
             rock_ratio=terrain_cfg['rock_ratio'],
             water_ratio=terrain_cfg['water_ratio'],
+            sand_ratio=terrain_cfg.get('sand_ratio', 0.05),
             fertility_range=tuple(terrain_cfg['fertility_range']),
             moisture_range=tuple(terrain_cfg['moisture_range']),
             # System configuration parameters
@@ -267,7 +317,9 @@ Examples:
         
         print(f"World created: {world.width}x{world.height}")
         print(f"Seed: {world.seed}")
-          # Add initial resources
+        print(f"Sand tiles: {sum(1 for row in world.tiles for t in row if t.terrain_type == TerrainType.SAND)}")
+        
+        # Add initial resources
         print("\nPopulating world with resources...")
         initial_resources = world_cfg['initial_resources']
         
@@ -290,13 +342,12 @@ Examples:
             
             tile = world.get_tile(x, y)
             if tile and tile.is_plantable():
-                plant = WorldObject(x, y)
-                plant_cfg = config['plants']
-                plant.add_component(PlantComponent(
+                plant = ObjectRegistry.create(
+                    "berry_plant", x, y,
                     mature_age=plant_cfg['mature_age'],
-                    max_age=plant_cfg['max_age'],
-                    spawn_rate=plant_cfg['seed_spawn_rate']
-                ))
+                    plant_max_age=plant_cfg['max_age'],
+                    spawn_rate=plant_cfg['seed_spawn_rate'],
+                )
                 world.add_object(plant)
                 occupied_tiles.add((x, y))
                 plants_added += 1
@@ -315,10 +366,10 @@ Examples:
                 continue
             
             if world.is_valid_position(x, y):
-                berry = WorldObject(x, y)
-                berry.add_component(EdibleComponent(
-                    calories=config['resources']['berry_calories']
-                ))
+                berry = ObjectRegistry.create(
+                    "berry", x, y,
+                    calories=config['resources']['berry_calories'],
+                )
                 world.add_object(berry)
                 occupied_tiles.add((x, y))
                 berries_added += 1
@@ -337,12 +388,11 @@ Examples:
                 continue
             
             if world.is_valid_position(x, y):
-                seed = WorldObject(x, y)
-                seed.add_component(SeedComponent(
-                    plant_type="berry_plant",
+                seed = ObjectRegistry.create(
+                    "berry_seed", x, y,
                     grow_time=config['plants']['growth_time'],
-                    max_age=config['plants']['seed_max_age']
-                ))
+                    seed_max_age=config['plants']['seed_max_age'],
+                )
                 world.add_object(seed)
                 occupied_tiles.add((x, y))
                 seeds_added += 1

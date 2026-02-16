@@ -145,38 +145,61 @@ def _encode_tile(tile, world: 'World') -> tuple[float, float]:
     """
     Encode a single tile.
     
+    Uses ObjectRegistry for type encoding when available, with
+    fallback to hardcoded values for backward compatibility.
+    
     Returns:
         Tuple of (type_encoding, value_encoding)
         - type_encoding: 0=rock, 0.25=water, 0.5=empty_soil, 0.75=plant, 1.0=food
         - value_encoding: fertility/moisture or food/plant value (0-1)
     """
-    # Check for objects on tile
+    from world.object_registry import ObjectRegistry
+
+    # Check for objects on tile — skip terrain-layer objects so agents
+    # perceive real resources (berries, plants, seeds) even on sand tiles.
     if tile.object_ids:
-        obj_id = tile.object_ids[0]
-        obj = world.objects.get(obj_id)
-        
+        render_obj = None
+        terrain_obj = None
+        for oid in tile.object_ids:
+            o = world.objects.get(oid)
+            if o is None:
+                continue
+            if ObjectRegistry.is_terrain_layer(o):
+                terrain_obj = o
+            else:
+                render_obj = o
+                break
+        # Prefer the real object; fall back to terrain object
+        obj = render_obj if render_obj is not None else terrain_obj
+
         if obj is not None:
-            # Check if it's food
+            # Try registry-based encoding first
+            defn = None
+            tid = getattr(obj, "type_id", "")
+            if tid:
+                defn = ObjectRegistry.get(tid)
+            
+            if defn is not None:
+                type_encoding = defn.observation.vision_encoding
+                value_encoding = _compute_observation_value(obj, defn.observation.value_source)
+                return type_encoding, value_encoding
+            
+            # Fallback: hardcoded component-based encoding
             edible = obj.get_component(EdibleComponent)
             if edible is not None:
                 type_encoding = 1.0  # Food
-                # Value is calories (normalized to 0-1, assuming max ~50 calories)
                 value_encoding = min(1.0, edible.calories * edible.freshness / 50.0)
                 return type_encoding, value_encoding
             
-            # Check if it's a plant
             plant = obj.get_component(PlantComponent)
             if plant is not None:
                 type_encoding = 0.75  # Plant
-                # Value is maturity (0-1)
                 value_encoding = min(1.0, plant.age / plant.mature_age)
                 return type_encoding, value_encoding
             
-            # Check if it's a seed
             seed = obj.get_component(SeedComponent)
             if seed is not None:
                 type_encoding = 0.6  # Seed
-                # Value is age/viability
                 value_encoding = 1.0 - min(1.0, seed.time_in_soil / seed.max_age)
                 return type_encoding, value_encoding
     
@@ -187,8 +210,43 @@ def _encode_tile(tile, world: 'World') -> tuple[float, float]:
         return 0.25, tile.moisture
     elif tile.terrain_type == TerrainType.SOIL:
         return 0.5, (tile.fertility + tile.moisture) / 2.0
+    elif tile.terrain_type == TerrainType.SAND:
+        return 0.15, (tile.fertility + tile.moisture) / 2.0
     else:
         return 0.0, 0.0
+
+
+def _compute_observation_value(obj, value_source: str) -> float:
+    """
+    Compute the observation value feature from a value_source descriptor.
+    
+    Args:
+        obj: WorldObject to encode.
+        value_source: One of "freshness", "maturity", "viability",
+                      "duration", "none".
+    
+    Returns:
+        Normalised float in [0, 1].
+    """
+    if value_source == "freshness":
+        edible = obj.get_component(EdibleComponent)
+        if edible is not None:
+            return min(1.0, edible.calories * edible.freshness / 50.0)
+    elif value_source == "maturity":
+        plant = obj.get_component(PlantComponent)
+        if plant is not None:
+            return min(1.0, plant.age / plant.mature_age) if plant.mature_age > 0 else 0.0
+    elif value_source == "viability":
+        seed = obj.get_component(SeedComponent)
+        if seed is not None:
+            return 1.0 - min(1.0, seed.time_in_soil / seed.max_age) if seed.max_age > 0 else 0.0
+    elif value_source == "duration":
+        from world.objects import FertilizerComponent
+        fert = obj.get_component(FertilizerComponent)
+        if fert is not None:
+            return fert.duration / fert.max_duration if fert.max_duration > 0 else 0.0
+    # "none" or unrecognised
+    return 0.0
 
 
 def _encode_inventory(agent: 'Agent', world: 'World') -> list[float]:

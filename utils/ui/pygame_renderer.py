@@ -28,6 +28,7 @@ COLORS = {
     'soil': (101, 67, 33),            # Rich brown
     'rock': (105, 105, 105),          # Dim gray
     'water': (30, 144, 255),          # Dodger blue
+    'sand': (210, 180, 120),          # Sandy beige
     
     # Object colors - Vibrant, distinct
     'plant': (34, 139, 34),           # Forest green
@@ -376,22 +377,43 @@ class PygameRenderer:
                 # Render objects on tile
                 objects = self.world.get_objects_at(x, y)
                 if objects:
-                    obj = objects[0]  # Render first object for now
-                    obj_color = None
-                    
-                    if obj.has_component(PlantComponent):
-                        obj_color = COLORS['plant']
-                    elif obj.has_component(EdibleComponent):
-                        obj_color = COLORS['berry']
-                    elif obj.has_component(SeedComponent):
-                        obj_color = COLORS['seed']
-                    
-                    if obj_color:
-                        # Draw object as circle
-                        center_x = screen_x + scaled_tile_size // 2
-                        center_y = screen_y + scaled_tile_size // 2
-                        radius = max(2, scaled_tile_size // 3)
-                        pygame.draw.circle(self.screen, obj_color, (center_x, center_y), radius)
+                    # Pick the most relevant object to render:
+                    # skip terrain-layer objects when a real object exists
+                    from world.object_registry import ObjectRegistry
+                    render_obj = None
+                    terrain_obj = None
+                    for o in objects:
+                        if ObjectRegistry.is_terrain_layer(o):
+                            terrain_obj = o
+                        else:
+                            render_obj = o
+                            break
+                    if render_obj is None:
+                        render_obj = terrain_obj  # fallback to terrain obj
+
+                    if render_obj is not None:
+                        obj_color = None
+                        # Try registry-based color first
+                        tid = getattr(render_obj, 'type_id', '')
+                        if tid:
+                            defn = ObjectRegistry.get(tid)
+                            if defn is not None:
+                                obj_color = tuple(defn.render.color)
+                        # Fallback to component-based coloring
+                        if obj_color is None:
+                            if render_obj.has_component(PlantComponent):
+                                obj_color = COLORS['plant']
+                            elif render_obj.has_component(EdibleComponent):
+                                obj_color = COLORS['berry']
+                            elif render_obj.has_component(SeedComponent):
+                                obj_color = COLORS['seed']
+                        
+                        if obj_color:
+                            # Draw object as circle
+                            center_x = screen_x + scaled_tile_size // 2
+                            center_y = screen_y + scaled_tile_size // 2
+                            radius = max(2, scaled_tile_size // 3)
+                            pygame.draw.circle(self.screen, obj_color, (center_x, center_y), radius)
                 
                 # Render agents on tile (use pre-built lookup - O(1) instead of O(n))
                 agents_here = agent_positions.get((x, y), [])

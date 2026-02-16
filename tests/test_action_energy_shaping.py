@@ -91,8 +91,12 @@ def test_non_wait_resets_wait_streak():
     assert r.energy_cost == expected
 
 
-def test_brain_move_forward_logit_bias():
-    """Brain should add a +0.5 logit bonus to MOVE_FORWARD when it's valid."""
+def test_brain_no_move_forward_bias():
+    """Brain should NOT apply a hardcoded bias to MOVE_FORWARD.
+
+    With zero weights and all-valid mask, every action should have equal
+    probability (1/8 = 0.125).
+    """
     import numpy as np
     from agents import Brain, Genome, create_default_trait_config
 
@@ -110,10 +114,9 @@ def test_brain_move_forward_logit_bias():
     mask_all = np.ones(brain.output_size, dtype=np.float32)
     probs_all, _, _ = brain.forward(obs, h, action_mask=mask_all)
 
-    # With zero weights, all base logits are 0.  The +0.5 bias on MOVE_FORWARD
-    # means its logit is 0.5, giving it e^0.5 / (7*e^0 + e^0.5) ≈ 0.19 share.
+    # With zero weights all logits should be 0 -> uniform distribution
     move_prob = probs_all[Action.MOVE_FORWARD.value]
-    assert move_prob > 0.15, f"MOVE_FORWARD prob {move_prob:.4f} unexpectedly low"
-
-    # MOVE_FORWARD should be the most probable action under zero weights + bias
-    assert move_prob == probs_all.max(), "MOVE_FORWARD should be the top action with +0.5 bias"
+    expected = 1.0 / brain.output_size  # 0.125
+    assert abs(move_prob - expected) < 0.01, (
+        f"MOVE_FORWARD prob {move_prob:.4f} should be ~{expected:.3f} (uniform)"
+    )

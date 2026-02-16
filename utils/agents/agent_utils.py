@@ -20,20 +20,9 @@ if TYPE_CHECKING:
 
 
 def _get_object_type(obj) -> str:
-    """Infer semantic object type label from components."""
-    from world.objects import EdibleComponent, SeedComponent, PlantComponent, FertilizerComponent
-
-    if obj is None:
-        return ""
-    if obj.has_component(EdibleComponent):
-        return "food"
-    if obj.has_component(SeedComponent):
-        return "seed"
-    if obj.has_component(FertilizerComponent):
-        return "fertilizer"
-    if obj.has_component(PlantComponent):
-        return "plant"
-    return "object"
+    """Infer semantic object type label from registry or components."""
+    from world.object_registry import ObjectRegistry
+    return ObjectRegistry.get_category(obj)
 
 
 def get_action_mask(agent: 'Agent', world: 'World') -> np.ndarray:
@@ -51,6 +40,7 @@ def get_action_mask(agent: 'Agent', world: 'World') -> np.ndarray:
         Binary mask array of shape (num_actions,)
     """
     from world.objects import EdibleComponent, SeedComponent, FertilizerComponent
+    from world.object_registry import ObjectRegistry
     
     mask = np.ones(len(Action), dtype=np.float32)
 
@@ -63,9 +53,16 @@ def get_action_mask(agent: 'Agent', world: 'World') -> np.ndarray:
         if not world.tiles[ny][nx].is_passable():
             mask[Action.MOVE_FORWARD.value] = 0.0
 
-    # PICK_UP: check if tile has objects and inventory has space
+    # PICK_UP: check if tile has *pickable* objects and inventory has space
     tile = world.tiles[agent.y][agent.x]
-    if not tile.object_ids or len(agent.inventory) >= agent.inventory_size:
+    has_pickable = False
+    if tile.object_ids and len(agent.inventory) < agent.inventory_size:
+        for obj_id in tile.object_ids:
+            obj = world.objects.get(obj_id)
+            if obj and ObjectRegistry.is_pickable(obj):
+                has_pickable = True
+                break
+    if not has_pickable:
         mask[Action.PICK_UP.value] = 0.0
 
     # DROP: check if inventory has items
@@ -82,13 +79,20 @@ def get_action_mask(agent: 'Agent', world: 'World') -> np.ndarray:
     if not has_food:
         mask[Action.EAT.value] = 0.0
 
+    # Helper: count non-terrain-layer objects on a tile
+    def _has_real_objects(t):
+        for oid in t.object_ids:
+            o = world.objects.get(oid)
+            if o and not ObjectRegistry.is_terrain_layer(o):
+                return True
+        return False
+
     # USE: check if inventory has usable items (seed or fertilizer)
     can_use = False
-    tile = world.tiles[agent.y][agent.x]
     tile_can_plant_here = tile.can_support_plant()
 
-    # If stacking is off and current tile already has objects, planting here will fail
-    if not world.allow_stacking and tile.object_ids:
+    # If stacking is off and current tile has real objects, planting here fails
+    if not world.allow_stacking and _has_real_objects(tile):
         tile_can_plant_here = False
 
     for obj_id in agent.inventory:
@@ -98,13 +102,13 @@ def get_action_mask(agent: 'Agent', world: 'World') -> np.ndarray:
 
         # Seed use: require plantable tile
         if obj.get_component(SeedComponent) is not None:
-            if tile_can_plant_here and (world.allow_stacking or not tile.object_ids):
+            if tile_can_plant_here and (world.allow_stacking or not _has_real_objects(tile)):
                 can_use = True
                 break
 
             # Check nearby tiles if current tile is blocked
             found_spot = False
-            if not world.allow_stacking and tile.object_ids:
+            if not world.allow_stacking and _has_real_objects(tile):
                 for dx in [-1, 0, 1]:
                     for dy in [-1, 0, 1]:
                         if dx == 0 and dy == 0:
@@ -112,7 +116,7 @@ def get_action_mask(agent: 'Agent', world: 'World') -> np.ndarray:
                         nx, ny = agent.x + dx, agent.y + dy
                         if 0 <= nx < world.width and 0 <= ny < world.height:
                             t2 = world.tiles[ny][nx]
-                            if t2.can_support_plant() and (world.allow_stacking or not t2.object_ids):
+                            if t2.can_support_plant() and (world.allow_stacking or not _has_real_objects(t2)):
                                 found_spot = True
                                 break
                     if found_spot:
@@ -170,8 +174,9 @@ def execute_turn_right(agent: 'Agent') -> ActionResult:
 
 
 def execute_pick_up(agent: 'Agent', world: 'World') -> ActionResult:
-    """Pick up object from current tile, prioritizing food."""
+    """Pick up object from current tile, prioritizing food. Respects pickable flag."""
     from world.objects import EdibleComponent, SeedComponent
+    from world.object_registry import ObjectRegistry
     
     if len(agent.inventory) >= agent.inventory_size:
         return ActionResult(False, 0.1, "Inventory full")
@@ -180,25 +185,32 @@ def execute_pick_up(agent: 'Agent', world: 'World') -> ActionResult:
     if not tile.object_ids:
         return ActionResult(False, 0.1, "No objects here")
     
-    # Prioritize edible items first
+    # Prioritize edible items first (must be pickable)
     obj_id_to_pick = None
     for obj_id in tile.object_ids:
         obj = world.objects.get(obj_id)
-        if obj and obj.has_component(EdibleComponent):
+        if obj and ObjectRegistry.is_pickable(obj) and obj.has_component(EdibleComponent):
             obj_id_to_pick = obj_id
             break
     
-    # If no food, pick up seeds (useful for planting)
+    # If no food, pick up seeds (must be pickable)
     if obj_id_to_pick is None:
         for obj_id in tile.object_ids:
             obj = world.objects.get(obj_id)
-            if obj and obj.has_component(SeedComponent):
+            if obj and ObjectRegistry.is_pickable(obj) and obj.has_component(SeedComponent):
                 obj_id_to_pick = obj_id
                 break
     
-    # If still nothing, pick first object
+    # If still nothing, pick first pickable object
     if obj_id_to_pick is None:
-        obj_id_to_pick = tile.object_ids[0]
+        for obj_id in tile.object_ids:
+            obj = world.objects.get(obj_id)
+            if obj and ObjectRegistry.is_pickable(obj):
+                obj_id_to_pick = obj_id
+                break
+    
+    if obj_id_to_pick is None:
+        return ActionResult(False, 0.1, "No pickable objects here")
     
     obj = world.objects.get(obj_id_to_pick)
     if obj is None:
@@ -355,10 +367,19 @@ def execute_use(agent: 'Agent', world: 'World') -> ActionResult:
     # Check if it's a seed
     seed = obj.get_component(SeedComponent)
     if seed is not None:
+        from world.object_registry import ObjectRegistry
+
+        def _has_real_objects(t):
+            for oid in t.object_ids:
+                o = world.objects.get(oid)
+                if o and not ObjectRegistry.is_terrain_layer(o):
+                    return True
+            return False
+
         # Plant the seed
         if tile.can_support_plant():
             # Check stacking configuration
-            if world.allow_stacking or not tile.object_ids:
+            if world.allow_stacking or not _has_real_objects(tile):
                 # Stacking allowed OR tile is empty - plant here
                 agent.inventory.remove(obj_id)
                 tile.object_ids.append(obj_id)
@@ -388,7 +409,7 @@ def execute_use(agent: 'Agent', world: 'World') -> ActionResult:
                 for nx, ny in nearby_positions:
                     if 0 <= nx < world.width and 0 <= ny < world.height:
                         nearby_tile = world.tiles[ny][nx]
-                        if nearby_tile.can_support_plant() and not nearby_tile.object_ids:
+                        if nearby_tile.can_support_plant() and not _has_real_objects(nearby_tile):
                             # Found empty plantable spot
                             agent.inventory.remove(obj_id)
                             nearby_tile.object_ids.append(obj_id)

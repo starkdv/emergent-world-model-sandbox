@@ -38,9 +38,10 @@ class World:
         width: int,
         height: int,
         seed: Optional[int] = None,
-        soil_ratio: float = 0.7,
+        soil_ratio: float = 0.65,
         rock_ratio: float = 0.2,
         water_ratio: float = 0.1,
+        sand_ratio: float = 0.05,
         fertility_range: Tuple[float, float] = (0.3, 1.0),
         moisture_range: Tuple[float, float] = (0.2, 0.8),
         # System configuration parameters
@@ -80,6 +81,7 @@ class World:
             soil_ratio: Proportion of tiles that are soil
             rock_ratio: Proportion of tiles that are rock
             water_ratio: Proportion of tiles that are water
+            sand_ratio: Proportion of tiles that are sand
             fertility_range: Min and max fertility for soil tiles
             moisture_range: Min and max moisture for tiles
             plant_mature_age: Age at which plants mature
@@ -113,7 +115,7 @@ class World:
         if width <= 0 or height <= 0:
             raise ValueError(f"World dimensions must be positive, got {width}x{height}")
         
-        ratio_sum = soil_ratio + rock_ratio + water_ratio
+        ratio_sum = soil_ratio + rock_ratio + water_ratio + sand_ratio
         if not abs(ratio_sum - 1.0) < 0.01:
             raise ValueError(f"Terrain ratios must sum to 1.0, got {ratio_sum}")
         
@@ -181,7 +183,7 @@ class World:
         
         # Generate terrain
         self._generate_terrain(
-            soil_ratio, rock_ratio, water_ratio,
+            soil_ratio, rock_ratio, water_ratio, sand_ratio,
             fertility_range, moisture_range
         )
     
@@ -190,6 +192,7 @@ class World:
         soil_ratio: float,
         rock_ratio: float,
         water_ratio: float,
+        sand_ratio: float,
         fertility_range: Tuple[float, float],
         moisture_range: Tuple[float, float]
     ) -> None:
@@ -200,14 +203,17 @@ class World:
             soil_ratio: Proportion of soil tiles
             rock_ratio: Proportion of rock tiles
             water_ratio: Proportion of water tiles
+            sand_ratio: Proportion of sand tiles
             fertility_range: Min and max fertility values
             moisture_range: Min and max moisture values
         """
+        total_tiles = self.width * self.height
         # Create terrain type distribution
         terrain_types = (
-            [TerrainType.SOIL] * int(self.width * self.height * soil_ratio) +
-            [TerrainType.ROCK] * int(self.width * self.height * rock_ratio) +
-            [TerrainType.WATER] * int(self.width * self.height * water_ratio)
+            [TerrainType.SOIL] * int(total_tiles * soil_ratio) +
+            [TerrainType.ROCK] * int(total_tiles * rock_ratio) +
+            [TerrainType.WATER] * int(total_tiles * water_ratio) +
+            [TerrainType.SAND] * int(total_tiles * sand_ratio)
         )
         
         # Fill remaining with soil
@@ -237,10 +243,26 @@ class World:
                 if terrain_type == TerrainType.WATER:
                     moisture = 1.0
                 
+                # Sand tiles have very low fertility and moisture
+                if terrain_type == TerrainType.SAND:
+                    fertility = random.uniform(0.0, 0.05)
+                    moisture = random.uniform(0.0, 0.05)
+                
                 tile = Tile(x, y, terrain_type, fertility, moisture)
                 row.append(tile)
             
             self.tiles.append(row)
+
+        # Spawn sand objects on SAND terrain tiles so TileEffectSystem can
+        # track them (and they appear in the renderer/observation).
+        from world.object_registry import ObjectRegistry
+        if ObjectRegistry.get("sand") is not None:
+            for y in range(self.height):
+                for x in range(self.width):
+                    tile = self.tiles[y][x]
+                    if tile.terrain_type == TerrainType.SAND:
+                        sand_obj = ObjectRegistry.create("sand", x, y)
+                        self.add_object(sand_obj)
     
     def get_tile(self, x: int, y: int) -> Optional[Tile]:
         """
@@ -286,34 +308,46 @@ class World:
         
         # Check stacking configuration
         if not self.allow_stacking:
-            # Enforce one-per-tile: Check if tile already has an object
+            # Enforce one-per-tile: Check if tile already has a *real* object
+            # (terrain-layer objects like sand are transparent to stacking)
             tile = self.get_tile(obj.x, obj.y)
             if tile and tile.object_ids:
-                # Tile is occupied - try to find nearby empty tile
-                nearby_positions = [
-                    (obj.x + dx, obj.y + dy)
-                    for dx in [-1, 0, 1]
-                    for dy in [-1, 0, 1]
-                    if (dx != 0 or dy != 0)  # Not same position
+                from world.object_registry import ObjectRegistry
+                real_objects = [
+                    oid for oid in tile.object_ids
+                    if not ObjectRegistry.is_terrain_layer(self.objects.get(oid))
                 ]
-                
-                # Shuffle for randomness
-                random.shuffle(nearby_positions)
-                
-                # Try to place in nearby empty tile
-                for nx, ny in nearby_positions:
-                    if self.is_valid_position(nx, ny):
-                        nearby_tile = self.get_tile(nx, ny)
-                        if nearby_tile and not nearby_tile.object_ids:
-                            # Found empty spot - move object there
-                            obj.x = nx
-                            obj.y = ny
-                            self.objects[obj.id] = obj
-                            nearby_tile.add_object(obj.id)
-                            return True
-                
-                # No empty nearby tiles - don't add object
-                return False
+                if real_objects:
+                    # Tile is occupied - try to find nearby empty tile
+                    nearby_positions = [
+                        (obj.x + dx, obj.y + dy)
+                        for dx in [-1, 0, 1]
+                        for dy in [-1, 0, 1]
+                        if (dx != 0 or dy != 0)  # Not same position
+                    ]
+                    
+                    # Shuffle for randomness
+                    random.shuffle(nearby_positions)
+                    
+                    # Try to place in nearby empty tile
+                    for nx, ny in nearby_positions:
+                        if self.is_valid_position(nx, ny):
+                            nearby_tile = self.get_tile(nx, ny)
+                            if nearby_tile:
+                                nearby_real = [
+                                    oid for oid in nearby_tile.object_ids
+                                    if not ObjectRegistry.is_terrain_layer(self.objects.get(oid))
+                                ]
+                                if not nearby_real:
+                                    # Found empty spot - move object there
+                                    obj.x = nx
+                                    obj.y = ny
+                                    self.objects[obj.id] = obj
+                                    nearby_tile.add_object(obj.id)
+                                    return True
+                    
+                    # No empty nearby tiles - don't add object
+                    return False
         
         # Stacking allowed OR tile is empty - add normally
         tile = self.get_tile(obj.x, obj.y)
