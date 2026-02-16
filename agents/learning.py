@@ -98,28 +98,59 @@ class AgentLearner:
             return "numpy", "cpu"
 
         if backend == "auto":
-            if TORCH_AVAILABLE and torch.cuda.is_available():
+            if TORCH_AVAILABLE and torch.cuda.is_available() and self._torch_device_usable("cuda"):
                 return "torch", "cuda"
-            if TORCH_AVAILABLE and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            if (
+                TORCH_AVAILABLE
+                and hasattr(torch.backends, "mps")
+                and torch.backends.mps.is_available()
+                and self._torch_device_usable("mps")
+            ):
                 return "torch", "mps"
             return "numpy", "cpu"
 
         # backend == "torch"
         if device == "auto":
-            if torch.cuda.is_available():
+            if torch.cuda.is_available() and self._torch_device_usable("cuda"):
                 return "torch", "cuda"
-            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            if (
+                hasattr(torch.backends, "mps")
+                and torch.backends.mps.is_available()
+                and self._torch_device_usable("mps")
+            ):
                 return "torch", "mps"
             return "torch", "cpu"
 
-        if device == "cuda" and not torch.cuda.is_available():
+        if device == "cuda" and (not torch.cuda.is_available() or not self._torch_device_usable("cuda")):
             return "torch", "cpu"
 
         if device == "mps":
-            if not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
+            if not (
+                hasattr(torch.backends, "mps")
+                and torch.backends.mps.is_available()
+                and self._torch_device_usable("mps")
+            ):
                 return "torch", "cpu"
 
         return "torch", device
+
+    def _torch_device_usable(self, device_name: str) -> bool:
+        """
+        Check whether torch operations can actually execute on the device.
+
+        Some environments report CUDA available but fail at kernel execution
+        due to driver / architecture mismatch.
+        """
+        if not TORCH_AVAILABLE:
+            return False
+        try:
+            device = torch.device(device_name)
+            a = torch.tensor([1.0], device=device)
+            b = torch.tensor([2.0], device=device)
+            _ = (a + b).item()
+            return True
+        except Exception:
+            return False
     
     def store_experience(
         self,

@@ -115,6 +115,11 @@ class Agent:
         self.last_hidden_state: Optional[np.ndarray] = None
         self.learning_enabled = True  # Can be disabled for pure evolution
         self.temperature = 1.0  # Sampling temperature for exploration
+
+        # Action-pattern tracking for energy shaping
+        self._previous_action: Optional[Action] = None
+        self._consecutive_turns = 0
+        self._consecutive_waits = 0
           # Apply trait-based modifications
         self.metabolism_rate = metabolism_rate * self.traits.get('metabolism_rate', 1.0)
         self.vision_radius = int(self.traits.get('vision_radius', 5.0))
@@ -342,8 +347,38 @@ class Agent:
             result = agent_utils.execute_use(self, world)
         elif action == Action.WAIT:
             result = agent_utils.execute_wait(self)
-          # Deduct energy cost
+
+        # Dynamic energy shaping (behavior economics, not reward shaping)
+        effective_energy_cost = result.energy_cost
+
+        if action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
+            self._consecutive_turns += 1
+            self._consecutive_waits = 0
+            # Escalating turn cost discourages spin loops
+            effective_energy_cost += min(0.06 * self._consecutive_turns, 0.30)
+        elif action == Action.WAIT:
+            self._consecutive_waits += 1
+            self._consecutive_turns = 0
+            # Gentle escalating wait cost — WAIT should remain affordable
+            effective_energy_cost += min(0.03 * self._consecutive_waits, 0.15)
+        elif action == Action.MOVE_FORWARD:
+            # Reward turn->move transition with a small cost discount
+            if result.success and self._previous_action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
+                effective_energy_cost = max(0.10, effective_energy_cost - 0.04)
+            self._consecutive_turns = 0
+            self._consecutive_waits = 0
+        else:
+            self._consecutive_turns = 0
+            self._consecutive_waits = 0
+
+        # Use effective cost for state update and downstream logging
+        result = result._replace(energy_cost=round(effective_energy_cost, 3))
+
+        # Deduct energy cost
         self.energy -= result.energy_cost
+
+        # Track action for next-step energy shaping
+        self._previous_action = action
         
         # Update fitness based on action outcomes
         if result.success and action not in [Action.WAIT, Action.TURN_LEFT, Action.TURN_RIGHT]:

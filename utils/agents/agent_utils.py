@@ -19,6 +19,23 @@ if TYPE_CHECKING:
     from world.world import World
 
 
+def _get_object_type(obj) -> str:
+    """Infer semantic object type label from components."""
+    from world.objects import EdibleComponent, SeedComponent, PlantComponent, FertilizerComponent
+
+    if obj is None:
+        return ""
+    if obj.has_component(EdibleComponent):
+        return "food"
+    if obj.has_component(SeedComponent):
+        return "seed"
+    if obj.has_component(FertilizerComponent):
+        return "fertilizer"
+    if obj.has_component(PlantComponent):
+        return "plant"
+    return "object"
+
+
 def get_action_mask(agent: 'Agent', world: 'World') -> np.ndarray:
     """
     Create binary mask over actions (1 = valid, 0 = invalid).
@@ -125,31 +142,31 @@ def execute_move_forward(agent: 'Agent', world: 'World') -> ActionResult:
     
     # Check bounds
     if not (0 <= new_x < world.width and 0 <= new_y < world.height):
-        return ActionResult(False, 0.2, "Out of bounds")
+        return ActionResult(False, 0.22, "Out of bounds")
     
     # Check if tile is passable
     tile = world.tiles[new_y][new_x]
     if not tile.is_passable():
-        return ActionResult(False, 0.2, "Tile blocked")
+        return ActionResult(False, 0.22, "Tile blocked")
     
     # Move agent
     agent.x = new_x
     agent.y = new_y
-    return ActionResult(True, 0.3, "Moved forward")
+    return ActionResult(True, 0.20, "Moved forward")
 
 
 def execute_turn_left(agent: 'Agent') -> ActionResult:
     """Rotate direction 90° counter-clockwise."""
     dx, dy = agent.direction
     agent.direction = (dy, -dx)  # Rotate left
-    return ActionResult(True, 0.25, "Turned left")
+    return ActionResult(True, 0.24, "Turned left")
 
 
 def execute_turn_right(agent: 'Agent') -> ActionResult:
     """Rotate direction 90° clockwise."""
     dx, dy = agent.direction
     agent.direction = (-dy, dx)  # Rotate right
-    return ActionResult(True, 0.25, "Turned right")
+    return ActionResult(True, 0.24, "Turned right")
 
 
 def execute_pick_up(agent: 'Agent', world: 'World') -> ActionResult:
@@ -191,8 +208,17 @@ def execute_pick_up(agent: 'Agent', world: 'World') -> ActionResult:
     agent.inventory.append(obj_id_to_pick)
     tile.object_ids.remove(obj_id_to_pick)
     
-    obj_type = "food" if obj.has_component(EdibleComponent) else "object"
-    return ActionResult(True, 0.2, f"Picked up {obj_type} {obj_id_to_pick}")
+    obj_type = _get_object_type(obj)
+    return ActionResult(
+        True,
+        0.2,
+        f"Picked up {obj_type} {obj_id_to_pick}",
+        object_id=obj_id_to_pick,
+        object_type=obj_type,
+        target_x=agent.x,
+        target_y=agent.y,
+        interaction_kind="pickup"
+    )
 
 
 def execute_drop(agent: 'Agent', world: 'World') -> ActionResult:
@@ -210,12 +236,23 @@ def execute_drop(agent: 'Agent', world: 'World') -> ActionResult:
     # Check stacking configuration
     tile = world.tiles[agent.y][agent.x]
     
+    obj_type = _get_object_type(obj)
+
     if world.allow_stacking or not tile.object_ids:
         # Stacking allowed OR tile is empty - drop here
         tile.object_ids.append(obj_id)
         obj.x = agent.x
         obj.y = agent.y
-        return ActionResult(True, 0.1, f"Dropped object {obj_id}")
+        return ActionResult(
+            True,
+            0.1,
+            f"Dropped {obj_type} {obj_id}",
+            object_id=obj_id,
+            object_type=obj_type,
+            target_x=agent.x,
+            target_y=agent.y,
+            interaction_kind="drop_here"
+        )
     
     # Stacking disabled and tile occupied - try nearby tiles
     nearby_positions = [
@@ -233,7 +270,16 @@ def execute_drop(agent: 'Agent', world: 'World') -> ActionResult:
                 nearby_tile.object_ids.append(obj_id)
                 obj.x = nx
                 obj.y = ny
-                return ActionResult(True, 0.1, f"Dropped object {obj_id} nearby")
+                return ActionResult(
+                    True,
+                    0.1,
+                    f"Dropped {obj_type} {obj_id} nearby at ({nx}, {ny})",
+                    object_id=obj_id,
+                    object_type=obj_type,
+                    target_x=nx,
+                    target_y=ny,
+                    interaction_kind="drop_nearby"
+                )
     
     # No empty spots - put back in inventory
     agent.inventory.append(obj_id)
@@ -266,7 +312,16 @@ def execute_eat(agent: 'Agent', world: 'World') -> ActionResult:
             # Fitness reward for eating
             agent.fitness += energy_gained * 0.1
             
-            return ActionResult(True, 0.1, f"Ate food, gained {energy_gained:.1f} energy")
+            return ActionResult(
+                True,
+                0.1,
+                f"Ate food {obj_id}, gained {energy_gained:.1f} energy",
+                object_id=obj_id,
+                object_type="food",
+                target_x=agent.x,
+                target_y=agent.y,
+                interaction_kind="eat"
+            )
     
     return ActionResult(False, 0.05, "No edible items")
 
@@ -310,7 +365,16 @@ def execute_use(agent: 'Agent', world: 'World') -> ActionResult:
                 obj.x = agent.x
                 obj.y = agent.y
                 agent.fitness += 1.0
-                return ActionResult(True, 0.5, "Planted seed")
+                return ActionResult(
+                    True,
+                    0.5,
+                    f"Planted seed {obj_id}",
+                    object_id=obj_id,
+                    object_type="seed",
+                    target_x=agent.x,
+                    target_y=agent.y,
+                    interaction_kind="plant_seed"
+                )
             else:
                 # Stacking disabled and tile occupied - try nearby tiles
                 directions = [(-1, 0), (1, 0), (0, -1), (0, 1), 
@@ -331,7 +395,16 @@ def execute_use(agent: 'Agent', world: 'World') -> ActionResult:
                             obj.x = nx
                             obj.y = ny
                             agent.fitness += 1.0
-                            return ActionResult(True, 0.5, f"Planted seed nearby at ({nx}, {ny})")
+                            return ActionResult(
+                                True,
+                                0.5,
+                                f"Planted seed {obj_id} nearby at ({nx}, {ny})",
+                                object_id=obj_id,
+                                object_type="seed",
+                                target_x=nx,
+                                target_y=ny,
+                                interaction_kind="plant_seed_nearby"
+                            )
                 
                 # No empty tiles nearby - keep in inventory
                 return ActionResult(False, 0.1, "Cannot plant - tile occupied and no space nearby")
@@ -348,11 +421,20 @@ def execute_use(agent: 'Agent', world: 'World') -> ActionResult:
         agent.inventory.remove(obj_id)
         world.remove_object(obj_id)
         
-        return ActionResult(True, 0.5, "Applied fertilizer")
+        return ActionResult(
+            True,
+            0.5,
+            f"Applied fertilizer {obj_id}",
+            object_id=obj_id,
+            object_type="fertilizer",
+            target_x=agent.x,
+            target_y=agent.y,
+            interaction_kind="apply_fertilizer"
+        )
     
     return ActionResult(False, 0.1, "Cannot use this object")
 
 
 def execute_wait(agent: 'Agent') -> ActionResult:
     """Do nothing (conserve energy)."""
-    return ActionResult(True, 0.3, "Waiting")
+    return ActionResult(True, 0.18, "Waiting")

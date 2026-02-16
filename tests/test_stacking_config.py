@@ -151,12 +151,14 @@ def test_agent_drop_action():
     # Create agent with inventory
     brain_cfg = {
         'input_size': 64,
-        'hidden_layers': [32, 16],
+        'encoder_layers': [32],
+        'gru_hidden_size': 32,
         'output_size': 8
     }
     weight_count = Brain.calculate_weight_count(
         input_size=brain_cfg['input_size'],
-        hidden_sizes=brain_cfg['hidden_layers'],
+        encoder_layers=brain_cfg['encoder_layers'],
+        gru_hidden_size=brain_cfg['gru_hidden_size'],
         output_size=brain_cfg['output_size']
     )
     
@@ -190,7 +192,7 @@ def test_agent_drop_action():
     
     # Drop first item
     from agents.actions import Action
-    result1 = agent._drop(world)
+    result1 = agent.execute_action(Action.DROP, world)
     print(f"\n1st DROP: {result1.message}")
     print(f"   Success: {result1.success}")
     print(f"   Items in inventory: {len(agent.inventory)}")
@@ -199,7 +201,7 @@ def test_agent_drop_action():
     print(f"   Items on agent tile: {len(tile.object_ids)}")
     
     # Drop second item - should go nearby since tile occupied
-    result2 = agent._drop(world)
+    result2 = agent.execute_action(Action.DROP, world)
     print(f"\n2nd DROP: {result2.message}")
     print(f"   Success: {result2.success}")
     print(f"   Items in inventory: {len(agent.inventory)}")

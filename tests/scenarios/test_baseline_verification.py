@@ -8,7 +8,7 @@ This is the final confirmation test before declaring the system production-ready
 import random
 from world.world import World
 from world.objects import WorldObject, EdibleComponent, SeedComponent, PlantComponent
-from agents import Agent, Genome, create_default_trait_config
+from agents import Agent, Brain, Genome, create_default_trait_config
 from utils.data.agent_logger import AgentLogger
 
 
@@ -65,12 +65,13 @@ def test_baseline_verification(tmp_path):
         print("Creating 10 learning-enabled agents...")
         agents = []
         trait_config = create_default_trait_config()
+        weight_count = Brain.calculate_weight_count()
 
         for i in range(10):
             x = random.randint(0, world.width - 1)
             y = random.randint(0, world.height - 1)
 
-            genome = Genome.random(weight_count=2744, trait_config=trait_config)
+            genome = Genome.random(weight_count=weight_count, trait_config=trait_config)
             agent = Agent(x, y, genome=genome)
             agent.enable_learning()  # CRITICAL: Initialize the learner!
             agents.append(agent)

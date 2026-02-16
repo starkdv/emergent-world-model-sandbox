@@ -110,6 +110,7 @@ class RewardShaper:
         self.consecutive_same_action = 0  # Track repeated same actions
         self.last_action = None  # Track last action for repetition detection
         self.consecutive_failed_eats = 0  # Track failed EAT attempts for spam detection
+        self._recently_dropped_ids: set = set()  # Anti pick/drop spam
     
     def calculate_reward(
         self,
@@ -146,14 +147,14 @@ class RewardShaper:
         reward = 0.0
         
         # ===== DENSE REWARD #1: Base survival =====
-        reward += 0.02  # Keep survival signal, but avoid rewarding idling too strongly
+        reward += 0.0  # Neutral baseline to avoid implicit idling incentive
         
-        # ===== ANTI-SPAM: Penalize repeating the same action =====
+        # ===== ANTI-SPAM: Mild penalty for repeating the same action =====
         if action == self.last_action:
             self.consecutive_same_action += 1
-            if self.consecutive_same_action > 3:
-                # Progressive penalty for spamming same action
-                reward -= 0.15 * min(self.consecutive_same_action - 3, 10)
+            if self.consecutive_same_action > 4:
+                # Gentle progressive penalty (capped at -0.50)
+                reward -= min(0.10 * (self.consecutive_same_action - 4), 0.50)
         else:
             self.consecutive_same_action = 0
         self.last_action = action
@@ -165,11 +166,12 @@ class RewardShaper:
             if current_position != self.last_position:
                 # Agent moved! Reward active behavior
                 self.steps_without_movement = 0
-                reward += 0.18
+                self._recently_dropped_ids.clear()  # new tile, different objects
+                reward += 0.10
                 
                 # Extra bonus for visiting new tiles
                 if current_position not in self.positions_visited:
-                    reward += 0.25
+                    reward += 0.12
                     self.positions_visited.add(current_position)
                     
                     # Keep visited set from growing too large
@@ -187,23 +189,16 @@ class RewardShaper:
         
         nearest_food_dist = self._find_nearest_food_distance(agent, world)
 
-        # ===== WAIT: Discourage passive policies =====
+        # ===== WAIT: gentle discouragement =====
+        # Economic pressure comes from escalating energy cost in agent.py;
+        # keep reward signal small so value function stays stable.
         if action == Action.WAIT:
             self.consecutive_waits += 1
-            
-            # Always apply a small immediate wait cost, then escalate for repeats
-            reward -= 0.06
+            reward -= 0.05  # tiny flat cost
 
-            if self.consecutive_waits > 2:
-                reward -= 0.12 * min(self.consecutive_waits - 2, 10)
-            
-            # Extra penalty if energy is critically low and waiting
-            if agent.energy < agent.max_energy * 0.3:
-                reward -= 0.5
-
-            # If food is visible nearby, waiting should be discouraged (should go pick it up / move onto it)
-            if nearest_food_dist is not None and nearest_food_dist <= 3.0:
-                reward -= 0.35
+            # Very mild escalation (capped at -0.20 extra)
+            if self.consecutive_waits > 3:
+                reward -= min(0.05 * (self.consecutive_waits - 3), 0.20)
         else:
             self.consecutive_waits = 0
         
@@ -286,11 +281,21 @@ class RewardShaper:
           # ===== SUCCESS BONUSES =====
         if action_result.success:
             if "Picked up" in action_result.message:
-                reward += 1.0  # Found and picked up food/item!
+                # Anti pick/drop spam: penalize re-picking an item we just dropped
+                picked_id = getattr(action_result, 'object_id', -1)
+                if picked_id >= 0 and picked_id in self._recently_dropped_ids:
+                    reward -= 0.80  # discourage pick/drop cycling
+                    self._recently_dropped_ids.discard(picked_id)
+                else:
+                    reward += 1.0  # Found and picked up food/item!
+            elif "Dropped" in action_result.message:
+                dropped_id = getattr(action_result, 'object_id', -1)
+                if dropped_id >= 0:
+                    self._recently_dropped_ids.add(dropped_id)
             elif "Planted" in action_result.message:
                 reward += 2.0  # Good for ecosystem
             elif action == Action.MOVE_FORWARD:
-                reward += 0.25  # Small bonus for successful movement        
+                reward += 0.35  # Moderate bonus for successful movement        
         else:
             # Penalty for failed actions (EAT handled separately above)
             if action == Action.PICK_UP:
@@ -301,6 +306,11 @@ class RewardShaper:
                 reward -= 0.3
             else:
                 reward -= 0.05  # Small penalty for other failures        # ===== Inventory and hunger interaction =====
+        # Slightly reduce failure aversion for movement to avoid fallback to WAIT
+        if not action_result.success and action == Action.MOVE_FORWARD:
+            reward += 0.03
+
+        # ===== Inventory and hunger interaction =====
         from world.objects import EdibleComponent
         has_food_in_inventory = False
         food_count = 0
@@ -348,40 +358,31 @@ class RewardShaper:
             turn_count = sum(1 for a in recent if a in [Action.TURN_LEFT, Action.TURN_RIGHT])
             move_count = sum(1 for a in recent if a == Action.MOVE_FORWARD)
 
-            # If turning dominates recent actions, penalize harder.
-            if turn_count >= 4:
-                reward -= 2.0
-
-            # If mostly turning and almost no movement, heavy penalty
+            # Moderate anti-spin: capped to keep value function stable.
+            # Heavy economic pressure already comes from escalating turn
+            # energy cost in agent.execute_action.
             if turn_count >= 5 and move_count <= 1:
-                reward -= 4.0
-                # Extra penalty if it's literally not changing position
-                if self.steps_without_movement > 2:
-                    reward -= 3.0
-
-            # Also penalize excessive turning in place regardless
-            if self.steps_without_movement > 2 and turn_count >= 4:
-                reward -= 3.0
+                reward -= 0.60
+            elif turn_count >= 4:
+                reward -= 0.30
         
         # ===== Critical energy state penalties/urgency =====
         if agent.energy < agent.max_energy * 0.2:
             # Critical energy - bonus for moving (finding food)
             if action == Action.MOVE_FORWARD and action_result.success:
                 reward += 0.05 * min(3, self.consecutive_same_action)
-            # Penalty for waiting when critical
+            # Mild nudge against waiting at critical energy
             if action == Action.WAIT:
-                reward -= 1.0
+                reward -= 0.15
         
         # Death penalty
         if not agent.alive:
             reward -= 10.0
 
+        # Mild turn penalty (energy shaping already escalates turn costs)
         if action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
-            reward -= 0.12
-            if self.steps_without_movement >= 2:
-                reward -= 0.25
+            reward -= 0.03
 
-        
         return reward
     
     def _find_nearest_food_distance(self, agent: 'Agent', world: 'World') -> Optional[float]:
@@ -418,6 +419,7 @@ class RewardShaper:
         self.consecutive_same_action = 0
         self.last_action = None
         self.consecutive_failed_eats = 0
+        self._recently_dropped_ids.clear()
 
 
 class BestAgentTracker:

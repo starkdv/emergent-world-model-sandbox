@@ -112,6 +112,8 @@ class AsyncWorldModelLogger:
         header = [
             'tick', 'agent_id', 'episode_step',
             'action', 'action_value', 'success', 'energy_cost',
+            'result_message', 'interaction_kind', 'object_id', 'object_type',
+            'target_x', 'target_y',
             'x', 'y', 'direction_x', 'direction_y',
             'x_next', 'y_next', 'direction_x_next', 'direction_y_next',
             'energy', 'energy_next', 'energy_pct', 'energy_pct_next',
@@ -315,6 +317,11 @@ class AsyncWorldModelLogger:
         row = [
             tick, agent.id, ep['total_actions'],
             action.name, action.value, int(result.success), round(result.energy_cost, 3),
+            result.message,
+            result.interaction_kind,
+            int(result.object_id),
+            result.object_type,
+            int(result.target_x), int(result.target_y),
             x_before, y_before, agent.direction[0], agent.direction[1],
             agent.x, agent.y, agent.direction[0], agent.direction[1],
             round(energy_before, 2), round(agent.energy, 2),
