@@ -150,7 +150,7 @@ def test_agent_drop_action():
     
     # Create agent with inventory
     brain_cfg = {
-        'input_size': 64,
+        'input_size': 72,
         'encoder_layers': [32],
         'gru_hidden_size': 32,
         'output_size': 8

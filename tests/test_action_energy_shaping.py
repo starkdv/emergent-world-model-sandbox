@@ -94,8 +94,14 @@ def test_non_wait_resets_wait_streak():
 def test_brain_no_move_forward_bias():
     """Brain should NOT apply a hardcoded bias to MOVE_FORWARD.
 
-    With zero weights and all-valid mask, every action should have equal
-    probability (1/8 = 0.125).
+    With zero weights and all-valid mask, MOVE_FORWARD should have no
+    special advantage.  However, contextual instinct biases for
+    PICK_UP (+1.5), EAT (+1.0) and USE (+0.5) are intentional and
+    expected to shift probability mass **away** from movement actions.
+
+    We verify:
+      1. MOVE_FORWARD is NOT boosted above other non-biased actions.
+      2. PICK_UP > EAT > USE > MOVE_FORWARD (instinct ordering).
     """
     import numpy as np
     from agents import Brain, Genome, create_default_trait_config
@@ -114,9 +120,19 @@ def test_brain_no_move_forward_bias():
     mask_all = np.ones(brain.output_size, dtype=np.float32)
     probs_all, _, _ = brain.forward(obs, h, action_mask=mask_all)
 
-    # With zero weights all logits should be 0 -> uniform distribution
     move_prob = probs_all[Action.MOVE_FORWARD.value]
-    expected = 1.0 / brain.output_size  # 0.125
-    assert abs(move_prob - expected) < 0.01, (
-        f"MOVE_FORWARD prob {move_prob:.4f} should be ~{expected:.3f} (uniform)"
+    turn_l_prob = probs_all[Action.TURN_LEFT.value]
+    pick_prob = probs_all[Action.PICK_UP.value]
+    eat_prob = probs_all[Action.EAT.value]
+    use_prob = probs_all[Action.USE.value]
+
+    # 1. MOVE_FORWARD should equal other non-biased actions (TURN_LEFT, TURN_RIGHT, DROP, WAIT)
+    assert abs(move_prob - turn_l_prob) < 0.001, (
+        f"MOVE_FORWARD ({move_prob:.4f}) should match TURN_LEFT ({turn_l_prob:.4f})"
+    )
+
+    # 2. Contextual instinct ordering: PICK_UP > EAT > USE > MOVE_FORWARD
+    assert pick_prob > eat_prob > use_prob > move_prob, (
+        f"Instinct ordering wrong: PICK={pick_prob:.3f} EAT={eat_prob:.3f} "
+        f"USE={use_prob:.3f} MOVE={move_prob:.3f}"
     )

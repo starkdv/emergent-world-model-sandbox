@@ -31,7 +31,7 @@ agents:
 
 # Neural Network Settings (Brain v2 with GRU + Actor-Critic)
 brain:
-  input_size: 64  # calculated from observation vector
+  input_size: 72  # calculated from observation vector (8 agent + 50 vision + 8 stimulus + 6 inventory)
   encoder_layers: [32]  # Encoder MLP hidden layers
   gru_hidden_size: 32  # GRU hidden state size (memory)
   output_size: 8  # number of actions

@@ -123,13 +123,13 @@ def test_async_logger_performance(tmp_path):
     elapsed = time.perf_counter() - start_time
     
     # Should be very fast (non-blocking)
-    # Use a slightly looser threshold to reduce CI/environment timing flakiness.
-    assert elapsed < 0.35, f"Logging 1000 transitions took {elapsed:.3f}s (too slow!)"
+    # Observation now includes stimulus scan, so allow more headroom.
+    assert elapsed < 0.6, f"Logging 1000 transitions took {elapsed:.3f}s (too slow!)"
     
-    # Average time per log should be < 0.35ms
+    # Average time per log should be < 0.6ms (stimulus scan adds overhead)
     avg_time_ms = (elapsed / 1000) * 1000
     print(f"Average time per log: {avg_time_ms:.3f}ms")
-    assert avg_time_ms < 0.35
+    assert avg_time_ms < 0.6
     
     # Close and verify all written
     logger.close()

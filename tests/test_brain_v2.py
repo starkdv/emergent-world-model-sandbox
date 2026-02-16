@@ -23,27 +23,27 @@ class TestBrainV2:
     
     def test_weight_count_calculation(self):
         """Test weight count calculation for different architectures."""
-        # Simple architecture: 64 -> [32] -> GRU(32) -> 8 actions
+        # Default architecture: 72 -> [32] -> GRU(32) -> 8 actions
         weight_count = Brain.calculate_weight_count(
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
         )
         
         # Expected:
-        # Encoder: (64*32 + 32) = 2080
+        # Encoder: (72*32 + 32) = 2336
         # GRU: 3 gates * (32*32 + 32*32 + 32) = 3 * 2080 = 6240
         # Policy head: (32*8 + 8) = 264
         # Value head: (32*1 + 1) = 33
-        # Total: 2080 + 6240 + 264 + 33 = 8617
-        assert weight_count == 8617, f"Expected 8617, got {weight_count}"
+        # Total: 2336 + 6240 + 264 + 33 = 8873
+        assert weight_count == 8873, f"Expected 8873, got {weight_count}"
     
     def test_brain_initialization(self):
         """Test brain initialization from genome."""
         trait_config = create_default_trait_config()
         weight_count = Brain.calculate_weight_count(
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
@@ -52,7 +52,7 @@ class TestBrainV2:
         
         brain = Brain(
             genome,
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
@@ -76,7 +76,7 @@ class TestBrainV2:
         """Test GRU hidden state initialization."""
         trait_config = create_default_trait_config()
         weight_count = Brain.calculate_weight_count(
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
@@ -85,7 +85,7 @@ class TestBrainV2:
         
         brain = Brain(
             genome,
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
@@ -101,7 +101,7 @@ class TestBrainV2:
         """Test forward pass through network."""
         trait_config = create_default_trait_config()
         weight_count = Brain.calculate_weight_count(
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
@@ -110,13 +110,13 @@ class TestBrainV2:
         
         brain = Brain(
             genome,
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
         )
         
-        obs = np.random.randn(64)
+        obs = np.random.randn(72)
         h = brain.initial_state()
         
         # Forward pass
@@ -134,7 +134,7 @@ class TestBrainV2:
         """Test action selection."""
         trait_config = create_default_trait_config()
         weight_count = Brain.calculate_weight_count(
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
@@ -143,13 +143,13 @@ class TestBrainV2:
         
         brain = Brain(
             genome,
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
         )
         
-        obs = np.random.randn(64)
+        obs = np.random.randn(72)
         h = brain.initial_state()
         
         # Decide action
@@ -165,7 +165,7 @@ class TestBrainV2:
         """Test action masking in decide()."""
         trait_config = create_default_trait_config()
         weight_count = Brain.calculate_weight_count(
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
@@ -174,13 +174,13 @@ class TestBrainV2:
         
         brain = Brain(
             genome,
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
         )
         
-        obs = np.random.randn(64)
+        obs = np.random.randn(72)
         h = brain.initial_state()
         
         # Mask all actions except WAIT (index 7)
@@ -199,7 +199,7 @@ class TestBrainV2:
         """Test temperature parameter for exploration."""
         trait_config = create_default_trait_config()
         weight_count = Brain.calculate_weight_count(
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
@@ -208,13 +208,13 @@ class TestBrainV2:
         
         brain = Brain(
             genome,
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
         )
         
-        obs = np.random.randn(64)
+        obs = np.random.randn(72)
         h = brain.initial_state()
         
         # High temperature (more exploration)
@@ -239,7 +239,7 @@ class TestBrainV2:
         """Test that hidden state evolves over sequence of observations."""
         trait_config = create_default_trait_config()
         weight_count = Brain.calculate_weight_count(
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
@@ -248,14 +248,14 @@ class TestBrainV2:
         
         brain = Brain(
             genome,
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
         )
         
         # Create sequence of observations
-        obs_sequence = [np.random.randn(64) for _ in range(5)]
+        obs_sequence = [np.random.randn(72) for _ in range(5)]
         
         h = brain.initial_state()
         h_states = [h.copy()]
@@ -274,7 +274,7 @@ class TestBrainV2:
         """Test that weights can be packed to genome and unpacked correctly."""
         trait_config = create_default_trait_config()
         weight_count = Brain.calculate_weight_count(
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
@@ -283,7 +283,7 @@ class TestBrainV2:
         
         brain1 = Brain(
             genome,
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
@@ -295,14 +295,14 @@ class TestBrainV2:
         # Create new brain from same genome
         brain2 = Brain(
             genome,
-            input_size=64,
+            input_size=72,
             encoder_layers=[32],
             gru_hidden_size=32,
             output_size=8
         )
         
         # Test forward pass produces same results
-        obs = np.random.randn(64)
+        obs = np.random.randn(72)
         h = brain1.initial_state()
         
         probs1, val1, h1 = brain1.forward(obs, h)

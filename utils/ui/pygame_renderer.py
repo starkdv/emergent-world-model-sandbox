@@ -34,6 +34,7 @@ COLORS = {
     'plant': (34, 139, 34),           # Forest green
     'plant_mature': (50, 205, 50),    # Lime green
     'seed': (205, 170, 125),          # Warm tan
+    'seed_sprouting': (120, 200, 80), # Light green (near germination)
     'berry': (220, 20, 60),           # Crimson
     'berry_fresh': (255, 99, 71),     # Tomato
     
@@ -393,27 +394,69 @@ class PygameRenderer:
 
                     if render_obj is not None:
                         obj_color = None
+                        is_seed_in_soil = False
+                        seed_growth_ratio = 0.0
+
                         # Try registry-based color first
                         tid = getattr(render_obj, 'type_id', '')
                         if tid:
                             defn = ObjectRegistry.get(tid)
                             if defn is not None:
                                 obj_color = tuple(defn.render.color)
+
+                        # Check if this is a planted seed (for special rendering)
+                        seed_comp = render_obj.get_component(SeedComponent)
+                        if seed_comp is not None and seed_comp.time_in_soil > 0:
+                            is_seed_in_soil = True
+                            seed_growth_ratio = min(1.0, seed_comp.time_in_soil / seed_comp.grow_time)
+                            # Lerp colour from tan → sprouting green
+                            sr, sg, sb = COLORS['seed']
+                            er, eg, eb = COLORS['seed_sprouting']
+                            t = seed_growth_ratio
+                            obj_color = (
+                                int(sr + (er - sr) * t),
+                                int(sg + (eg - sg) * t),
+                                int(sb + (eb - sb) * t),
+                            )
+
                         # Fallback to component-based coloring
                         if obj_color is None:
                             if render_obj.has_component(PlantComponent):
                                 obj_color = COLORS['plant']
                             elif render_obj.has_component(EdibleComponent):
                                 obj_color = COLORS['berry']
-                            elif render_obj.has_component(SeedComponent):
+                            elif seed_comp is not None:
                                 obj_color = COLORS['seed']
                         
                         if obj_color:
-                            # Draw object as circle
                             center_x = screen_x + scaled_tile_size // 2
                             center_y = screen_y + scaled_tile_size // 2
-                            radius = max(2, scaled_tile_size // 3)
-                            pygame.draw.circle(self.screen, obj_color, (center_x, center_y), radius)
+
+                            if is_seed_in_soil:
+                                # Draw planted seed as DIAMOND with growth ring
+                                half = max(3, scaled_tile_size // 3)
+                                diamond_pts = [
+                                    (center_x, center_y - half),  # top
+                                    (center_x + half, center_y),  # right
+                                    (center_x, center_y + half),  # bottom
+                                    (center_x - half, center_y),  # left
+                                ]
+                                pygame.draw.polygon(self.screen, obj_color, diamond_pts)
+                                # Outline to pop against soil
+                                pygame.draw.polygon(self.screen, (255, 255, 255), diamond_pts, 1)
+                                # Growth indicator: small inner dot turns green near maturity
+                                if seed_growth_ratio > 0.5:
+                                    inner_r = max(1, half // 3)
+                                    pygame.draw.circle(
+                                        self.screen,
+                                        COLORS['seed_sprouting'],
+                                        (center_x, center_y),
+                                        inner_r,
+                                    )
+                            else:
+                                # Regular objects: circle
+                                radius = max(2, scaled_tile_size // 3)
+                                pygame.draw.circle(self.screen, obj_color, (center_x, center_y), radius)
                 
                 # Render agents on tile (use pre-built lookup - O(1) instead of O(n))
                 agents_here = agent_positions.get((x, y), [])

@@ -44,7 +44,7 @@ def test_reproduction_config_loading():
             },
             "world": {"allow_stacking": False},
             "brain": {
-                "input_size": 64,
+                "input_size": 72,
                 "encoder_layers": [32],
                 "gru_hidden_size": 32,
                 "output_size": 8,
@@ -180,7 +180,7 @@ def test_without_config():
     # Create agent
     trait_config = create_default_trait_config()
     weight_count = Brain.calculate_weight_count(
-        input_size=64,
+        input_size=72,
         encoder_layers=[32],
         gru_hidden_size=32,
         output_size=8,

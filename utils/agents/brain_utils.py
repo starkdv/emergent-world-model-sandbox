@@ -40,7 +40,7 @@ def softmax(x: np.ndarray) -> np.ndarray:
 
 
 def calculate_weight_count(
-    input_size: int = 64,
+    input_size: int = 72,
     encoder_layers: list[int] = None,
     gru_hidden_size: int = 32,
     output_size: int = 8

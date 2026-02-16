@@ -8,8 +8,7 @@ The brain is now a recurrent Actor-Critic architecture that:
 - Uses policy sampling instead of epsilon-greedy (state-dependent exploration)
 
 Architecture:
-    Input (64) → Encoder MLP → GRU → Policy Head (8 actions) + Value Head (1 scalar)
-
+        Input (72) → Encoder MLP → GRU → Policy Head (8 actions) + Value Head (1 scalar)
 Weights are still encoded in the agent's genome as a flat vector for evolution.
 
 Author: Karan Vasa
@@ -54,7 +53,7 @@ class Brain:
     def __init__(
         self,
         genome: 'Genome',
-        input_size: int = 64,
+        input_size: int = 72,
         encoder_layers: list[int] = None,
         gru_hidden_size: int = 32,
         output_size: int = 8,
@@ -131,6 +130,29 @@ class Brain:
         if action_mask is not None:
             # Set logits of invalid actions to very negative value
             logits = np.where(action_mask > 0, logits, -1e9)
+
+            # ----------------------------------------------------------
+            # Contextual instinct biases
+            #
+            # Unlike the removed unconditional MOVE_FORWARD bias, these
+            # only fire when the action is contextually appropriate
+            # (action mask says it's valid).  They bootstrap survival
+            # behaviour so agents with random/early-evolution weights
+            # actually interact with the environment.  As the brain's
+            # own weights strengthen through learning, the logits it
+            # produces will dominate over these small additive biases.
+            # ----------------------------------------------------------
+            # PICK_UP (index 3) — strong instinct to pick things up
+            if action_mask[Action.PICK_UP.value] > 0:
+                logits[Action.PICK_UP.value] += 1.5
+
+            # EAT (index 5) — instinct to eat when food in inventory
+            if action_mask[Action.EAT.value] > 0:
+                logits[Action.EAT.value] += 1.0
+
+            # USE / plant (index 6) — instinct to plant seeds
+            if action_mask[Action.USE.value] > 0:
+                logits[Action.USE.value] += 0.5
         
         # Apply temperature scaling
         logits = logits / temperature
@@ -187,7 +209,7 @@ class Brain:
     
     @staticmethod
     def calculate_weight_count(
-        input_size: int = 64,
+        input_size: int = 72,
         encoder_layers: list[int] = None,
         gru_hidden_size: int = 32,
         output_size: int = 8
