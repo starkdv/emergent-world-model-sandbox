@@ -86,7 +86,7 @@ def test_non_wait_resets_wait_streak():
     # Next WAIT should be at base cost again (streak = 1)
     r = agent.execute_action(Action.WAIT, world)
     base_wait_cost = 0.18  # from agent_utils.execute_wait
-    first_surcharge = 0.03 * 1  # streak = 1
+    first_surcharge = 0.02 * 1  # streak = 1
     expected = round(base_wait_cost + first_surcharge, 3)
     assert r.energy_cost == expected
 

@@ -387,39 +387,40 @@ class AgentLearner:
         Args:
             brain: Brain with updated parameters
         """
-        # Flatten all parameters back into a single vector
-        flat_weights = []
+        # Use np.concatenate on flat views — avoids building a Python list
+        # of thousands of individual floats via .extend()
+        parts = []
         
         # 1. Encoder
         for w, b in zip(brain.params['encoder_weights'], brain.params['encoder_biases']):
-            flat_weights.extend(w.flatten())
-            flat_weights.extend(b.flatten())
+            parts.append(w.ravel())
+            parts.append(b.ravel())
         
         # 2. GRU (3 gates: reset, update, candidate)
         gru = brain.params['gru']
 
         # Reset gate
-        flat_weights.extend(gru['Wr_input'].flatten())
-        flat_weights.extend(gru['Wr_hidden'].flatten())
-        flat_weights.extend(gru['br'].flatten())
+        parts.append(gru['Wr_input'].ravel())
+        parts.append(gru['Wr_hidden'].ravel())
+        parts.append(gru['br'].ravel())
 
         # Update gate
-        flat_weights.extend(gru['Wz_input'].flatten())
-        flat_weights.extend(gru['Wz_hidden'].flatten())
-        flat_weights.extend(gru['bz'].flatten())
+        parts.append(gru['Wz_input'].ravel())
+        parts.append(gru['Wz_hidden'].ravel())
+        parts.append(gru['bz'].ravel())
 
         # Candidate
-        flat_weights.extend(gru['Wh_input'].flatten())
-        flat_weights.extend(gru['Wh_hidden'].flatten())
-        flat_weights.extend(gru['bh'].flatten())
+        parts.append(gru['Wh_input'].ravel())
+        parts.append(gru['Wh_hidden'].ravel())
+        parts.append(gru['bh'].ravel())
         
         # 3. Policy head
-        flat_weights.extend(brain.params['policy_head']['W'].flatten())
-        flat_weights.extend(brain.params['policy_head']['b'].flatten())
+        parts.append(brain.params['policy_head']['W'].ravel())
+        parts.append(brain.params['policy_head']['b'].ravel())
         
         # 4. Value head
-        flat_weights.extend(brain.params['value_head']['W'].flatten())
-        flat_weights.extend(brain.params['value_head']['b'].flatten())
+        parts.append(brain.params['value_head']['W'].ravel())
+        parts.append(brain.params['value_head']['b'].ravel())
         
-        # Update genome
-        brain.genome.weights = np.array(flat_weights, dtype=np.float32)
+        # Update genome - single concatenation (no Python float intermediaries)
+        brain.genome.weights = np.concatenate(parts).astype(np.float32)

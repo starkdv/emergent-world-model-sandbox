@@ -35,6 +35,8 @@ COLORS = {
     'plant_mature': (50, 205, 50),    # Lime green
     'seed': (205, 170, 125),          # Warm tan
     'seed_sprouting': (120, 200, 80), # Light green (near germination)
+    'seed_agent_planted': (255, 200, 0),  # Golden — agent-planted seed
+    'seed_agent_glow': (255, 235, 100),   # Bright gold glow ring
     'berry': (220, 20, 60),           # Crimson
     'berry_fresh': (255, 99, 71),     # Tomato
     
@@ -405,13 +407,22 @@ class PygameRenderer:
                                 obj_color = tuple(defn.render.color)
 
                         # Check if this is a planted seed (for special rendering)
+                        # A seed is "in soil" if it's on a tile (not in an agent's
+                        # inventory).  Even at time_in_soil==0 (freshly planted) we
+                        # want the diamond shape so the player can see it.
                         seed_comp = render_obj.get_component(SeedComponent)
-                        if seed_comp is not None and seed_comp.time_in_soil > 0:
+                        agent_planted = getattr(render_obj, 'planted_by_agent', False)
+                        if seed_comp is not None:
                             is_seed_in_soil = True
-                            seed_growth_ratio = min(1.0, seed_comp.time_in_soil / seed_comp.grow_time)
-                            # Lerp colour from tan → sprouting green
-                            sr, sg, sb = COLORS['seed']
-                            er, eg, eb = COLORS['seed_sprouting']
+                            seed_growth_ratio = min(1.0, seed_comp.time_in_soil / max(1, seed_comp.grow_time))
+                            if agent_planted:
+                                # Agent-planted seed: golden → bright sprouting green
+                                sr, sg, sb = COLORS['seed_agent_planted']
+                                er, eg, eb = COLORS['seed_sprouting']
+                            else:
+                                # Natural seed: tan → sprouting green
+                                sr, sg, sb = COLORS['seed']
+                                er, eg, eb = COLORS['seed_sprouting']
                             t = seed_growth_ratio
                             obj_color = (
                                 int(sr + (er - sr) * t),
@@ -441,9 +452,21 @@ class PygameRenderer:
                                     (center_x, center_y + half),  # bottom
                                     (center_x - half, center_y),  # left
                                 ]
+
+                                if agent_planted:
+                                    # Golden glow ring behind the diamond
+                                    glow_r = max(4, half + 2)
+                                    pygame.draw.circle(
+                                        self.screen,
+                                        COLORS['seed_agent_glow'],
+                                        (center_x, center_y),
+                                        glow_r,
+                                    )
+
                                 pygame.draw.polygon(self.screen, obj_color, diamond_pts)
-                                # Outline to pop against soil
-                                pygame.draw.polygon(self.screen, (255, 255, 255), diamond_pts, 1)
+                                # Outline: gold for agent-planted, white for natural
+                                outline_color = COLORS['seed_agent_planted'] if agent_planted else (255, 255, 255)
+                                pygame.draw.polygon(self.screen, outline_color, diamond_pts, 1)
                                 # Growth indicator: small inner dot turns green near maturity
                                 if seed_growth_ratio > 0.5:
                                     inner_r = max(1, half // 3)

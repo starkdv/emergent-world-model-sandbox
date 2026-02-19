@@ -236,6 +236,7 @@ class WorldObject:
         self.x = x
         self.y = y
         self.type_id: str = ""  # Set by ObjectRegistry.create() for fast lookup
+        self.is_terrain: bool = False  # Set by ObjectRegistry.create(); True if has TileEffectSpec
         self.components: Dict[str, Component] = {}
     
     def add_component(self, component: Component) -> None:

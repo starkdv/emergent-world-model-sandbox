@@ -83,7 +83,7 @@ def get_action_mask(agent: 'Agent', world: 'World') -> np.ndarray:
     def _has_real_objects(t):
         for oid in t.object_ids:
             o = world.objects.get(oid)
-            if o and not ObjectRegistry.is_terrain_layer(o):
+            if o and not getattr(o, 'is_terrain', False):
                 return True
         return False
 
@@ -252,7 +252,7 @@ def execute_drop(agent: 'Agent', world: 'World') -> ActionResult:
 
     if world.allow_stacking or not tile.object_ids:
         # Stacking allowed OR tile is empty - drop here
-        tile.object_ids.append(obj_id)
+        tile.object_ids.add(obj_id)
         obj.x = agent.x
         obj.y = agent.y
         return ActionResult(
@@ -279,7 +279,7 @@ def execute_drop(agent: 'Agent', world: 'World') -> ActionResult:
             nearby_tile = world.get_tile(nx, ny)
             if nearby_tile and not nearby_tile.object_ids:
                 # Found empty spot
-                nearby_tile.object_ids.append(obj_id)
+                nearby_tile.object_ids.add(obj_id)
                 obj.x = nx
                 obj.y = ny
                 return ActionResult(
@@ -367,12 +367,10 @@ def execute_use(agent: 'Agent', world: 'World') -> ActionResult:
     # Check if it's a seed
     seed = obj.get_component(SeedComponent)
     if seed is not None:
-        from world.object_registry import ObjectRegistry
-
         def _has_real_objects(t):
             for oid in t.object_ids:
                 o = world.objects.get(oid)
-                if o and not ObjectRegistry.is_terrain_layer(o):
+                if o and not getattr(o, 'is_terrain', False):
                     return True
             return False
 
@@ -382,9 +380,10 @@ def execute_use(agent: 'Agent', world: 'World') -> ActionResult:
             if world.allow_stacking or not _has_real_objects(tile):
                 # Stacking allowed OR tile is empty - plant here
                 agent.inventory.remove(obj_id)
-                tile.object_ids.append(obj_id)
+                tile.object_ids.add(obj_id)
                 obj.x = agent.x
                 obj.y = agent.y
+                obj.planted_by_agent = True  # Tag for golden rendering
                 agent.fitness += 1.0
                 return ActionResult(
                     True,
@@ -412,9 +411,10 @@ def execute_use(agent: 'Agent', world: 'World') -> ActionResult:
                         if nearby_tile.can_support_plant() and not _has_real_objects(nearby_tile):
                             # Found empty plantable spot
                             agent.inventory.remove(obj_id)
-                            nearby_tile.object_ids.append(obj_id)
+                            nearby_tile.object_ids.add(obj_id)
                             obj.x = nx
                             obj.y = ny
+                            obj.planted_by_agent = True  # Tag for golden rendering
                             agent.fitness += 1.0
                             return ActionResult(
                                 True,

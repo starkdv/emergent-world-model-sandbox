@@ -66,6 +66,7 @@ Examples:
   python main.py --config custom.yaml      # Run with custom config
   python main.py --no-viz                  # Run without visualization
   python main.py --gui                     # Run with Pygame GUI
+  python main.py --gui --gpu               # Run with GPU isometric renderer
   python main.py --seed 42 --demo          # Run demo with specific seed        """
     )
     
@@ -165,6 +166,12 @@ Examples:
         help='Save best agent weights at end of run'
     )
     
+    parser.add_argument(
+        '--gpu',
+        action='store_true',
+        help='Use GPU-accelerated isometric renderer (requires --gui, needs moderngl)'
+    )
+
     parser.add_argument(
         '--objects',
         type=str,
@@ -398,6 +405,51 @@ Examples:
                 seeds_added += 1
         
         print(f"Resources added: {len(world.objects)} objects (plants: {plants_added}, berries: {berries_added}, seeds: {seeds_added})")
+
+        # Spawn custom objects that have a spawn.initial_count > 0
+        custom_spawned = 0
+        for defn in ObjectRegistry.all_definitions().values():
+            if defn.spawn.initial_count <= 0:
+                continue
+            # Skip builtins (already spawned above)
+            if defn.type_id in ('berry', 'berry_seed', 'berry_plant', 'fertilizer', 'sand'):
+                continue
+            placed = 0
+            attempts = 0
+            target = defn.spawn.initial_count
+            max_att = target * 15
+            while placed < target and attempts < max_att:
+                attempts += 1
+                cx = random.randint(0, world.width - 1)
+                cy = random.randint(0, world.height - 1)
+                if (cx, cy) in occupied_tiles:
+                    continue
+                ctile = world.get_tile(cx, cy)
+                if ctile is None:
+                    continue
+                # Terrain filter
+                ok = False
+                if defn.spawn.terrain == 'soil':
+                    ok = ctile.terrain_type == TerrainType.SOIL
+                elif defn.spawn.terrain == 'sand':
+                    ok = ctile.terrain_type == TerrainType.SAND
+                elif defn.spawn.terrain == 'plantable':
+                    ok = ctile.is_plantable()
+                elif defn.spawn.terrain == 'any':
+                    ok = ctile.terrain_type != TerrainType.ROCK
+                else:
+                    ok = ctile.terrain_type == TerrainType.SOIL
+                if not ok:
+                    continue
+                custom_obj = ObjectRegistry.create(defn.type_id, cx, cy)
+                if world.add_object(custom_obj):
+                    occupied_tiles.add((cx, cy))
+                    placed += 1
+            if placed > 0:
+                print(f"  Spawned {placed}x {defn.display_name} ({defn.type_id})")
+                custom_spawned += placed
+        if custom_spawned > 0:
+            print(f"Custom objects spawned: {custom_spawned}")
         
         # Add initial agents
         print("\nSpawning initial agent population...")
@@ -546,13 +598,35 @@ Examples:
             print("="*60 + "\n")
             
             viz_cfg = config['visualization']
-            renderer = PygameRenderer(
-                world=world,
-                window_width=viz_cfg.get('window_width', 1200),
-                window_height=viz_cfg.get('window_height', 800),
-                tile_size=viz_cfg.get('tile_size', 20),
-                target_fps=viz_cfg.get('target_fps', 60)
-            )
+
+            if args.gpu:
+                try:
+                    from utils.ui.gpu_renderer import IsometricRenderer
+                    print("Using GPU-accelerated isometric renderer (ModernGL)")
+                    renderer = IsometricRenderer(
+                        world=world,
+                        window_width=viz_cfg.get('window_width', 1200),
+                        window_height=viz_cfg.get('window_height', 800),
+                        tile_size=viz_cfg.get('tile_size', 20),
+                        target_fps=viz_cfg.get('target_fps', 60),
+                    )
+                except ImportError as e:
+                    print(f"GPU renderer unavailable ({e}), falling back to Pygame")
+                    renderer = PygameRenderer(
+                        world=world,
+                        window_width=viz_cfg.get('window_width', 1200),
+                        window_height=viz_cfg.get('window_height', 800),
+                        tile_size=viz_cfg.get('tile_size', 20),
+                        target_fps=viz_cfg.get('target_fps', 60)
+                    )
+            else:
+                renderer = PygameRenderer(
+                    world=world,
+                    window_width=viz_cfg.get('window_width', 1200),
+                    window_height=viz_cfg.get('window_height', 800),
+                    tile_size=viz_cfg.get('tile_size', 20),
+                    target_fps=viz_cfg.get('target_fps', 60)
+                )
             renderer.run()
             
             # Save best agent weights if requested

@@ -18,6 +18,7 @@ import numpy as np
 from agents.actions import Action, ActionResult, DIRECTIONS
 from agents.brain import Brain
 from agents.genome import Genome
+from world.objects import EdibleComponent
 import utils.agents.agent_utils as agent_utils
 
 if TYPE_CHECKING:
@@ -145,9 +146,14 @@ class Agent:
         if self.energy <= 0 or self.age >= self.max_age:
             death_reason = "starvation" if self.energy <= 0 else "old_age"
             
-            # Log terminal transition for world model
-            if Agent.world_model_logger is not None and self.last_observation is not None:
+            # Compute terminal observation ONCE for both loggers
+            terminal_obs = None
+            if (Agent.world_model_logger is not None and self.last_observation is not None) or \
+               (self.learning_enabled and self.learner and self.last_observation is not None):
                 terminal_obs = self.observe(world)
+
+            # Log terminal transition for world model
+            if Agent.world_model_logger is not None and self.last_observation is not None and terminal_obs is not None:
                 Agent.world_model_logger.log_transition(
                     tick=world.tick,
                     agent=self,
@@ -168,7 +174,8 @@ class Agent:
             
             # Store terminal experience if learning
             if self.learning_enabled and self.learner and self.last_observation is not None and self.last_hidden_state is not None:
-                terminal_obs = self.observe(world)
+                if terminal_obs is None:
+                    terminal_obs = self.observe(world)
                 terminal_h = self.brain.initial_state()  # Dead state
                 self.learner.store_experience(
                     self.last_observation,
@@ -184,7 +191,6 @@ class Agent:
         
         # AUTO-EAT: If energy is low and agent has food, eat automatically
         # This ensures agents don't starve while holding food
-        from world.objects import EdibleComponent
         
         # Check if agent has food in inventory
         has_food = False
@@ -216,7 +222,7 @@ class Agent:
         )
         
         # Store observation before action for logging
-        obs_before = observation.copy()
+        obs_before = observation  # no copy needed — not modified before use
         x_before_action = self.x
         y_before_action = self.y
         
@@ -225,10 +231,6 @@ class Agent:
         
         # Get observation after action
         obs_after = self.observe(world)
-        
-        # Debug: Log food-related actions
-        if "Picked up" in result.message or "Ate" in result.message:
-            print(f"[FOOD ACTION] Agent {self.id} (age {self.age}): {action.name} -> {result.message}")
         
         # Calculate reward (needed for both learning and logging)
         reward = 0.0
@@ -282,8 +284,6 @@ class Agent:
 
             if can_train_now:
                 loss = self.learner.learn(self.brain)
-                if self.age % 100 == 0:  # Log every 100 ticks
-                    print(f"  Agent {self.id} trained at age {self.age}: buffer={len(self.learner.replay_buffer)}, loss={loss:.4f}")
             
             # Store current observation and hidden state for next step
             self.last_observation = obs_after.copy()
@@ -354,17 +354,17 @@ class Agent:
         if action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
             self._consecutive_turns += 1
             self._consecutive_waits = 0
-            # Escalating turn cost discourages spin loops
-            effective_energy_cost += min(0.06 * self._consecutive_turns, 0.30)
+            # Mild escalating turn cost — only punishes extended spin loops
+            effective_energy_cost += min(0.04 * self._consecutive_turns, 0.20)
         elif action == Action.WAIT:
             self._consecutive_waits += 1
             self._consecutive_turns = 0
-            # Gentle escalating wait cost — WAIT should remain affordable
-            effective_energy_cost += min(0.03 * self._consecutive_waits, 0.15)
+            # Very gentle escalating wait cost — WAIT should remain affordable
+            effective_energy_cost += min(0.02 * self._consecutive_waits, 0.10)
         elif action == Action.MOVE_FORWARD:
-            # Reward turn->move transition with a small cost discount
+            # Reward turn->move transition with a tiny cost discount
             if result.success and self._previous_action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
-                effective_energy_cost = max(0.10, effective_energy_cost - 0.04)
+                effective_energy_cost = max(0.10, effective_energy_cost - 0.02)
             self._consecutive_turns = 0
             self._consecutive_waits = 0
         else:
@@ -428,7 +428,7 @@ class Agent:
                 # Check stacking configuration
                 if world.allow_stacking or not tile.object_ids:
                     # Stacking allowed OR tile is empty - drop here
-                    tile.object_ids.append(obj_id)
+                    tile.object_ids.add(obj_id)
                     obj.x = self.x
                     obj.y = self.y
                 else:
@@ -447,7 +447,7 @@ class Agent:
                             nearby_tile = world.tiles[ny][nx]
                             if not nearby_tile.object_ids:
                                 # Found empty spot
-                                nearby_tile.object_ids.append(obj_id)
+                                nearby_tile.object_ids.add(obj_id)
                                 obj.x = nx
                                 obj.y = ny
                                 placed = True

@@ -245,6 +245,23 @@ class ObservationSpec:
     value_source: str = "none"
 
 
+@dataclass
+class SpawnSpec:
+    """
+    Controls how many of this object to place at world initialisation.
+
+    Attributes:
+        initial_count: Number of instances to scatter on the map at start.
+        terrain: Where to place them.  Options:
+            "soil"     - only on SOIL tiles (default)
+            "sand"     - only on SAND tiles
+            "any"      - any walkable tile (SOIL, SAND, WATER)
+            "plantable"- tiles that can support plants (is_plantable)
+    """
+    initial_count: int = 0
+    terrain: str = "soil"
+
+
 # ---------------------------------------------------------------------------
 # Unified object definition
 # ---------------------------------------------------------------------------
@@ -281,6 +298,7 @@ class ObjectDefinition:
     tile_effect: Optional[TileEffectSpec] = None
     observation: ObservationSpec = field(default_factory=ObservationSpec)
     render: RenderSpec = field(default_factory=RenderSpec)
+    spawn: SpawnSpec = field(default_factory=SpawnSpec)
 
     # ------------------------------------------------------------------
     # Serialisation helpers
@@ -318,6 +336,8 @@ class ObjectDefinition:
 
         render = RenderSpec(**data["render"]) if "render" in data else RenderSpec()
 
+        spawn = SpawnSpec(**data["spawn"]) if "spawn" in data else SpawnSpec()
+
         return cls(
             type_id=type_id,
             display_name=data.get("display_name", type_id),
@@ -332,6 +352,7 @@ class ObjectDefinition:
             tile_effect=tile_effect,
             observation=observation,
             render=render,
+            spawn=spawn,
         )
 
     def to_dict(self) -> dict:
@@ -415,6 +436,12 @@ class ObjectDefinition:
             "char": self.render.char,
             "color": list(self.render.color),
         }
+
+        if self.spawn.initial_count > 0:
+            d["spawn"] = {
+                "initial_count": self.spawn.initial_count,
+                "terrain": self.spawn.terrain,
+            }
 
         return d
 
@@ -515,6 +542,7 @@ class ObjectRegistry:
 
         obj = WorldObject(x, y)
         obj.type_id = type_id
+        obj.is_terrain = defn.tile_effect is not None
 
         # --- Edible ---
         if defn.edible is not None:
@@ -557,6 +585,9 @@ class ObjectRegistry:
                 effect_type=overrides.get("effect_type", defn.tool.effect_type),
                 efficiency=overrides.get("efficiency", defn.tool.efficiency),
             ))
+
+        # --- Cached flags for hot-path checks ---
+        obj.is_terrain = defn.tile_effect is not None
 
         return obj
 
@@ -677,7 +708,7 @@ class ObjectRegistry:
         """
         if obj is None:
             return False
-        return cls.get_tile_effect(obj) is not None
+        return getattr(obj, 'is_terrain', False)
 
     @classmethod
     def get_tile_effect(cls, obj: WorldObject) -> Optional[TileEffectSpec]:

@@ -89,6 +89,9 @@ def test_world_model_logger(tmp_path):
             # Log world state
             logger.log_world_state(tick, world)
         
+        # Close logger to flush all buffered writes before reading files
+        logger.close()
+        
         # Verify files created
         assert Path(logger.transitions_file).exists()
         assert Path(logger.world_states_file).exists()

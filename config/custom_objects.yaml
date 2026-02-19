@@ -1,215 +1,267 @@
+# =========================================================================
 # Custom Object Definitions
 # =========================================================================
-# This file demonstrates how to create new object types for the simulation.
-# Place your custom objects under the `objects:` key and include this file
-# in your main config, or pass it via '--objects config/custom_objects.yaml'.
 #
-# Each top-level key under `objects:` becomes the unique type_id.
-# All fields below are optional — omit a section to skip that component.
+# HOW TO USE:
+#   python main.py --gui --objects config/custom_objects.yaml
 #
-# Author: Karan Vasa
+# Each key under `objects:` becomes a unique type_id.
+# Only include the sections you need — everything has sensible defaults.
+#
+# KEY REQUIREMENT: Add a `spawn:` section with `initial_count: N` to
+# actually place objects on the map at startup!  Without it the type is
+# registered but nothing appears in the world.
+#
+# =========================================================================
+#
+# AVAILABLE SECTIONS (all optional):
+#
+#   display_name: "Human Name"        # Shown in UI / logs
+#   category:     "food"              # "food" | "seed" | "plant" | "terrain" | "structure"
+#
+#   edible:                           # Makes the object edible
+#     calories:    20.0               # Energy gained (negative = poison)
+#     toxicity:    0.0                # 0.0 = safe, 1.0 = deadly
+#     freshness:   1.0                # Starts at 1.0, decays over time
+#
+#   seed:                             # Makes it a plantable seed
+#     grows_into:  "berry_plant"      # type_id of the plant it becomes
+#     grow_time:   50                 # Ticks to germinate
+#     required_fertility: 0.3         # Minimum soil fertility
+#     required_moisture:  0.2         # Minimum soil moisture
+#     max_age:     200                # Ticks before seed rots
+#
+#   plant:                            # Makes it a growing plant
+#     mature_age:  100                # Ticks to reach maturity
+#     max_age:     500                # Ticks before plant dies
+#     produces:    "berry"            # type_id of resource it spawns
+#     spawn_rate:  0.1                # Per-tick chance of producing
+#
+#   fertilizer:                       # Makes it a fertilizer item
+#     fertility_boost: 0.3            # How much fertility is added
+#     duration:   50                  # How many ticks it lasts
+#     radius:     1                   # Tiles affected around placement
+#
+#   physics:                          # Decay & decomposition
+#     decay_rate:       0.01          # Freshness lost per tick
+#     decompose_into:   "berry_seed"  # type_id created on decomposition ("" = none)
+#     decompose_chance:  0.7          # Probability of decomposition
+#     nutrient_return:   0.15         # Fertility returned to soil on death
+#
+#   interaction:                      # How agents interact with it
+#     pickable:     true              # Can agents pick it up?
+#     usable:       true              # Can agents USE it (plant/apply)?
+#     passable:     true              # Can agents walk through it?
+#     blocks_growth: false            # Does it prevent seed germination?
+#
+#   tile_effect:                      # Environmental modifier (terrain objects)
+#     germination_multiplier: 1.0     # Multiplier on germination chance
+#     growth_multiplier:     1.0      # Multiplier on plant growth speed
+#     spawn_rate_multiplier: 1.0      # Multiplier on resource production
+#     spread_type_id: ""              # Spread by placing this type_id
+#     spread_radius:  0               # Max distance to spread
+#     spread_interval: 0              # Ticks between spread attempts
+#     spread_chance:  0.0             # Per-tick probability of spreading
+#     spread_blocked_by: []           # type_ids that block spreading
+#     converts_terrain: ""            # Change tile terrain (e.g. "sand")
+#     fertility_override: -1.0        # Override fertility (-1 = keep natural)
+#     moisture_override:  -1.0        # Override moisture  (-1 = keep natural)
+#     reclaim_terrain: ""             # Terrain type plants can reclaim to
+#     reclaim_interval: 0             # Ticks with plant to reclaim
+#
+#   observation:                      # How agents perceive it
+#     vision_encoding: 0.5            # Float 0-1 in the agent's vision grid
+#     value_source:   "none"          # "freshness"|"maturity"|"viability"|"duration"|"none"
+#
+#   render:                           # How it appears in the UI
+#     char: "?"                       # Single character (console renderer)
+#     color: [200, 200, 200]          # RGB colour (pygame renderer)
+#
+#   spawn:                            # *** WITHOUT THIS, NOTHING APPEARS ***
+#     initial_count: 10               # How many to place at world start
+#     terrain: "soil"                 # Where: "soil"|"sand"|"plantable"|"any"
+#
 # =========================================================================
 
 objects:
 
   # ------------------------------------------------------------------
-  # Example 1: Superfood — high-calorie but decays fast
+  # EXAMPLE 1: Golden Apple — high-calorie superfood
   # ------------------------------------------------------------------
-  superfood:
-    display_name: "Superfood"
+  golden_apple:
+    display_name: "Golden Apple"
     category: "food"
+
     edible:
-      calories: 80.0         # 4x normal berry
+      calories: 60.0          # 3x normal berry
       toxicity: 0.0
       freshness: 1.0
+
     physics:
-      decay_rate: 0.05       # Decays 5x faster than berries
-      decompose_into: ""     # Disappears on decomposition (no seed)
+      decay_rate: 0.02        # Decays 2x faster
+      decompose_into: ""      # Vanishes (no seed drop)
       decompose_chance: 0.0
-      nutrient_return: 0.3   # Returns more nutrients to soil
+      nutrient_return: 0.2
+
     interaction:
       pickable: true
       usable: false
       passable: true
       blocks_growth: false
+
     observation:
-      vision_encoding: 0.95  # Slightly different from berry (1.0)
+      vision_encoding: 0.95   # Close to berry (1.0) but distinct
       value_source: "freshness"
+
     render:
-      char: "S"
-      color: [255, 215, 0]        # Gold
+      char: "G"
+      color: [255, 215, 0]    # Gold
+
+    spawn:
+      initial_count: 8        # 8 scattered on soil at start
+      terrain: "soil"
+
 
   # ------------------------------------------------------------------
-  # Example 2: Poisonous mushroom — agents learn to avoid it
+  # EXAMPLE 2: Poisonous Mushroom — agents must learn to avoid
   # ------------------------------------------------------------------
   mushroom:
     display_name: "Poisonous Mushroom"
     category: "food"
+
     edible:
-      calories: -15.0        # Negative! Drains energy when eaten
+      calories: -20.0         # DRAINS energy when eaten!
       toxicity: 0.8
       freshness: 1.0
+
     physics:
-      decay_rate: 0.005
+      decay_rate: 0.003       # Lasts a long time
       decompose_into: ""
       decompose_chance: 0.0
       nutrient_return: 0.05
+
     interaction:
       pickable: true
       usable: false
       passable: true
       blocks_growth: false
+
     observation:
       vision_encoding: 0.85
       value_source: "freshness"
+
     render:
       char: "M"
-      color: [128, 0, 128]        # Purple
+      color: [148, 0, 211]    # Purple
+
+    spawn:
+      initial_count: 6
+      terrain: "soil"
+
 
   # ------------------------------------------------------------------
-  # Example 3: Oak tree — slow growing, blocks sand spread, long-lived
-  # ------------------------------------------------------------------
-  oak_plant:
-    display_name: "Oak Tree"
-    category: "plant"
-    plant:
-      mature_age: 300        # 3x slower to mature than berry plant
-      max_age: 2000          # Lives 4x longer
-      produces: "acorn"      # Produces acorns (define acorn too!)
-      spawn_rate: 0.03       # Lower production rate
-    physics:
-      nutrient_return: 0.25  # Returns more nutrients on death
-    interaction:
-      pickable: false
-      usable: false
-      passable: true
-      blocks_growth: false
-    observation:
-      vision_encoding: 0.70
-      value_source: "maturity"
-    render:
-      char: "T"
-      color: [0, 100, 0]          # Dark green
-
-  # ------------------------------------------------------------------
-  # Example 4: Acorn — seed for oak tree
+  # EXAMPLE 3: Oak Seed (acorn) + Oak Tree — a slow-growing tree
+  #   Note: define BOTH the seed and the plant it grows into.
   # ------------------------------------------------------------------
   acorn:
     display_name: "Acorn"
     category: "seed"
+
     seed:
-      grows_into: "oak_plant"
-      grow_time: 120         # Takes longer to germinate
+      grows_into: "oak_tree"  # Must match the type_id below
+      grow_time: 120
       required_fertility: 0.4
       required_moisture: 0.3
-      max_age: 400           # Lasts longer than berry seeds
-    physics:
-      nutrient_return: 0.0
+      max_age: 400
+
     interaction:
       pickable: true
-      usable: true
+      usable: true            # Agents can plant it via USE action
       passable: true
       blocks_growth: false
+
     observation:
       vision_encoding: 0.55
       value_source: "viability"
+
     render:
       char: "a"
-      color: [139, 90, 43]        # Brown
+      color: [139, 90, 43]    # Brown
 
-  # ------------------------------------------------------------------
-  # Example 5: Wall (obstacle) — not pickable, blocks movement
-  # ------------------------------------------------------------------
-  wall:
-    display_name: "Stone Wall"
-    category: "structure"
+    spawn:
+      initial_count: 5
+      terrain: "plantable"
+
+  oak_tree:
+    display_name: "Oak Tree"
+    category: "plant"
+
+    plant:
+      mature_age: 300         # 3x slower to mature
+      max_age: 2000           # Lives 4x longer
+      produces: "acorn"       # Drops acorns when mature
+      spawn_rate: 0.03
+
+    physics:
+      nutrient_return: 0.25
+
     interaction:
       pickable: false
       usable: false
-      passable: false        # Blocks agent movement
-      blocks_growth: true    # Seeds can't grow here
-    physics:
-      decay_rate: 0.0
-      decompose_into: ""
-      decompose_chance: 0.0
-      nutrient_return: 0.0
+      passable: true
+      blocks_growth: false
+
     observation:
-      vision_encoding: 0.05
-      value_source: "none"
+      vision_encoding: 0.70
+      value_source: "maturity"
+
     render:
-      char: "#"
-      color: [128, 128, 128]      # Gray
+      char: "T"
+      color: [0, 100, 0]      # Dark green
+
+    # Oak trees are created by acorn germination, but you CAN
+    # also pre-spawn some mature ones:
+    spawn:
+      initial_count: 3
+      terrain: "plantable"
+
 
   # ------------------------------------------------------------------
-  # Example 6: Oasis — tile effect that BOOSTS growth (opposite of sand)
+  # EXAMPLE 4: Oasis — terrain effect that boosts growth
   # ------------------------------------------------------------------
   oasis:
     display_name: "Oasis"
     category: "terrain"
+
     interaction:
       pickable: false
       usable: false
       passable: true
       blocks_growth: false
+
     tile_effect:
-      germination_multiplier: 2.0     # 2x easier germination
-      growth_multiplier: 2.0          # 2x faster growth
-      spawn_rate_multiplier: 1.5      # 50% more food production
-      spread_type_id: ""              # Does NOT spread
+      germination_multiplier: 2.5
+      growth_multiplier: 2.0
+      spawn_rate_multiplier: 1.5
+      spread_type_id: ""
       spread_radius: 0
       spread_interval: 0
       spread_blocked_by: []
       spread_chance: 0.0
       converts_terrain: ""
-      fertility_override: -1.0        # -1 = no override (keep natural)
+      fertility_override: -1.0
       moisture_override: -1.0
-      reclaim_terrain: ""             # No reclamation
+      reclaim_terrain: ""
       reclaim_interval: 0
-    physics:
-      decay_rate: 0.0
-      decompose_into: ""
-      decompose_chance: 0.0
-      nutrient_return: 0.0
+
     observation:
       vision_encoding: 0.20
       value_source: "none"
+
     render:
       char: "O"
-      color: [0, 191, 255]        # Deep sky blue
+      color: [0, 191, 255]    # Deep sky blue
 
-  # ------------------------------------------------------------------
-  # Example 7: Lava — deadly tile effect that spreads aggressively
-  # ------------------------------------------------------------------
-  lava:
-    display_name: "Lava"
-    category: "terrain"
-    interaction:
-      pickable: false
-      usable: false
-      passable: true         # Agents can walk on it (but it's dangerous)
-      blocks_growth: true    # Nothing grows here
-    tile_effect:
-      germination_multiplier: 0.0     # Impossible to germinate
-      growth_multiplier: 0.0          # No growth
-      spawn_rate_multiplier: 0.0      # No food production
-      spread_type_id: "lava"          # Spreads by placing more lava
-      spread_radius: 1
-      spread_interval: 300            # 300 ticks before spreading
-      spread_blocked_by: ["plant"]    # Plants block lava spread
-      spread_chance: 0.03
-      converts_terrain: ""            # No terrain conversion
-      fertility_override: 0.0         # Kills fertility
-      moisture_override: 0.0          # Kills moisture
-      reclaim_terrain: "soil"         # Plants can reclaim lava tiles
-      reclaim_interval: 500           # 500 ticks with a plant to reclaim
-    physics:
-      decay_rate: 0.0
-      decompose_into: ""
-      decompose_chance: 0.0
-      nutrient_return: 0.0
-    observation:
-      vision_encoding: 0.10
-      value_source: "none"
-    render:
-      char: "L"
-      color: [255, 69, 0]         # Orange-red
+    spawn:
+      initial_count: 4
+      terrain: "soil"

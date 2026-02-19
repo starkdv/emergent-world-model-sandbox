@@ -10,7 +10,7 @@ scikit-learn>=1.0.0
 
 # Visualization and GUI
 pygame>=2.1.0
-tkinter-tooltip>=2.0.0
+moderngl>=5.8.0
 
 # Data processing and analysis
 pyarrow>=5.0.0  # For Parquet format

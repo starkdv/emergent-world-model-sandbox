@@ -111,6 +111,7 @@ class RewardShaper:
         self.last_action = None  # Track last action for repetition detection
         self.consecutive_failed_eats = 0  # Track failed EAT attempts for spam detection
         self._recently_dropped_ids: set = set()  # Anti pick/drop spam
+        self.last_food_dir_match = 0.5  # Track food direction for turn-toward-food reward
     
     def calculate_reward(
         self,
@@ -167,11 +168,11 @@ class RewardShaper:
                 # Agent moved! Reward active behavior
                 self.steps_without_movement = 0
                 self._recently_dropped_ids.clear()  # new tile, different objects
-                reward += 0.10
+                reward += 0.05
                 
                 # Extra bonus for visiting new tiles
                 if current_position not in self.positions_visited:
-                    reward += 0.12
+                    reward += 0.05
                     self.positions_visited.add(current_position)
                     
                     # Keep visited set from growing too large
@@ -181,24 +182,23 @@ class RewardShaper:
                 # Agent didn't move
                 self.steps_without_movement += 1
                 
-                # Mild penalty for staying in place (only after several steps)
-                if self.steps_without_movement > 5:
-                    reward -= 0.05 * min(self.steps_without_movement - 5, 10)
+                # Mild penalty for staying in place (only after many steps)
+                if self.steps_without_movement > 8:
+                    reward -= 0.03 * min(self.steps_without_movement - 8, 10)
         
         self.last_position = current_position
         
         nearest_food_dist = self._find_nearest_food_distance(agent, world)
 
-        # ===== WAIT: gentle discouragement =====
+        # ===== WAIT: very gentle discouragement =====
         # Economic pressure comes from escalating energy cost in agent.py;
-        # keep reward signal small so value function stays stable.
+        # keep reward signal near-zero so WAIT remains a viable choice (~32-35%).
         if action == Action.WAIT:
             self.consecutive_waits += 1
-            reward -= 0.05  # tiny flat cost
 
-            # Very mild escalation (capped at -0.20 extra)
-            if self.consecutive_waits > 3:
-                reward -= min(0.05 * (self.consecutive_waits - 3), 0.20)
+            # Only penalise prolonged idling (capped at -0.15 extra)
+            if self.consecutive_waits > 6:
+                reward -= min(0.03 * (self.consecutive_waits - 6), 0.15)
         else:
             self.consecutive_waits = 0
         
@@ -294,8 +294,7 @@ class RewardShaper:
                     self._recently_dropped_ids.add(dropped_id)
             elif "Planted" in action_result.message:
                 reward += 2.0  # Good for ecosystem
-            elif action == Action.MOVE_FORWARD:
-                reward += 0.35  # Moderate bonus for successful movement        
+            # (MOVE_FORWARD success is already rewarded by exploration bonus)
         else:
             # Penalty for failed actions (EAT handled separately above)
             if action == Action.PICK_UP:
@@ -306,11 +305,6 @@ class RewardShaper:
                 reward -= 0.3
             else:
                 reward -= 0.05  # Small penalty for other failures        # ===== Inventory and hunger interaction =====
-        # Slightly reduce failure aversion for movement to avoid fallback to WAIT
-        if not action_result.success and action == Action.MOVE_FORWARD:
-            reward += 0.03
-
-        # ===== Inventory and hunger interaction =====
         from world.objects import EdibleComponent
         has_food_in_inventory = False
         food_count = 0
@@ -366,22 +360,27 @@ class RewardShaper:
             elif turn_count >= 4:
                 reward -= 0.30
         
-        # ===== Critical energy state penalties/urgency =====
+        # ===== TURN-TOWARD-FOOD reward =====
+        # Reward turns that improve alignment with nearest food.
+        # This gives turns a positive reward comparable to forward
+        # exploration, preventing the "go straight until wall" pattern.
+        food_dir_match = self._compute_food_dir_match(agent, world)
+        if action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
+            dir_improvement = food_dir_match - self.last_food_dir_match
+            if dir_improvement > 0.05:
+                # Turned toward food — reward proportional to improvement
+                reward += min(0.30, dir_improvement * 1.5)
+        self.last_food_dir_match = food_dir_match
+
+        # ===== Critical energy state urgency =====
         if agent.energy < agent.max_energy * 0.2:
-            # Critical energy - bonus for moving (finding food)
-            if action == Action.MOVE_FORWARD and action_result.success:
-                reward += 0.05 * min(3, self.consecutive_same_action)
             # Mild nudge against waiting at critical energy
             if action == Action.WAIT:
-                reward -= 0.15
+                reward -= 0.10
         
         # Death penalty
         if not agent.alive:
             reward -= 10.0
-
-        # Mild turn penalty (energy shaping already escalates turn costs)
-        if action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
-            reward -= 0.03
 
         return reward
     
@@ -408,6 +407,47 @@ class RewardShaper:
         
         return min_dist
     
+    def _compute_food_dir_match(self, agent: 'Agent', world: 'World') -> float:
+        """
+        Compute cosine match between agent facing direction and nearest food.
+
+        Returns 0.5 (neutral) when no food is nearby.
+        """
+        from world.objects import EdibleComponent
+        import math
+
+        if not hasattr(world, 'tiles'):
+            return 0.5  # minimal/mock world
+
+        best_dist = float('inf')
+        best_fx, best_fy = 0, 0
+        scan_r = 5
+        for sy in range(max(0, agent.y - scan_r), min(world.height, agent.y + scan_r + 1)):
+            for sx in range(max(0, agent.x - scan_r), min(world.width, agent.x + scan_r + 1)):
+                stile = world.tiles[sy][sx]
+                for oid in stile.object_ids:
+                    o = world.objects.get(oid)
+                    if o is None or getattr(o, 'is_terrain', False):
+                        continue
+                    if o.get_component(EdibleComponent) is not None:
+                        d = abs(sx - agent.x) + abs(sy - agent.y)
+                        if d < best_dist:
+                            best_dist = d
+                            best_fx, best_fy = sx, sy
+
+        if best_dist >= float('inf'):
+            return 0.5  # neutral — no food visible
+
+        diff_x = best_fx - agent.x
+        diff_y = best_fy - agent.y
+        mag = math.sqrt(diff_x * diff_x + diff_y * diff_y)
+        if mag == 0:
+            return 1.0  # standing on food
+        ndx, ndy = diff_x / mag, diff_y / mag
+        dx, dy = agent.direction
+        dot = dx * ndx + dy * ndy  # range [-1, 1]
+        return (dot + 1.0) / 2.0   # remap to [0, 1]
+
     def reset(self):
         """Reset tracking for new episode."""
         self.last_food_distance = None
@@ -420,6 +460,7 @@ class RewardShaper:
         self.last_action = None
         self.consecutive_failed_eats = 0
         self._recently_dropped_ids.clear()
+        self.last_food_dir_match = 0.5
 
 
 class BestAgentTracker:

@@ -219,7 +219,7 @@ class TestTileEffectHelpers:
         # Need allow_stacking or add manually
         small_world.add_object(sand)
         tile = small_world.get_tile(2, 2)
-        tile.object_ids.append(qs.id)
+        tile.object_ids.add(qs.id)
         small_world.objects[qs.id] = qs
         mult = _get_tile_growth_multiplier(small_world, 2, 2)
         assert mult == pytest.approx(0.1 * 0.5)
@@ -248,7 +248,7 @@ class TestPlantGrowthWithTileEffects:
 
         plant_obj = ObjectRegistry.create("berry_plant", 2, 2)
         tile = small_world.get_tile(2, 2)
-        tile.object_ids.append(plant_obj.id)
+        tile.object_ids.add(plant_obj.id)
         small_world.objects[plant_obj.id] = plant_obj
 
         pc = plant_obj.get_component(PlantComponent)
@@ -278,7 +278,7 @@ class TestSeedGerminationWithTileEffects:
 
         seed = ObjectRegistry.create("berry_seed", 2, 2)
         tile = small_world.get_tile(2, 2)
-        tile.object_ids.append(seed.id)
+        tile.object_ids.add(seed.id)
         small_world.objects[seed.id] = seed
 
         sc = seed.get_component(SeedComponent)

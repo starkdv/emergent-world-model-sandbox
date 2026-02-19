@@ -446,19 +446,20 @@ class SoilDynamicsSystem:
         for obj_id, obj in world.objects.items():
             if obj.has_component(PlantComponent):
                 occupied_tiles.add((obj.x, obj.y))
-                tile = world.get_tile(obj.x, obj.y)
+                tile = world.tiles[obj.y][obj.x]
                 
-                if tile and tile.is_plantable():
+                if tile.is_plantable():
                     # Plants consume soil resources
                     tile.fertility = max(0.0, tile.fertility - self.fertility_consumption)
                     tile.moisture = max(0.0, tile.moisture - self.moisture_consumption)
         
-        # Second pass: process all soil tiles
+        # Second pass: process all soil tiles (direct access, skip non-plantable)
         for y in range(world.height):
+            row = world.tiles[y]
             for x in range(world.width):
-                tile = world.get_tile(x, y)
+                tile = row[x]
                 
-                if not tile or not tile.is_plantable():
+                if not tile.is_plantable():
                     continue
                 
                 # Natural moisture dynamics
@@ -548,11 +549,8 @@ class ResourceSpawnSystem:
             if random.random() < effective_rate:
                 self._spawn_resource_near(world, obj.x, obj.y, plant.spawn_resource_type)
         
-        # Safety net: spawn resources if world is depleted
-        edible_count = sum(
-            1 for obj in world.objects.values()
-            if obj.has_component(EdibleComponent)
-        )
+        # Safety net: spawn resources if world is depleted (use cached counts)
+        edible_count = world.get_cached_object_counts()['total_food']
         
         if edible_count < self.min_resources and random.random() < self.safety_spawn_rate:
             # Spawn resource at random location

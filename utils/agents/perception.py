@@ -163,7 +163,7 @@ def _encode_tile(tile, world: 'World') -> tuple[float, float]:
             o = world.objects.get(oid)
             if o is None:
                 continue
-            if ObjectRegistry.is_terrain_layer(o):
+            if getattr(o, 'is_terrain', False):
                 terrain_obj = o
             else:
                 render_obj = o
@@ -259,7 +259,7 @@ def _encode_stimulus(agent: 'Agent', world: 'World') -> list[float]:
     tile = world.tiles[agent.y][agent.x]
     for oid in tile.object_ids:
         o = world.objects.get(oid)
-        if o is None or ObjectRegistry.is_terrain_layer(o):
+        if o is None or getattr(o, 'is_terrain', False):
             continue
         if o.get_component(EdibleComponent) is not None:
             features[0] = 1.0  # food_on_tile
@@ -276,7 +276,7 @@ def _encode_stimulus(agent: 'Agent', world: 'World') -> list[float]:
         ahead_tile = world.tiles[ly][lx]
         for oid in ahead_tile.object_ids:
             o = world.objects.get(oid)
-            if o is None or ObjectRegistry.is_terrain_layer(o):
+            if o is None or getattr(o, 'is_terrain', False):
                 continue
             if o.get_component(EdibleComponent) is not None:
                 features[2] = 1.0  # food_ahead
@@ -296,7 +296,7 @@ def _encode_stimulus(agent: 'Agent', world: 'World') -> list[float]:
                 o = world.objects.get(oid)
                 if o is None:
                     continue
-                if ObjectRegistry.is_terrain_layer(o):
+                if getattr(o, 'is_terrain', False):
                     continue
                 if o.get_component(EdibleComponent) is not None:
                     d = abs(sx - agent.x) + abs(sy - agent.y)  # Manhattan

@@ -8,7 +8,7 @@ Author: Karan Vasa
 """
 
 from enum import Enum
-from typing import List
+from typing import Set
 
 
 class TerrainType(Enum):
@@ -76,7 +76,7 @@ class Tile:
         self.terrain_type = terrain_type
         self.fertility = fertility
         self.moisture = moisture
-        self.object_ids: List[int] = []
+        self.object_ids: Set[int] = set()
     
     def add_object(self, object_id: int) -> None:
         """
@@ -85,8 +85,7 @@ class Tile:
         Args:
             object_id: ID of the WorldObject to add
         """
-        if object_id not in self.object_ids:
-            self.object_ids.append(object_id)
+        self.object_ids.add(object_id)
     
     def remove_object(self, object_id: int) -> bool:
         """
@@ -99,7 +98,7 @@ class Tile:
             True if object was removed, False if not found
         """
         if object_id in self.object_ids:
-            self.object_ids.remove(object_id)
+            self.object_ids.discard(object_id)
             return True
         return False
     

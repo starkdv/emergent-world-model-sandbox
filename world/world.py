@@ -145,6 +145,10 @@ class World:
         self.learning_enable_stagger = bool(learning_enable_stagger)
         self._learning_updates_this_tick = 0
 
+        # Cached world counts (lazily computed, invalidated each tick)
+        self._cached_counts: dict | None = None
+        self._cached_soil_stats: tuple | None = None
+
         # Adaptive learning budget config
         self.learning_adaptive_budget = bool(learning_adaptive_budget)
         self.learning_min_updates_per_tick = max(0, int(learning_min_updates_per_tick))
@@ -465,6 +469,10 @@ class World:
         self.tick += 1
         self._learning_updates_this_tick = 0
         
+        # Invalidate cached world counts (lazily recomputed on first use)
+        self._cached_counts = None
+        self._cached_soil_stats = None
+        
         # Check for calamity event
         self._check_calamity()
         
@@ -479,6 +487,67 @@ class World:
         from agents.agent import Agent
         if Agent.logger is not None:
             Agent.logger.log_all_states(self.tick, self.agents)
+
+    def get_cached_object_counts(self) -> dict:
+        """
+        Return cached counts of food, plants, seeds, and alive agents.
+
+        Recomputed at most once per tick (invalidated at start of update()).
+        This avoids O(agents * objects) scanning when every agent's logger
+        calls sum(...) independently.
+
+        Returns:
+            dict with keys: total_food, total_plants, total_seeds, alive_agents
+        """
+        if self._cached_counts is not None:
+            return self._cached_counts
+
+        from world.objects import EdibleComponent, PlantComponent, SeedComponent
+        food = 0
+        plants = 0
+        seeds = 0
+        for obj in self.objects.values():
+            if obj.has_component(EdibleComponent):
+                food += 1
+            if obj.has_component(PlantComponent):
+                plants += 1
+            if obj.has_component(SeedComponent):
+                seeds += 1
+        alive = sum(1 for a in self.agents.values() if a.alive)
+        self._cached_counts = {
+            'total_food': food,
+            'total_plants': plants,
+            'total_seeds': seeds,
+            'alive_agents': alive,
+        }
+        return self._cached_counts
+
+    def get_cached_soil_stats(self) -> tuple:
+        """
+        Return cached avg fertility and avg moisture for soil tiles.
+
+        Recomputed at most once per tick.
+
+        Returns:
+            (avg_fertility, avg_moisture)
+        """
+        if self._cached_soil_stats is not None:
+            return self._cached_soil_stats
+
+        total_fertility = 0.0
+        total_moisture = 0.0
+        tile_count = 0
+        for row in self.tiles:
+            for tile in row:
+                if tile.terrain_type.value == "soil":
+                    total_fertility += tile.fertility
+                    total_moisture += tile.moisture
+                    tile_count += 1
+        if tile_count > 0:
+            self._cached_soil_stats = (total_fertility / tile_count, total_moisture / tile_count)
+        else:
+            self._cached_soil_stats = (0.0, 0.0)
+        return self._cached_soil_stats
 
     def try_acquire_learning_slot(self, agent_id: int, agent_age: int) -> bool:
         """
@@ -566,7 +635,6 @@ class World:
                     offspring = agent.reproduce(self, self.reproduction_config)
                     if offspring is not None:
                         new_offspring.append(offspring)
-                        print(f"[REPRODUCTION] Agent {agent.id} -> Agent {offspring.id} (parent age: {agent.age}, parent energy: {agent.energy:.1f}, pop: {len(self.agents) + len(new_offspring)}/{max_population or 'unlimited'})")
         
         # Add all offspring to world
         for offspring in new_offspring:

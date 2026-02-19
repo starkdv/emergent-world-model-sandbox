@@ -153,6 +153,31 @@ class Brain:
             # USE / plant (index 6) — instinct to plant seeds
             if action_mask[Action.USE.value] > 0:
                 logits[Action.USE.value] += 0.5
+
+            # ----------------------------------------------------------
+            # TURN TOWARD FOOD instinct
+            #
+            # When food is nearby but NOT in the agent's facing direction,
+            # bias turns so the agent reorients toward resources instead
+            # of walking in a straight line until hitting a wall.
+            #
+            # Observation stimulus layout (indices 58-65):
+            #   [60] food_ahead        (1.0 if food within 3 tiles ahead)
+            #   [62] nearest_food_prox (1.0 = on food, 0 = far/none)
+            #   [63] food_dir_match    (1.0 = facing food, 0 = facing away)
+            # ----------------------------------------------------------
+            if len(observation) > 63:
+                food_prox = observation[62]       # nearest_food_prox
+                food_dir  = observation[63]        # food_dir_match
+                food_ahead_sig = observation[60]   # food_ahead
+
+                # Food is nearby but agent isn't facing it — encourage turning
+                if food_prox > 0.2 and food_dir < 0.6 and food_ahead_sig < 0.5:
+                    turn_bias = 0.8 * food_prox
+                    if action_mask[Action.TURN_LEFT.value] > 0:
+                        logits[Action.TURN_LEFT.value] += turn_bias
+                    if action_mask[Action.TURN_RIGHT.value] > 0:
+                        logits[Action.TURN_RIGHT.value] += turn_bias
         
         # Apply temperature scaling
         logits = logits / temperature

@@ -39,6 +39,10 @@ python main.py
   ```bash
   python main.py --gui
   ```
+- **GPU Isometric Mode** (ModernGL 2.5D accelerated renderer):
+  ```bash
+  python main.py --gui --gpu
+  ```
 - **Demo Mode** (Console visualization):
   ```bash
   python main.py --demo

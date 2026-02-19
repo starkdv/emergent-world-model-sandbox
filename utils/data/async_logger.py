@@ -308,10 +308,11 @@ class AsyncWorldModelLogger:
                     if obj.get_component(SeedComponent):
                         tile_has_seed = 1
         
-        # Count world objects
-        total_food = sum(1 for o in world.objects.values() if o.has_component(EdibleComponent))
-        total_plants = sum(1 for o in world.objects.values() if o.has_component(PlantComponent))
-        alive_agents = sum(1 for a in world.agents.values() if a.alive)
+        # Count world objects (use cached counts — computed once per tick)
+        counts = world.get_cached_object_counts()
+        total_food = counts['total_food']
+        total_plants = counts['total_plants']
+        alive_agents = counts['alive_agents']
         
         # Build row
         row = [
@@ -392,9 +393,11 @@ class AsyncWorldModelLogger:
         alive_agents = [a for a in world.agents.values() if a.alive]
         total_agents = len(world.agents)
         
-        total_food = sum(1 for o in world.objects.values() if o.has_component(EdibleComponent))
-        total_plants = sum(1 for o in world.objects.values() if o.has_component(PlantComponent))
-        total_seeds = sum(1 for o in world.objects.values() if o.has_component(SeedComponent))
+        # Use cached counts (computed once per tick)
+        counts = world.get_cached_object_counts()
+        total_food = counts['total_food']
+        total_plants = counts['total_plants']
+        total_seeds = counts['total_seeds']
         
         if alive_agents:
             avg_energy = sum(a.energy for a in alive_agents) / len(alive_agents)
@@ -409,19 +412,8 @@ class AsyncWorldModelLogger:
             avg_age = max_age = 0
             total_fitness = avg_fitness = 0
         
-        # Calculate average soil stats
-        total_fertility = 0
-        total_moisture = 0
-        tile_count = 0
-        for row in world.tiles:
-            for tile in row:
-                if tile.terrain_type.value == "soil":
-                    total_fertility += tile.fertility
-                    total_moisture += tile.moisture
-                    tile_count += 1
-        
-        avg_fertility = total_fertility / tile_count if tile_count > 0 else 0
-        avg_moisture = total_moisture / tile_count if tile_count > 0 else 0
+        # Use cached soil stats (computed once per tick)
+        avg_fertility, avg_moisture = world.get_cached_soil_stats()
         
         row = [
             tick,
