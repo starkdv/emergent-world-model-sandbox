@@ -377,22 +377,23 @@ class PygameRenderer:
                     (screen_x, screen_y, scaled_tile_size, scaled_tile_size)
                 )
                 
-                # Render objects on tile
-                objects = self.world.get_objects_at(x, y)
-                if objects:
-                    # Pick the most relevant object to render:
-                    # skip terrain-layer objects when a real object exists
+                # Render objects on tile (hot-path)
+                # Avoid per-tile list allocations by iterating tile.object_ids directly.
+                if tile.object_ids:
                     from world.object_registry import ObjectRegistry
                     render_obj = None
                     terrain_obj = None
-                    for o in objects:
+                    for oid in tile.object_ids:
+                        o = self.world.objects.get(oid)
+                        if o is None:
+                            continue
                         if ObjectRegistry.is_terrain_layer(o):
                             terrain_obj = o
                         else:
                             render_obj = o
                             break
                     if render_obj is None:
-                        render_obj = terrain_obj  # fallback to terrain obj
+                        render_obj = terrain_obj
 
                     if render_obj is not None:
                         obj_color = None

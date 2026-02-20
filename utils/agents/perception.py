@@ -125,10 +125,19 @@ def _encode_vision(agent: 'Agent', world: 'World') -> list[float]:
     features: list[float] = []
     vision_radius = 2  # 5×5
 
+    # Egocentric rotation:
+    # - The grid is rotated so that "ahead" is always the negative-y direction
+    #   in the observation (top rows).
+    # - Turning changes the observation in a consistent, learnable way.
+    fx, fy = agent.direction
+    # Right vector (clockwise 90° rotation of facing)
+    rx, ry = (-fy, fx)
+
     for dy in range(-vision_radius, vision_radius + 1):
         for dx in range(-vision_radius, vision_radius + 1):
-            wx = agent.x + dx
-            wy = agent.y + dy
+            # dy < 0 is "ahead" in observation space
+            wx = agent.x + rx * dx + fx * (-dy)
+            wy = agent.y + ry * dx + fy * (-dy)
 
             if not (0 <= wx < world.width and 0 <= wy < world.height):
                 features.append(0.0)   # Rock (out of bounds)

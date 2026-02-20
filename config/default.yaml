@@ -39,7 +39,7 @@ brain:
 
 # Evolution Settings
 evolution:
-  selection_method: "tournament"
+  selection_method: "tournament"  # "tournament" or "mutation" or "crossover"
   tournament_size: 5
   mutation_rate: 0.01
   mutation_std: 0.1
@@ -85,6 +85,7 @@ simulation:
   ticks_per_second: 10
   auto_save: true
   save_interval: 10  # generations
+  parallel: true  # Parallel agent updates (observe+decide & learn run threaded)
 
 # Visualization Settings
 visualization:

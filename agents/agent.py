@@ -354,13 +354,17 @@ class Agent:
         if action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
             self._consecutive_turns += 1
             self._consecutive_waits = 0
-            # Mild escalating turn cost — only punishes extended spin loops
-            effective_energy_cost += min(0.04 * self._consecutive_turns, 0.20)
+            # Mild escalating turn cost — only punishes extended spin loops.
+            # IMPORTANT: don't penalize the first couple of turns; otherwise
+            # agents learn "always MOVE_FORWARD until masked".
+            extra_turn_penalty = max(0, self._consecutive_turns - 2)
+            effective_energy_cost += min(0.04 * extra_turn_penalty, 0.20)
         elif action == Action.WAIT:
             self._consecutive_waits += 1
             self._consecutive_turns = 0
             # Very gentle escalating wait cost — WAIT should remain affordable
-            effective_energy_cost += min(0.02 * self._consecutive_waits, 0.10)
+            extra_wait_penalty = max(0, self._consecutive_waits - 2)
+            effective_energy_cost += min(0.02 * extra_wait_penalty, 0.10)
         elif action == Action.MOVE_FORWARD:
             # Reward turn->move transition with a tiny cost discount
             if result.success and self._previous_action in [Action.TURN_LEFT, Action.TURN_RIGHT]:

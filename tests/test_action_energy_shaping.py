@@ -39,7 +39,10 @@ def test_turn_streak_energy_cost_increases():
     r3 = agent.execute_action(Action.TURN_RIGHT, world)
 
     assert r1.success and r2.success and r3.success
-    assert r1.energy_cost < r2.energy_cost < r3.energy_cost
+    # Occasional turns should be affordable; only extended spin loops
+    # should get progressively more expensive.
+    assert r1.energy_cost == r2.energy_cost
+    assert r3.energy_cost > r2.energy_cost
 
 
 def test_move_after_turn_gets_energy_discount():
@@ -67,7 +70,10 @@ def test_wait_streak_energy_cost_increases():
     r3 = agent.execute_action(Action.WAIT, world)
 
     assert r1.success and r2.success and r3.success
-    assert r1.energy_cost < r2.energy_cost < r3.energy_cost
+    # Occasional WAIT should be affordable; only extended idling streaks
+    # should get progressively more expensive.
+    assert r1.energy_cost == r2.energy_cost
+    assert r3.energy_cost > r2.energy_cost
 
 
 def test_non_wait_resets_wait_streak():
@@ -86,9 +92,7 @@ def test_non_wait_resets_wait_streak():
     # Next WAIT should be at base cost again (streak = 1)
     r = agent.execute_action(Action.WAIT, world)
     base_wait_cost = 0.18  # from agent_utils.execute_wait
-    first_surcharge = 0.02 * 1  # streak = 1
-    expected = round(base_wait_cost + first_surcharge, 3)
-    assert r.energy_cost == expected
+    assert r.energy_cost == round(base_wait_cost, 3)
 
 
 def test_brain_no_move_forward_bias():

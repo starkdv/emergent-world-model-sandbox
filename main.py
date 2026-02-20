@@ -320,6 +320,7 @@ Examples:
             learning_budget_adjust_step=learning_cfg.get('budget_adjust_step', 1),
             learning_budget_high_frame_factor=learning_cfg.get('budget_high_frame_factor', 1.10),
             learning_budget_low_frame_factor=learning_cfg.get('budget_low_frame_factor', 0.80),
+            parallel=config.get('simulation', {}).get('parallel', True),
         )
         
         print(f"World created: {world.width}x{world.height}")
@@ -673,7 +674,13 @@ Examples:
             traceback.print_exc()
         return 1
     finally:
-        # Always close loggers on exit
+        # Always shutdown pools before closing loggers to avoid background
+        # tasks writing to closed file handles.
+        try:
+            from utils.parallel import shutdown_pool
+            shutdown_pool()
+        except:
+            pass
         try:
             if Agent.logger is not None:
                 Agent.logger.close()

@@ -433,42 +433,66 @@ class SoilDynamicsSystem:
     def update(self, world: 'World') -> None:
         """
         Update soil dynamics across the world.
-        
+
+        Pass 1 (serial): identify plant-occupied tiles + apply consumption.
+        Pass 2 (row-parallel when world.parallel=True): evaporation,
+                 rain, fertility recovery across all tiles.
+
         Args:
             world: World instance to update
-            
-        Author: Karan Vasa
         """
         # Track which tiles have plants
         occupied_tiles: Set[tuple] = set()
-        
+
         # First pass: identify tiles with plants and apply consumption
         for obj_id, obj in world.objects.items():
             if obj.has_component(PlantComponent):
                 occupied_tiles.add((obj.x, obj.y))
                 tile = world.tiles[obj.y][obj.x]
-                
+
                 if tile.is_plantable():
-                    # Plants consume soil resources
                     tile.fertility = max(0.0, tile.fertility - self.fertility_consumption)
                     tile.moisture = max(0.0, tile.moisture - self.moisture_consumption)
-        
-        # Second pass: process all soil tiles (direct access, skip non-plantable)
-        for y in range(world.height):
+
+        # Second pass: per-tile dynamics (parallelisable by row)
+        if getattr(world, 'parallel', False) and world.height >= 8:
+            from utils.parallel import get_pool
+            pool = get_pool()
+
+            # Chunk rows into ~4 batches
+            n_workers = 4
+            chunk = max(1, world.height // n_workers)
+            futures = []
+            for start_y in range(0, world.height, chunk):
+                end_y = min(start_y + chunk, world.height)
+                futures.append(
+                    pool.submit(
+                        self._update_tile_rows, world, start_y, end_y, occupied_tiles
+                    )
+                )
+            for f in futures:
+                f.result()
+        else:
+            self._update_tile_rows(world, 0, world.height, occupied_tiles)
+
+    def _update_tile_rows(
+        self, world: 'World', start_y: int, end_y: int, occupied_tiles: Set[tuple]
+    ) -> None:
+        """Process a contiguous range of tile rows."""
+        evap = self.moisture_evaporation_rate
+        rain = self.moisture_recovery_rate
+        fert_rec = self.fertility_recovery_rate
+
+        for y in range(start_y, end_y):
             row = world.tiles[y]
-            for x in range(world.width):
+            for x in range(len(row)):
                 tile = row[x]
-                
                 if not tile.is_plantable():
                     continue
-                
-                # Natural moisture dynamics
-                tile.moisture = max(0.0, tile.moisture - self.moisture_evaporation_rate)  # Evaporation
-                tile.moisture = min(1.0, tile.moisture + self.moisture_recovery_rate)  # Rain/groundwater
-                
-                # Empty soil recovers fertility naturally
+                tile.moisture = max(0.0, tile.moisture - evap)
+                tile.moisture = min(1.0, tile.moisture + rain)
                 if (x, y) not in occupied_tiles:
-                    tile.fertility = min(1.0, tile.fertility + self.fertility_recovery_rate)
+                    tile.fertility = min(1.0, tile.fertility + fert_rec)
     
     def return_nutrients_to_soil(self, world: 'World', x: int, y: int) -> None:
         """
@@ -715,25 +739,31 @@ class WorldSystemManager:
     
     def update(self, world: 'World') -> None:
         """
-        Run all systems in order.
-        
-        Execution order:
-        1. Plant growth (aging, with tile-effect growth_multiplier)
-        2. Seed germination (with tile-effect germination_multiplier)
-        3. Decay (removes spoiled items)
-        4. Fertilizer effects (boosts soil)
-        5. Soil dynamics (manages soil resources)
-        6. Tile effects (sand spreading, fertility/moisture clamping)
-        7. Resource spawning (with tile-effect spawn_rate_multiplier)
-        
+                Run all systems.
+
+                Parallel mode is intentionally conservative: only stages that do not
+                mutate shared dictionaries concurrently are parallelised.  Currently
+                the heavy tile-scan in SoilDynamics can run row-parallel internally.
+
+                Execution pipeline:
+                    Serial: PlantGrowth (mutates world.objects)
+                    Serial: Decay (mutates world.objects)
+                    Serial: SeedGermination (mutates world.objects)
+                    Serial: Fertilizer (writes tile.fertility)
+                    Serial: SoilDynamics (writes tile.fertility + moisture, row-parallel internally)
+                    Serial: TileEffect (writes tile values, adds/removes objects)
+                    Serial: ResourceSpawn (adds objects, reads cached counts)
+
         Args:
             world: World instance to update
-            
-        Author: Karan Vasa
         """
+        # NOTE: PlantGrowth/Decay both mutate world.objects (add/remove).
+        # Running them concurrently is not thread-safe.
         self.plant_growth.update(world)
-        self.seed_germination.update(world)
         self.decay.update(world)
+
+        # Sequential stages (dependency chain)
+        self.seed_germination.update(world)
         self.fertilizer.update(world)
         self.soil_dynamics.update(world)
         self.tile_effect.update(world)
@@ -838,10 +868,33 @@ class TileEffectSystem:
 
         # Collect all tile-effect sources
         effect_sources: List[tuple] = []  # (obj, TileEffectSpec)
-        for obj_id, obj in world.objects.items():
-            te = ObjectRegistry.get_tile_effect(obj)
-            if te is not None:
+        stale_ids: List[int] = []
+        ids = getattr(world, 'tile_effect_object_ids', None)
+        if ids is None:
+            # Fallback for older World implementations
+            for obj_id, obj in world.objects.items():
+                te = ObjectRegistry.get_tile_effect(obj)
+                if te is not None:
+                    effect_sources.append((obj, te))
+        else:
+            # Iterate only tile-effect objects (fast when world has many non-effect objects)
+            for obj_id in tuple(ids):
+                obj = world.objects.get(obj_id)
+                if obj is None:
+                    stale_ids.append(obj_id)
+                    continue
+                te = ObjectRegistry.get_tile_effect(obj)
+                if te is None:
+                    stale_ids.append(obj_id)
+                    continue
                 effect_sources.append((obj, te))
+
+            # Prune stale index entries
+            for obj_id in stale_ids:
+                try:
+                    ids.discard(obj_id)
+                except Exception:
+                    pass
 
         # 1) Clamp fertility / moisture on tiles with effect objects
         for obj, te in effect_sources:

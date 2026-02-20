@@ -15,6 +15,7 @@ from world.systems import WorldSystemManager
 
 if TYPE_CHECKING:
     from agents.agent import Agent
+    from utils.parallel import update_agents_parallel
 
 
 class World:
@@ -70,6 +71,7 @@ class World:
         learning_budget_adjust_step: int = 1,
         learning_budget_high_frame_factor: float = 1.10,
         learning_budget_low_frame_factor: float = 0.80,
+        parallel: bool = True,
     ):
         """
         Initialize a new world with generated terrain.
@@ -124,6 +126,7 @@ class World:
         self.tick = 0
         self.seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         self.allow_stacking = allow_stacking  # NEW: Store stacking configuration
+        self.parallel = parallel  # Enable parallel agent updates
         
         # Set random seed for reproducibility
         random.seed(self.seed)
@@ -131,6 +134,10 @@ class World:
         self.tiles: List[List[Tile]] = []
         self.objects: Dict[int, WorldObject] = {}
         self.agents: Dict[int, 'Agent'] = {}  # Forward reference for Agent
+
+        # Index: object IDs that have a TileEffectSpec (e.g., sand).
+        # This prevents per-tick O(total_objects) scans in TileEffectSystem.
+        self._tile_effect_object_ids: set[int] = set()
         
         # Reproduction config (can be set after init)
         self.reproduction_config: Optional[dict] = None
@@ -358,6 +365,14 @@ class World:
         self.objects[obj.id] = obj
         if tile:
             tile.add_object(obj.id)
+
+        # Maintain tile-effect index
+        try:
+            from world.object_registry import ObjectRegistry
+            if ObjectRegistry.get_tile_effect(obj) is not None:
+                self._tile_effect_object_ids.add(obj.id)
+        except Exception:
+            pass
         return True
     
     def remove_object(self, object_id: int) -> bool:
@@ -377,9 +392,18 @@ class World:
         tile = self.get_tile(obj.x, obj.y)
         if tile:
             tile.remove_object(object_id)
+
+        # Maintain tile-effect index
+        if object_id in self._tile_effect_object_ids:
+            self._tile_effect_object_ids.discard(object_id)
         
         del self.objects[object_id]
         return True
+
+    @property
+    def tile_effect_object_ids(self) -> set[int]:
+        """Set of object IDs that have tile effects (read-only view)."""
+        return self._tile_effect_object_ids
     
     def move_object(self, object_id: int, new_x: int, new_y: int) -> bool:
         """
@@ -459,34 +483,45 @@ class World:
     def update(self) -> None:
         """
         Update world state for one simulation tick.
-        
-        This method advances the simulation by one tick, applying all
-        world systems (plant growth, seed germination, decay, fertilizer
-        effects, and resource spawning) and updating all agents.
-        
-        Author: Karan Vasa
+
+        Advances the simulation by one tick, applying all world systems
+        (plant growth, seed germination, decay, fertilizer, soil dynamics,
+        tile effects, and resource spawning) and updating all agents.
+        State logging is dispatched to a background thread when parallel
+        mode is enabled.
         """
         self.tick += 1
         self._learning_updates_this_tick = 0
-        
+
         # Invalidate cached world counts (lazily recomputed on first use)
         self._cached_counts = None
         self._cached_soil_stats = None
-        
+
         # Check for calamity event
         self._check_calamity()
-        
+
         # Update agents first (they act in the world)
         self._update_agents()
-        
+
         # Then update world systems (physics, growth, decay)
         self.systems.update(self)
-          # Clean up dead agents
+
+        # Clean up dead agents
         self._cleanup_dead_agents()
-          # Log agent states if logger is enabled
+
+        # Log agent states — offload to thread when parallel
         from agents.agent import Agent
         if Agent.logger is not None:
-            Agent.logger.log_all_states(self.tick, self.agents)
+            if self.parallel:
+                from utils.parallel import get_io_pool
+                # Snapshot in main thread to avoid iterating a mutating dict
+                agent_snapshot = list(self.agents.values())
+                # I/O pool is single-threaded so file writes never overlap
+                self._log_future = get_io_pool().submit(
+                    Agent.logger.log_all_states, self.tick, agent_snapshot
+                )
+            else:
+                Agent.logger.log_all_states(self.tick, self.agents)
 
     def get_cached_object_counts(self) -> dict:
         """
@@ -613,30 +648,33 @@ class World:
             )
     
     def _update_agents(self) -> None:
-        """Update all agents in the world."""
+        """Update all agents — uses parallel pipeline when enabled."""
+        if self.parallel:
+            from utils.parallel import update_agents_parallel
+            update_agents_parallel(self)
+        else:
+            self._update_agents_serial()
+
+    def _update_agents_serial(self) -> None:
+        """Original serial agent update loop (fallback)."""
         new_offspring = []
-        
-        # Get max population from config (default: unlimited)
+
         max_population = None
         if self.reproduction_config:
             max_population = self.reproduction_config.get('max_population', None)
-        
+
         for agent in list(self.agents.values()):
             if agent.alive:
                 agent.update(self)
-                  # Check for reproduction after update (pass config)
                 if agent.can_reproduce(self.reproduction_config):
-                    # Check if population limit reached
                     if max_population is not None:
                         current_population = len(self.agents) + len(new_offspring)
                         if current_population >= max_population:
-                            continue  # Skip reproduction, population limit reached
-                    
+                            continue
                     offspring = agent.reproduce(self, self.reproduction_config)
                     if offspring is not None:
                         new_offspring.append(offspring)
-        
-        # Add all offspring to world
+
         for offspring in new_offspring:
             self.add_agent(offspring)
     def _cleanup_dead_agents(self) -> None:

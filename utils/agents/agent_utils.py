@@ -65,9 +65,34 @@ def get_action_mask(agent: 'Agent', world: 'World') -> np.ndarray:
     if not has_pickable:
         mask[Action.PICK_UP.value] = 0.0
 
-    # DROP: check if inventory has items
+    # DROP: valid only if we have something to drop AND there is space.
+    # This mirrors execute_drop: in no-stacking mode, dropping onto an
+    # occupied tile requires an empty neighboring tile.
     if not agent.inventory:
         mask[Action.DROP.value] = 0.0
+    else:
+        if world.allow_stacking:
+            mask[Action.DROP.value] = 1.0
+        else:
+            if not tile.object_ids:
+                mask[Action.DROP.value] = 1.0
+            else:
+                has_empty_neighbor = False
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        if dx == 0 and dy == 0:
+                            continue
+                        tx = agent.x + dx
+                        ty = agent.y + dy
+                        if 0 <= tx < world.width and 0 <= ty < world.height:
+                            if not world.tiles[ty][tx].object_ids:
+                                has_empty_neighbor = True
+                                break
+                    if has_empty_neighbor:
+                        break
+
+                if not has_empty_neighbor:
+                    mask[Action.DROP.value] = 0.0
 
     # EAT: check if inventory has edible items
     has_food = False

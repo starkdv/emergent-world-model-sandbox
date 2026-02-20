@@ -104,6 +104,7 @@ class RewardShaper:
         self.last_food_distance = None
         self.last_actions = []  # Track recent actions to detect spinning
         self.last_position = None  # Track position to detect movement
+        self.recent_positions = deque(maxlen=24)  # Track recent positions to discourage loops
         self.consecutive_waits = 0  # Track consecutive wait actions
         self.positions_visited = set()  # Track visited positions for exploration
         self.steps_without_movement = 0  # Track steps without position change
@@ -159,36 +160,47 @@ class RewardShaper:
         else:
             self.consecutive_same_action = 0
         self.last_action = action
-          # ===== EXPLORATION BONUS (REDUCED for balance) =====
+
+        # ===== EXPLORATION BONUS (REDUCED for balance) =====
         current_position = (agent.x, agent.y)
-        
+        prev_position = self.last_position
+        moved_this_step = (prev_position is not None and current_position != prev_position)
+
         # Track if agent moved to a new position
-        if self.last_position is not None:
-            if current_position != self.last_position:
+        if prev_position is not None:
+            if moved_this_step:
                 # Agent moved! Reward active behavior
                 self.steps_without_movement = 0
                 self._recently_dropped_ids.clear()  # new tile, different objects
-                reward += 0.05
-                
+
+                # Movement should be mildly positive, but not so strong that
+                # it dominates TURN decisions when no food signal exists.
+                reward += 0.03
+
                 # Extra bonus for visiting new tiles
                 if current_position not in self.positions_visited:
-                    reward += 0.05
+                    reward += 0.04
                     self.positions_visited.add(current_position)
-                    
+
                     # Keep visited set from growing too large
                     if len(self.positions_visited) > 100:
                         self.positions_visited = set(list(self.positions_visited)[-50:])
             else:
                 # Agent didn't move
                 self.steps_without_movement += 1
-                
+
                 # Mild penalty for staying in place (only after many steps)
                 if self.steps_without_movement > 8:
                     reward -= 0.03 * min(self.steps_without_movement - 8, 10)
-        
+
         self.last_position = current_position
-        
-        nearest_food_dist = self._find_nearest_food_distance(agent, world)
+
+        # ===== ANTI-LOOP: discourage tight movement cycles =====
+        # Only apply when we actually moved (avoid punishing WAIT/turn-in-place).
+        if moved_this_step:
+            if current_position in self.recent_positions:
+                reward -= 0.04
+            self.recent_positions.append(current_position)
 
         # ===== WAIT: very gentle discouragement =====
         # Economic pressure comes from escalating energy cost in agent.py;
@@ -231,6 +243,24 @@ class RewardShaper:
                 reward += 3.0  # Strong signal: you're on food!
             
             self.last_food_distance = nearest_food_dist
+
+        # ===== REST reward: WAIT when nothing salient nearby =====
+        # When no food is in local range and energy isn't critical, a brief
+        # WAIT can be a reasonable choice. This helps push WAIT frequency
+        # toward the v3.1 target without incentivizing long idling streaks.
+        if action == Action.WAIT and nearest_food_dist is None:
+            energy_ratio = agent.energy / agent.max_energy if agent.max_energy else 0.0
+            if energy_ratio > 0.6 and self.consecutive_waits <= 3:
+                reward += 0.02
+
+        # ===== TURN-TO-EXPLORE reward (when no food is visible) =====
+        # When food isn't in local range, periodically turning helps avoid
+        # long straight runs and reduces the "only turn when masked" behavior.
+        if nearest_food_dist is None and action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
+            # Reward a turn if we've been mostly moving forward recently.
+            recent = self.last_actions[-6:]
+            if recent.count(Action.MOVE_FORWARD) >= 5:
+                reward += 0.03
           # ===== ENERGY-AWARE EATING REWARDS =====
         energy_gain = energy_after - energy_before
         
@@ -393,19 +423,56 @@ class RewardShaper:
             world: The world
             
         Returns:
-            Distance to nearest food, or None if no food exists        """
+            Distance to nearest food, or None if no food exists.
+
+        Notes:
+            This function is on the reward hot-path. It must not scan all
+            objects once the world has thousands of items.
+
+            Implementation: bounded local tile scan around the agent.
+            Returns a Manhattan distance (cheap) or None if no food is found.
+        """
         from world.objects import EdibleComponent
-        import math
-        
-        min_dist = None
-        for obj in world.objects.values():  # Iterate over values, not keys
-            edible = obj.get_component(EdibleComponent)
-            if edible is not None:
-                dist = math.sqrt((obj.x - agent.x)**2 + (obj.y - agent.y)**2)
-                if min_dist is None or dist < min_dist:
-                    min_dist = dist
-        
-        return min_dist
+
+        if not hasattr(world, 'tiles'):
+            return None
+
+        # 10 => 21x21 = 441 tiles max per call.
+        scan_r = 10
+        ax, ay = agent.x, agent.y
+
+        best_dist: Optional[int] = None
+
+        y0 = max(0, ay - scan_r)
+        y1 = min(world.height - 1, ay + scan_r)
+        x0 = max(0, ax - scan_r)
+        x1 = min(world.width - 1, ax + scan_r)
+
+        for y in range(y0, y1 + 1):
+            row = world.tiles[y]
+            dy = abs(y - ay)
+            for x in range(x0, x1 + 1):
+                dx = abs(x - ax)
+                d = dx + dy
+                if best_dist is not None and d >= best_dist:
+                    continue
+
+                tile = row[x]
+                if not tile.object_ids:
+                    continue
+
+                for oid in tile.object_ids:
+                    o = world.objects.get(oid)
+                    if o is None or getattr(o, 'is_terrain', False):
+                        continue
+                    if o.get_component(EdibleComponent) is not None:
+                        best_dist = d
+                        break
+
+                if best_dist == 0:
+                    return 0.0
+
+        return float(best_dist) if best_dist is not None else None
     
     def _compute_food_dir_match(self, agent: 'Agent', world: 'World') -> float:
         """
@@ -453,6 +520,7 @@ class RewardShaper:
         self.last_food_distance = None
         self.last_actions = []
         self.last_position = None
+        self.recent_positions.clear()
         self.consecutive_waits = 0
         self.positions_visited.clear()
         self.steps_without_movement = 0

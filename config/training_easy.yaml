@@ -98,6 +98,7 @@ simulation:
   ticks_per_second: 10
   auto_save: true
   save_interval: 10
+  parallel: true
 
 # Visualization Settings
 visualization:
