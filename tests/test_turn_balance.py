@@ -16,8 +16,8 @@ from agents.brain import Brain
 from agents.genome import Genome
 from utils.agents import RewardShaper
 
-
 # ── helpers ──────────────────────────────────────────────────────────────
+
 
 def _make_agent(x: int = 25, y: int = 25) -> Agent:
     wc = Brain.calculate_weight_count()
@@ -27,6 +27,7 @@ def _make_agent(x: int = 25, y: int = 25) -> Agent:
 
 class _SimpleWorld:
     """Minimal world stub sufficient for reward shaping."""
+
     def __init__(self):
         self.width = 50
         self.height = 50
@@ -34,6 +35,7 @@ class _SimpleWorld:
 
 
 # ── 1. Random initial direction ──────────────────────────────────────────
+
 
 def test_initial_directions_are_diverse():
     """Creating many agents should produce all four cardinal directions."""
@@ -56,12 +58,13 @@ def test_initial_direction_is_roughly_uniform():
         counts[d] = counts.get(d, 0) + 1
     for d, c in counts.items():
         frac = c / n
-        assert 0.15 < frac < 0.35, (
-            f"Direction {d} has {frac:.0%} of agents — too skewed"
-        )
+        assert (
+            0.15 < frac < 0.35
+        ), f"Direction {d} has {frac:.0%} of agents — too skewed"
 
 
 # ── 2. Direction-aware turn instinct ────────────────────────────────────
+
 
 def _build_obs_food_left() -> np.ndarray:
     """Observation where food is on the LEFT side of the egocentric grid."""
@@ -94,7 +97,7 @@ def _build_obs_food_right() -> np.ndarray:
     obs[63] = 0.2
 
     # Vision grid: place food-like values on RIGHT columns (dx > 0).
-    idx = 8 + (0 * 5 + 4) * 2   # row 0, col 4 (dx=+2)
+    idx = 8 + (0 * 5 + 4) * 2  # row 0, col 4 (dx=+2)
     obs[idx] = 1.0
     obs[idx + 1] = 0.8
     idx2 = 8 + (1 * 5 + 3) * 2  # row 1, col 3 (dx=+1)
@@ -160,6 +163,7 @@ def test_instinct_favors_right_when_food_is_right():
 
 # ── 3. Turn-balance regularization ──────────────────────────────────────
 
+
 def test_turn_balance_penalty_for_dominant_left():
     """Repeated TURN_LEFT should be penalized once skew reaches 4:1."""
     shaper = RewardShaper()
@@ -170,18 +174,26 @@ def test_turn_balance_penalty_for_dominant_left():
 
     # Prime with 7 left turns (fills last_actions)
     for _ in range(7):
-        shaper.calculate_reward(Action.TURN_LEFT, ok, a.energy, a.energy - 0.24, a, world)
+        shaper.calculate_reward(
+            Action.TURN_LEFT, ok, a.energy, a.energy - 0.24, a, world
+        )
 
     # 8th left turn should include the balance penalty
-    r_left = shaper.calculate_reward(Action.TURN_LEFT, ok, a.energy, a.energy - 0.24, a, world)
+    r_left = shaper.calculate_reward(
+        Action.TURN_LEFT, ok, a.energy, a.energy - 0.24, a, world
+    )
 
     # Reset and try right instead — same penalty expected (symmetric)
     shaper2 = RewardShaper()
     a2 = _make_agent()
     a2.direction = (0, -1)
     for _ in range(7):
-        shaper2.calculate_reward(Action.TURN_RIGHT, ok, a2.energy, a2.energy - 0.24, a2, world)
-    r_right = shaper2.calculate_reward(Action.TURN_RIGHT, ok, a2.energy, a2.energy - 0.24, a2, world)
+        shaper2.calculate_reward(
+            Action.TURN_RIGHT, ok, a2.energy, a2.energy - 0.24, a2, world
+        )
+    r_right = shaper2.calculate_reward(
+        Action.TURN_RIGHT, ok, a2.energy, a2.energy - 0.24, a2, world
+    )
 
     # The test checks that a heavily-skewed agent gets a lower
     # reward than a balanced one.
@@ -191,7 +203,9 @@ def test_turn_balance_penalty_for_dominant_left():
     # Alternate turns: 4 left, 3 right, then 1 left (balanced)
     for act in [Action.TURN_LEFT, Action.TURN_RIGHT] * 3 + [Action.TURN_LEFT]:
         shaper3.calculate_reward(act, ok, a3.energy, a3.energy - 0.24, a3, world)
-    r_balanced = shaper3.calculate_reward(Action.TURN_LEFT, ok, a3.energy, a3.energy - 0.24, a3, world)
+    r_balanced = shaper3.calculate_reward(
+        Action.TURN_LEFT, ok, a3.energy, a3.energy - 0.24, a3, world
+    )
 
     # The dominant-side reward should be lower (more negative) than balanced
     assert r_left < r_balanced or r_right < r_balanced, (

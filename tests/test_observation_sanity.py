@@ -11,7 +11,9 @@ def _make_world_and_agent(seed: int = 11):
     world = World(width=20, height=20, seed=seed)
 
     weight_count = Brain.calculate_weight_count()
-    genome = Genome.random(weight_count=weight_count, trait_config=create_default_trait_config())
+    genome = Genome.random(
+        weight_count=weight_count, trait_config=create_default_trait_config()
+    )
     agent = Agent(x=10, y=10, genome=genome)
     world.add_agent(agent)
     return world, agent
@@ -41,7 +43,7 @@ def test_stimulus_food_signals_change_with_facing_and_position():
     world, agent = _make_world_and_agent()
 
     # Food 2 tiles north of agent
-    berry = ObjectRegistry.create('berry', 10, 8)
+    berry = ObjectRegistry.create("berry", 10, 8)
     world.add_object(berry)
 
     agent.direction = (0, -1)  # north
@@ -51,7 +53,7 @@ def test_stimulus_food_signals_change_with_facing_and_position():
     assert len(obs_north) == 72
     assert s_north[2] == 1.0  # food_ahead
     assert s_north[3] == 1.0  # resource_ahead
-    assert s_north[4] > 0.0   # nearest_food_prox
+    assert s_north[4] > 0.0  # nearest_food_prox
 
     # Turn east; same food should no longer be ahead
     agent.direction = (1, 0)
@@ -59,15 +61,14 @@ def test_stimulus_food_signals_change_with_facing_and_position():
     s_east = _stimulus(obs_east)
 
     assert s_east[2] == 0.0  # food_ahead off when not in front
-    assert s_east[4] > 0.0   # still detectable as nearby food
-
+    assert s_east[4] > 0.0  # still detectable as nearby food
 
 
 def test_vision_grid_is_egocentric_rotating_with_agent_direction():
     world, agent = _make_world_and_agent(seed=13)
 
     # Fixed world-space berry to the north of agent
-    berry = ObjectRegistry.create('berry', 10, 8)
+    berry = ObjectRegistry.create("berry", 10, 8)
     world.add_object(berry)
 
     agent.direction = (0, -1)  # north

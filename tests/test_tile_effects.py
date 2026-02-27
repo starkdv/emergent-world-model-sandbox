@@ -40,10 +40,10 @@ from world.systems import (
     _tile_blocks_growth,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def _reset_registry():
@@ -57,7 +57,9 @@ def _reset_registry():
 @pytest.fixture
 def small_world():
     """A tiny 5x5 world with all-soil terrain for deterministic tests."""
-    w = World(5, 5, seed=1, soil_ratio=1.0, rock_ratio=0.0, water_ratio=0.0, sand_ratio=0.0)
+    w = World(
+        5, 5, seed=1, soil_ratio=1.0, rock_ratio=0.0, water_ratio=0.0, sand_ratio=0.0
+    )
     for y in range(5):
         for x in range(5):
             tile = w.get_tile(x, y)
@@ -71,6 +73,7 @@ def small_world():
 # ===================================================================
 # InteractionSpec tests
 # ===================================================================
+
 
 class TestInteractionSpec:
     """Tests for InteractionSpec defaults and per-object lookups."""
@@ -124,6 +127,7 @@ class TestInteractionSpec:
 # TileEffectSpec attribute tests
 # ===================================================================
 
+
 class TestTileEffectSpec:
     """Verify the sand definition's TileEffectSpec attributes."""
 
@@ -164,6 +168,7 @@ class TestTileEffectSpec:
 # ===================================================================
 # Tile-effect helper function tests
 # ===================================================================
+
 
 class TestTileEffectHelpers:
     """Tests for the module-level helper functions used by systems."""
@@ -207,13 +212,15 @@ class TestTileEffectHelpers:
     def test_multipliers_stack_multiplicatively(self, small_world):
         """Two effect objects on the same tile should multiply."""
         # Register a second sand-like object for stacking test
-        ObjectRegistry.register(ObjectDefinition(
-            type_id="quicksand",
-            display_name="Quicksand",
-            category="terrain_effect",
-            interaction=InteractionSpec(pickable=False, blocks_growth=True),
-            tile_effect=TileEffectSpec(growth_multiplier=0.5),
-        ))
+        ObjectRegistry.register(
+            ObjectDefinition(
+                type_id="quicksand",
+                display_name="Quicksand",
+                category="terrain_effect",
+                interaction=InteractionSpec(pickable=False, blocks_growth=True),
+                tile_effect=TileEffectSpec(growth_multiplier=0.5),
+            )
+        )
         sand = ObjectRegistry.create("sand", 2, 2)
         qs = ObjectRegistry.create("quicksand", 2, 2)
         # Need allow_stacking or add manually
@@ -228,6 +235,7 @@ class TestTileEffectHelpers:
 # ===================================================================
 # PlantGrowthSystem with tile effects
 # ===================================================================
+
 
 class TestPlantGrowthWithTileEffects:
     """Ensure PlantGrowthSystem applies growth multiplier."""
@@ -263,6 +271,7 @@ class TestPlantGrowthWithTileEffects:
 # ===================================================================
 # SeedGerminationSystem with tile effects
 # ===================================================================
+
 
 class TestSeedGerminationWithTileEffects:
     """Germination should be harder on sand and blocked when blocks_growth."""
@@ -301,6 +310,7 @@ class TestSeedGerminationWithTileEffects:
 # ===================================================================
 # TileEffectSystem spreading tests
 # ===================================================================
+
 
 class TestTileEffectSystem:
     """Tests for the TileEffectSystem: spreading, clamping, conversion."""
@@ -430,10 +440,12 @@ class TestTileEffectSystem:
             if tile and tile.terrain_type == TerrainType.SAND:
                 has_sand_obj = any(
                     small_world.objects.get(oid)
-                    and getattr(small_world.objects[oid], 'type_id', '') == 'sand'
+                    and getattr(small_world.objects[oid], "type_id", "") == "sand"
                     for oid in tile.object_ids
                 )
-                assert has_sand_obj, f"Tile ({nx},{ny}) converted but has no sand object"
+                assert (
+                    has_sand_obj
+                ), f"Tile ({nx},{ny}) converted but has no sand object"
 
     def test_does_not_spread_to_non_soil(self, small_world):
         """Sand should only spread to SOIL tiles, not ROCK/WATER."""
@@ -499,6 +511,7 @@ class TestTileEffectSystem:
 # SAND terrain type
 # ===================================================================
 
+
 class TestSandTerrainType:
     """Verify SAND terrain type integration in tiles."""
 
@@ -522,6 +535,7 @@ class TestSandTerrainType:
 # ===================================================================
 # Reclamation tests
 # ===================================================================
+
 
 class TestReclamation:
     """Tests for the reclaim_terrain / reclaim_interval feature.

@@ -38,10 +38,10 @@ from world.object_registry import (
     register_builtin_objects,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def clean_registry():
@@ -62,6 +62,7 @@ def builtins():
 # ---------------------------------------------------------------------------
 # Spec dataclass tests
 # ---------------------------------------------------------------------------
+
 
 class TestSpecs:
     """Tests for individual component specification dataclasses."""
@@ -118,6 +119,7 @@ class TestSpecs:
 # ---------------------------------------------------------------------------
 # ObjectDefinition tests
 # ---------------------------------------------------------------------------
+
 
 class TestObjectDefinition:
     """Tests for ObjectDefinition creation, from_dict, and to_dict."""
@@ -208,7 +210,9 @@ class TestObjectDefinition:
             display_name="Berry",
             category="food",
             edible=EdibleSpec(calories=20.0),
-            physics=PhysicsSpec(decay_rate=0.01, decompose_into="berry_seed", decompose_chance=0.7),
+            physics=PhysicsSpec(
+                decay_rate=0.01, decompose_into="berry_seed", decompose_chance=0.7
+            ),
             observation=ObservationSpec(vision_encoding=1.0, value_source="freshness"),
         )
         d = original.to_dict()
@@ -216,7 +220,9 @@ class TestObjectDefinition:
         assert restored.type_id == original.type_id
         assert restored.edible.calories == original.edible.calories
         assert restored.physics.decompose_into == original.physics.decompose_into
-        assert restored.observation.vision_encoding == original.observation.vision_encoding
+        assert (
+            restored.observation.vision_encoding == original.observation.vision_encoding
+        )
 
     def test_from_dict_defaults_when_missing(self):
         """from_dict should use defaults when category/display_name is missing."""
@@ -230,6 +236,7 @@ class TestObjectDefinition:
 # ---------------------------------------------------------------------------
 # ObjectRegistry CRUD tests
 # ---------------------------------------------------------------------------
+
 
 class TestRegistryCRUD:
     """Tests for registry register / get / clear / type_ids."""
@@ -280,6 +287,7 @@ class TestRegistryCRUD:
 # ---------------------------------------------------------------------------
 # Factory (create) tests
 # ---------------------------------------------------------------------------
+
 
 class TestRegistryCreate:
     """Tests for ObjectRegistry.create() factory method."""
@@ -358,6 +366,7 @@ class TestRegistryCreate:
 # Built-in definitions tests
 # ---------------------------------------------------------------------------
 
+
 class TestBuiltinDefinitions:
     """Tests for register_builtin_objects() and the 4 built-in types."""
 
@@ -424,6 +433,7 @@ class TestBuiltinDefinitions:
 # Category lookup tests
 # ---------------------------------------------------------------------------
 
+
 class TestCategoryLookup:
     """Tests for ObjectRegistry.get_category()."""
 
@@ -478,6 +488,7 @@ class TestCategoryLookup:
 # Observation encoding tests
 # ---------------------------------------------------------------------------
 
+
 class TestObservationEncoding:
     """Tests for ObjectRegistry.get_observation_encoding()."""
 
@@ -506,6 +517,7 @@ class TestObservationEncoding:
 # Physics spec tests
 # ---------------------------------------------------------------------------
 
+
 class TestPhysicsSpec:
     """Tests for ObjectRegistry.get_physics()."""
 
@@ -531,6 +543,7 @@ class TestPhysicsSpec:
 # ---------------------------------------------------------------------------
 # Config loading tests
 # ---------------------------------------------------------------------------
+
 
 class TestConfigLoading:
     """Tests for ObjectRegistry.load_from_config()."""
@@ -568,7 +581,12 @@ class TestConfigLoading:
             "apple_tree": {
                 "display_name": "Apple Tree",
                 "category": "plant",
-                "plant": {"mature_age": 200, "max_age": 1000, "produces": "apple", "spawn_rate": 0.05},
+                "plant": {
+                    "mature_age": 200,
+                    "max_age": 1000,
+                    "produces": "apple",
+                    "spawn_rate": 0.05,
+                },
             },
         }
         count = ObjectRegistry.load_from_config(config)
@@ -615,16 +633,19 @@ class TestConfigLoading:
 # Tool component via registry tests
 # ---------------------------------------------------------------------------
 
+
 class TestToolDefinition:
     """Tests for objects with ToolComponent via the registry."""
 
     def test_create_tool_object(self):
-        ObjectRegistry.register(ObjectDefinition(
-            type_id="pickaxe",
-            display_name="Pickaxe",
-            category="tool",
-            tool=ToolSpec(effect_type="DIG", efficiency=2.0),
-        ))
+        ObjectRegistry.register(
+            ObjectDefinition(
+                type_id="pickaxe",
+                display_name="Pickaxe",
+                category="tool",
+                tool=ToolSpec(effect_type="DIG", efficiency=2.0),
+            )
+        )
         obj = ObjectRegistry.create("pickaxe", 0, 0)
         assert obj.type_id == "pickaxe"
         assert obj.has_component(ToolComponent)
@@ -633,12 +654,14 @@ class TestToolDefinition:
         assert tc.efficiency == 2.0
 
     def test_tool_override(self):
-        ObjectRegistry.register(ObjectDefinition(
-            type_id="shovel",
-            display_name="Shovel",
-            category="tool",
-            tool=ToolSpec(effect_type="DIG", efficiency=1.0),
-        ))
+        ObjectRegistry.register(
+            ObjectDefinition(
+                type_id="shovel",
+                display_name="Shovel",
+                category="tool",
+                tool=ToolSpec(effect_type="DIG", efficiency=1.0),
+            )
+        )
         obj = ObjectRegistry.create("shovel", 0, 0, efficiency=3.0)
         tc = obj.get_component(ToolComponent)
         assert tc.efficiency == 3.0
@@ -648,50 +671,63 @@ class TestToolDefinition:
 # Custom object type integration tests
 # ---------------------------------------------------------------------------
 
+
 class TestCustomObjectTypes:
     """Tests demonstrating how easy it is to add new object types."""
 
     def test_define_mushroom_lifecycle(self):
         """Define a complete mushroom lifecycle: mushroom → spore → mycelium → mushroom."""
-        ObjectRegistry.register(ObjectDefinition(
-            type_id="mushroom",
-            display_name="Mushroom",
-            category="food",
-            edible=EdibleSpec(calories=15.0, toxicity=0.05),
-            physics=PhysicsSpec(
-                decay_rate=0.03,
-                decompose_into="spore",
-                decompose_chance=0.8,
-                nutrient_return=0.1,
-            ),
-            observation=ObservationSpec(vision_encoding=0.9, value_source="freshness"),
-        ))
-        ObjectRegistry.register(ObjectDefinition(
-            type_id="spore",
-            display_name="Spore",
-            category="seed",
-            seed=SeedSpec(
-                grows_into="mycelium",
-                grow_time=30,
-                required_fertility=0.2,
-                required_moisture=0.3,
-                max_age=150,
-            ),
-            observation=ObservationSpec(vision_encoding=0.55, value_source="viability"),
-        ))
-        ObjectRegistry.register(ObjectDefinition(
-            type_id="mycelium",
-            display_name="Mycelium",
-            category="plant",
-            plant=PlantSpec(
-                mature_age=60,
-                max_age=300,
-                produces="mushroom",
-                spawn_rate=0.15,
-            ),
-            physics=PhysicsSpec(nutrient_return=0.1),
-            observation=ObservationSpec(vision_encoding=0.7, value_source="maturity"),
-        ))
+        ObjectRegistry.register(
+            ObjectDefinition(
+                type_id="mushroom",
+                display_name="Mushroom",
+                category="food",
+                edible=EdibleSpec(calories=15.0, toxicity=0.05),
+                physics=PhysicsSpec(
+                    decay_rate=0.03,
+                    decompose_into="spore",
+                    decompose_chance=0.8,
+                    nutrient_return=0.1,
+                ),
+                observation=ObservationSpec(
+                    vision_encoding=0.9, value_source="freshness"
+                ),
+            )
+        )
+        ObjectRegistry.register(
+            ObjectDefinition(
+                type_id="spore",
+                display_name="Spore",
+                category="seed",
+                seed=SeedSpec(
+                    grows_into="mycelium",
+                    grow_time=30,
+                    required_fertility=0.2,
+                    required_moisture=0.3,
+                    max_age=150,
+                ),
+                observation=ObservationSpec(
+                    vision_encoding=0.55, value_source="viability"
+                ),
+            )
+        )
+        ObjectRegistry.register(
+            ObjectDefinition(
+                type_id="mycelium",
+                display_name="Mycelium",
+                category="plant",
+                plant=PlantSpec(
+                    mature_age=60,
+                    max_age=300,
+                    produces="mushroom",
+                    spawn_rate=0.15,
+                ),
+                physics=PhysicsSpec(nutrient_return=0.1),
+                observation=ObservationSpec(
+                    vision_encoding=0.7, value_source="maturity"
+                ),
+            )
+        )
 
         # Verify lifecycle chain
         mushroom_def = ObjectRegistry.get("mushroom")
@@ -717,14 +753,20 @@ class TestCustomObjectTypes:
 
     def test_define_healing_herb(self):
         """Define a simple non-lifecycle object: healing herb."""
-        ObjectRegistry.register(ObjectDefinition(
-            type_id="healing_herb",
-            display_name="Healing Herb",
-            category="food",
-            edible=EdibleSpec(calories=5.0, toxicity=-0.5),  # negative toxicity = healing
-            physics=PhysicsSpec(decay_rate=0.005),
-            observation=ObservationSpec(vision_encoding=0.88, value_source="freshness"),
-        ))
+        ObjectRegistry.register(
+            ObjectDefinition(
+                type_id="healing_herb",
+                display_name="Healing Herb",
+                category="food",
+                edible=EdibleSpec(
+                    calories=5.0, toxicity=-0.5
+                ),  # negative toxicity = healing
+                physics=PhysicsSpec(decay_rate=0.005),
+                observation=ObservationSpec(
+                    vision_encoding=0.88, value_source="freshness"
+                ),
+            )
+        )
 
         herb = ObjectRegistry.create("healing_herb", 10, 20)
         assert herb.type_id == "healing_herb"
@@ -734,13 +776,15 @@ class TestCustomObjectTypes:
 
     def test_define_object_with_multiple_components(self):
         """A fruit that is both edible AND contains a seed (combo object)."""
-        ObjectRegistry.register(ObjectDefinition(
-            type_id="seeded_fruit",
-            display_name="Seeded Fruit",
-            category="food",
-            edible=EdibleSpec(calories=25.0),
-            seed=SeedSpec(grows_into="fruit_tree", grow_time=60),
-        ))
+        ObjectRegistry.register(
+            ObjectDefinition(
+                type_id="seeded_fruit",
+                display_name="Seeded Fruit",
+                category="food",
+                edible=EdibleSpec(calories=25.0),
+                seed=SeedSpec(grows_into="fruit_tree", grow_time=60),
+            )
+        )
 
         obj = ObjectRegistry.create("seeded_fruit", 0, 0)
         assert obj.has_component(EdibleComponent)
@@ -751,6 +795,7 @@ class TestCustomObjectTypes:
 # ---------------------------------------------------------------------------
 # WorldObject.type_id backward compatibility
 # ---------------------------------------------------------------------------
+
 
 class TestBackwardCompatibility:
     """
@@ -795,13 +840,16 @@ class TestBackwardCompatibility:
 # Edge cases
 # ---------------------------------------------------------------------------
 
+
 class TestEdgeCases:
     """Edge cases and error handling."""
 
     def test_register_builtin_twice_is_safe(self):
         register_builtin_objects()
         register_builtin_objects()
-        assert len(ObjectRegistry.all_definitions()) == 5  # berry, berry_seed, berry_plant, fertilizer, sand
+        assert (
+            len(ObjectRegistry.all_definitions()) == 5
+        )  # berry, berry_seed, berry_plant, fertilizer, sand
 
     def test_create_at_zero_zero(self, builtins):
         obj = builtins.create("berry", 0, 0)
@@ -813,11 +861,13 @@ class TestEdgeCases:
 
     def test_definition_with_no_components(self):
         """An object with no components should still be creatable."""
-        ObjectRegistry.register(ObjectDefinition(
-            type_id="marker",
-            display_name="Marker",
-            category="object",
-        ))
+        ObjectRegistry.register(
+            ObjectDefinition(
+                type_id="marker",
+                display_name="Marker",
+                category="object",
+            )
+        )
         obj = ObjectRegistry.create("marker", 0, 0)
         assert obj.type_id == "marker"
         assert len(obj.components) == 0

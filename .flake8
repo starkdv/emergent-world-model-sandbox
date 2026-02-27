@@ -1,0 +1,41 @@
+[flake8]
+max-line-length = 120
+exclude =
+    .venv,
+    __pycache__,
+    data,
+    build,
+    dist,
+    .git,
+    *.egg-info
+# E203: whitespace before ':' — conflicts with black
+# W503: line break before binary operator — conflicts with black
+# E501: line too long — black handles most; allow minor overflows in strings/comments
+# E402: module-level import not at top — needed for conditional/deferred imports
+# E712: comparison to True — stylistic, not a bug
+# E722: bare except — existing codebase pattern, fix incrementally
+# E401: multiple imports on one line — minor style issue
+extend-ignore = E203, W503, E402, E712, E722, E501, E401
+per-file-ignores =
+    # Renderers have many intentional unused imports and f-strings
+    utils/ui/gpu_renderer.py: F401, F541
+    utils/ui/pygame_renderer.py: F401, F541
+    # __init__.py files re-export symbols
+    */__init__.py: F401
+    # World module has conditional imports
+    world/world.py: F401, F811
+    # Utils re-export and conditional imports
+    utils/agents/*.py: F401, F541
+    utils/render.py: F401
+    utils/parallel.py: F401
+    # Object model has re-exports
+    world/objects.py: F401
+    # Tests have unused variables from fixtures and f-string assertions
+    tests/*.py: F841, F401, F541
+    tests/scenarios/*.py: F841, F401, F541
+    # Agent modules have conditional imports
+    agents/*.py: F401
+    # Analyzers have f-strings used as section headers
+    analyze_*.py: F541
+    # Main has conditional imports
+    main.py: F401, E401

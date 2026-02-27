@@ -15,7 +15,6 @@ class DummyWorld:
         self.objects = {}
 
 
-
 def _make_agent(x: int = 10, y: int = 10):
     return SimpleNamespace(
         x=x,
@@ -30,7 +29,6 @@ def _make_agent(x: int = 10, y: int = 10):
         metabolism_rate=0.5,
         alive=True,
     )
-
 
 
 def test_proactive_turn_reward_after_straight_run():
@@ -73,7 +71,6 @@ def test_proactive_turn_reward_after_straight_run():
     )
 
     assert turn_after_run > baseline_turn + 0.04
-
 
 
 def test_backtrack_is_penalized_more_than_forward_progress():

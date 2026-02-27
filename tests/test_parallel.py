@@ -40,6 +40,7 @@ def _spawn_agents(world: World, n: int = 5, learning: bool = False) -> list:
         agent = Agent(x=x, y=y, genome=genome, max_energy=200.0)
         if learning:
             from agents.learning import AgentLearner
+
             agent.learner = AgentLearner(learning_rate=0.01)
             agent.learning_enabled = True
         world.add_agent(agent)
@@ -51,6 +52,7 @@ def _spawn_agents(world: World, n: int = 5, learning: bool = False) -> list:
 # ------------------------------------------------------------------
 # Tests
 # ------------------------------------------------------------------
+
 
 class TestParallelUpdate:
     """Ensure parallel path executes without errors."""
@@ -107,6 +109,7 @@ class TestParallelUpdate:
     def test_pool_shutdown(self):
         """Pool shutdown should not raise."""
         from utils.parallel import get_pool, shutdown_pool
+
         pool = get_pool()
         assert pool is not None
         shutdown_pool()
@@ -127,6 +130,7 @@ class TestParallelWorldSystems:
             world.update()
 
         from world.tiles import TerrainType
+
         for row in world.tiles:
             for tile in row:
                 if tile.terrain_type == TerrainType.SOIL:
@@ -139,8 +143,9 @@ class TestParallelWorldSystems:
         _spawn_agents(world, n=3)
 
         # Add some plants and berries so both systems have work
-        from world.object_registry import ObjectRegistry
+        from world.object_registry import ObjectRegistry  # noqa: F811
         from world.tiles import TerrainType
+
         added = 0
         for y in range(world.height):
             for x in range(world.width):
@@ -185,6 +190,7 @@ class TestParallelWorldSystems:
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AgentLogger(output_dir=tmpdir)
             from agents.agent import Agent
+
             Agent.logger = logger
             try:
                 world = _make_world(parallel=True)
@@ -192,7 +198,7 @@ class TestParallelWorldSystems:
                 for _ in range(5):
                     world.update()
                 # Wait for any pending log future
-                fut = getattr(world, '_log_future', None)
+                fut = getattr(world, "_log_future", None)
                 if fut is not None:
                     fut.result()
                 logger.close()
@@ -224,6 +230,7 @@ class TestParallelWorldSystems:
                     _ = a.id
 
         from agents.agent import Agent
+
         original = Agent.logger
         Agent.logger = SlowIterLogger()
         try:
@@ -235,7 +242,7 @@ class TestParallelWorldSystems:
             new_agent = _spawn_agents(world, n=1)[0]
             assert new_agent.id in world.agents
 
-            fut = getattr(world, '_log_future', None)
+            fut = getattr(world, "_log_future", None)
             assert fut is not None
             fut.result()
             assert Agent.logger.calls

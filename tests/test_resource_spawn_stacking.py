@@ -58,9 +58,9 @@ def test_resource_spawn_respects_no_stacking():
     print(f"✓ Object count after update: {after_update_count}")
 
     # In no-stacking mode, spawn should fail because all tiles are occupied
-    assert after_update_count == initial_object_count, (
-        f"New objects spawned despite all tiles being occupied! Expected: {initial_object_count}, Got: {after_update_count}"
-    )
+    assert (
+        after_update_count == initial_object_count
+    ), f"New objects spawned despite all tiles being occupied! Expected: {initial_object_count}, Got: {after_update_count}"
 
     print(f"\n✅ SUCCESS: No new objects spawned (all tiles occupied)")
 
@@ -165,9 +165,9 @@ def test_calamity_respawn_rate():
     print(f"  Respawn rate: {respawn_rate * 100:.1f}% of destroyed objects")
 
     # In no-stacking mode, respawn should be limited
-    assert respawn_rate < 0.3, (
-        f"Respawn rate too high ({respawn_rate * 100:.1f}%), expected <30%"
-    )
+    assert (
+        respawn_rate < 0.3
+    ), f"Respawn rate too high ({respawn_rate * 100:.1f}%), expected <30%"
 
     print(f"\n✅ SUCCESS: Respawn rate is reasonable for no-stacking mode")
     print(f"   ResourceSpawnSystem respects tile occupancy limits")
