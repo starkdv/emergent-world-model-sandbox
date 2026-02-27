@@ -28,11 +28,15 @@ COLORS = {
     'soil': (101, 67, 33),            # Rich brown
     'rock': (105, 105, 105),          # Dim gray
     'water': (30, 144, 255),          # Dodger blue
+    'sand': (210, 180, 120),          # Sandy beige
     
     # Object colors - Vibrant, distinct
     'plant': (34, 139, 34),           # Forest green
     'plant_mature': (50, 205, 50),    # Lime green
     'seed': (205, 170, 125),          # Warm tan
+    'seed_sprouting': (120, 200, 80), # Light green (near germination)
+    'seed_agent_planted': (255, 200, 0),  # Golden — agent-planted seed
+    'seed_agent_glow': (255, 235, 100),   # Bright gold glow ring
     'berry': (220, 20, 60),           # Crimson
     'berry_fresh': (255, 99, 71),     # Tomato
     
@@ -373,25 +377,110 @@ class PygameRenderer:
                     (screen_x, screen_y, scaled_tile_size, scaled_tile_size)
                 )
                 
-                # Render objects on tile
-                objects = self.world.get_objects_at(x, y)
-                if objects:
-                    obj = objects[0]  # Render first object for now
-                    obj_color = None
-                    
-                    if obj.has_component(PlantComponent):
-                        obj_color = COLORS['plant']
-                    elif obj.has_component(EdibleComponent):
-                        obj_color = COLORS['berry']
-                    elif obj.has_component(SeedComponent):
-                        obj_color = COLORS['seed']
-                    
-                    if obj_color:
-                        # Draw object as circle
-                        center_x = screen_x + scaled_tile_size // 2
-                        center_y = screen_y + scaled_tile_size // 2
-                        radius = max(2, scaled_tile_size // 3)
-                        pygame.draw.circle(self.screen, obj_color, (center_x, center_y), radius)
+                # Render objects on tile (hot-path)
+                # Avoid per-tile list allocations by iterating tile.object_ids directly.
+                if tile.object_ids:
+                    from world.object_registry import ObjectRegistry
+                    render_obj = None
+                    terrain_obj = None
+                    for oid in tile.object_ids:
+                        o = self.world.objects.get(oid)
+                        if o is None:
+                            continue
+                        if ObjectRegistry.is_terrain_layer(o):
+                            terrain_obj = o
+                        else:
+                            render_obj = o
+                            break
+                    if render_obj is None:
+                        render_obj = terrain_obj
+
+                    if render_obj is not None:
+                        obj_color = None
+                        is_seed_in_soil = False
+                        seed_growth_ratio = 0.0
+
+                        # Try registry-based color first
+                        tid = getattr(render_obj, 'type_id', '')
+                        if tid:
+                            defn = ObjectRegistry.get(tid)
+                            if defn is not None:
+                                obj_color = tuple(defn.render.color)
+
+                        # Check if this is a planted seed (for special rendering)
+                        # A seed is "in soil" if it's on a tile (not in an agent's
+                        # inventory).  Even at time_in_soil==0 (freshly planted) we
+                        # want the diamond shape so the player can see it.
+                        seed_comp = render_obj.get_component(SeedComponent)
+                        agent_planted = getattr(render_obj, 'planted_by_agent', False)
+                        if seed_comp is not None:
+                            is_seed_in_soil = True
+                            seed_growth_ratio = min(1.0, seed_comp.time_in_soil / max(1, seed_comp.grow_time))
+                            if agent_planted:
+                                # Agent-planted seed: golden → bright sprouting green
+                                sr, sg, sb = COLORS['seed_agent_planted']
+                                er, eg, eb = COLORS['seed_sprouting']
+                            else:
+                                # Natural seed: tan → sprouting green
+                                sr, sg, sb = COLORS['seed']
+                                er, eg, eb = COLORS['seed_sprouting']
+                            t = seed_growth_ratio
+                            obj_color = (
+                                int(sr + (er - sr) * t),
+                                int(sg + (eg - sg) * t),
+                                int(sb + (eb - sb) * t),
+                            )
+
+                        # Fallback to component-based coloring
+                        if obj_color is None:
+                            if render_obj.has_component(PlantComponent):
+                                obj_color = COLORS['plant']
+                            elif render_obj.has_component(EdibleComponent):
+                                obj_color = COLORS['berry']
+                            elif seed_comp is not None:
+                                obj_color = COLORS['seed']
+                        
+                        if obj_color:
+                            center_x = screen_x + scaled_tile_size // 2
+                            center_y = screen_y + scaled_tile_size // 2
+
+                            if is_seed_in_soil:
+                                # Draw planted seed as DIAMOND with growth ring
+                                half = max(3, scaled_tile_size // 3)
+                                diamond_pts = [
+                                    (center_x, center_y - half),  # top
+                                    (center_x + half, center_y),  # right
+                                    (center_x, center_y + half),  # bottom
+                                    (center_x - half, center_y),  # left
+                                ]
+
+                                if agent_planted:
+                                    # Golden glow ring behind the diamond
+                                    glow_r = max(4, half + 2)
+                                    pygame.draw.circle(
+                                        self.screen,
+                                        COLORS['seed_agent_glow'],
+                                        (center_x, center_y),
+                                        glow_r,
+                                    )
+
+                                pygame.draw.polygon(self.screen, obj_color, diamond_pts)
+                                # Outline: gold for agent-planted, white for natural
+                                outline_color = COLORS['seed_agent_planted'] if agent_planted else (255, 255, 255)
+                                pygame.draw.polygon(self.screen, outline_color, diamond_pts, 1)
+                                # Growth indicator: small inner dot turns green near maturity
+                                if seed_growth_ratio > 0.5:
+                                    inner_r = max(1, half // 3)
+                                    pygame.draw.circle(
+                                        self.screen,
+                                        COLORS['seed_sprouting'],
+                                        (center_x, center_y),
+                                        inner_r,
+                                    )
+                            else:
+                                # Regular objects: circle
+                                radius = max(2, scaled_tile_size // 3)
+                                pygame.draw.circle(self.screen, obj_color, (center_x, center_y), radius)
                 
                 # Render agents on tile (use pre-built lookup - O(1) instead of O(n))
                 agents_here = agent_positions.get((x, y), [])
@@ -801,7 +890,11 @@ class PygameRenderer:
             self.render()
             
             # Maintain target FPS
-            self.clock.tick(self.target_fps)
+            frame_time_ms = self.clock.tick(self.target_fps)
+
+            # Adaptive training budget control (if world supports it)
+            if hasattr(self.world, 'adapt_learning_budget'):
+                self.world.adapt_learning_budget(frame_time_ms, self.target_fps)
         
         # Cleanup
         pygame.quit()

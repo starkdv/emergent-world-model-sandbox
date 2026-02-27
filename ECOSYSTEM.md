@@ -2,6 +2,7 @@
 
 **Author:** Karan Vasa  
 **Date:** November 14, 2025  
+**Updated:** February 21, 2026  
 **Status:** ✅ Production Ready
 
 ---
@@ -38,7 +39,7 @@ This is a fully self-sustaining ecosystem simulation featuring realistic physics
 ✅ **Genetic Evolution** - Agents evolve behaviors over generations  
 ✅ **Reproduction System** - In-simulation asexual fission with mutation  
 ✅ **Configurable** - All parameters externalized in YAML config
-✅ **Tested** - 72/72 tests passing (100% coverage of active tests)  
+✅ **Tested** - 219 tests passing (Feb 2026)  
 ✅ **Scalable** - Efficient ECS architecture supports 1000+ entities
 
 ### World Statistics
@@ -49,8 +50,8 @@ This is a fully self-sustaining ecosystem simulation featuring realistic physics
 - **Resource Types:** Plants, Seeds, Berries, Fertilizer
 - **Agent Population:** 20 initial agents (configurable, with max limits)
 - **Physics Cycles:** Nutrient, Water, Reproduction, Decay
-- **Neural Networks:** 2,744 parameters per agent
-- **Learning System:** Policy gradient with experience replay
+- **Neural Networks:** Recurrent Actor-Critic (GRU; parameters depend on config)
+- **Learning System:** Online Actor-Critic with replay buffer (NumPy-first; optional Torch backend)
 - **Reproduction:** Energy-based with mutation and cooldown
 - **Environmental Pressure:** Periodic calamities (configurable)
 
@@ -191,9 +192,9 @@ duration: int          # Ticks remaining
 Autonomous agents inhabit the world, each with a neural network brain that evolves over generations. Agents must survive by gathering food, managing energy, and making intelligent decisions using only primitive actions.
 
 **Key Features:**
-- 🧠 **Neural Network Brains** - MLP with evolved weights
+- 🧠 **Neural Network Brains** - GRU Actor-Critic with evolved weights + lifetime learning
 - 🧬 **Genetic Evolution** - Crossover, mutation, selection
-- 👁️ **Perception System** - 64-feature observation vector
+- 👁️ **Perception System** - 72-feature observation vector (egocentric vision)
 - ⚡ **Energy Metabolism** - Must eat to survive
 - 🎒 **Inventory System** - Carry items (seeds, food)
 - 🎯 **Primitive Actions** - No high-level behaviors hardcoded
@@ -246,27 +247,24 @@ Agents can only perform low-level actions. Complex behaviors must emerge through
 
 **Architecture:**
 ```
-Input Layer:  64 neurons (observation vector)
-    ↓ tanh
-Hidden Layer 1: 32 neurons
-    ↓ tanh
-Hidden Layer 2: 16 neurons
-    ↓ softmax
-Output Layer: 8 neurons (action probabilities)
+Input (72-dim observation)
+  ↓
+Encoder MLP
+  ↓
+GRU (memory / hidden state)
+  ↓
+Policy Head (8 action logits) + Value Head (1 scalar)
 ```
 
-**Total Parameters:** 2,744 weights
-- Layer 1: 64×32 + 32 = 2,080
-- Layer 2: 32×16 + 16 = 528
-- Layer 3: 16×8 + 8 = 136
-
 **Key Properties:**
-- Weights encoded in genome (not trained)
-- Stochastic policy (samples from action distribution)
-- Pure NumPy implementation (no PyTorch needed)
-- Evolved through genetic algorithms
+- Weights encoded in genome (and updated online via Actor-Critic learning)
+- Stochastic policy (samples from a masked softmax distribution)
+- Action masking prevents invalid actions from stealing probability mass
+- NumPy-first; optional Torch backend for acceleration
 
-### Observation System (64 Features)
+**Note:** If `allow_stacking: false`, `DROP` is masked off unless there is a legal drop location.
+
+### Observation System (72 Features)
 
 Agents perceive their environment through a normalized feature vector:
 
@@ -285,14 +283,19 @@ Agents perceive their environment through a normalized feature vector:
   - **Type:** 0=rock, 0.25=water, 0.5=soil, 0.75=plant, 1.0=food
   - **Value:** fertility/moisture or food/plant properties
 
-#### 3. Inventory Summary (6 features)
+**Egocentric frame:** the 5×5 grid is rotated so the agent's facing direction is always "up" in observation space.
+
+#### 3. Stimulus Features (8 features)
+Pre-processed survival signals (explicit hints like local danger/need) appended after vision.
+
+#### 4. Inventory Summary (6 features)
 ```python
-[58] Inventory fullness (0-1)
-[59] Has food (0 or 1)
-[60] Has seed (0 or 1)
-[61] Has fertilizer (0 or 1)
-[62] Total food calories (normalized)
-[63] Inventory count (normalized)
+[66] Inventory fullness (0-1)
+[67] Has food (0 or 1)
+[68] Has seed (0 or 1)
+[69] Has fertilizer (0 or 1)
+[70] Total food calories (normalized)
+[71] Inventory count (normalized)
 ```
 
 ### Genome & Evolution
@@ -383,8 +386,8 @@ The current implementation uses **single-parent asexual reproduction**:
 #### Life
 ```
 Every tick:
-1. Observe environment (64-feature vector)
-2. Brain decides action (neural network forward pass)
+1. Observe environment (72-feature vector)
+2. Brain decides action (masked stochastic policy)
 3. Execute action (interact with world)
 4. Consume energy (metabolism + action cost)
 5. Update fitness (reward for survival)
@@ -1295,7 +1298,9 @@ agents:
 
 ### Test Suite
 
-**35/35 tests passing (100% coverage)**
+**219 tests passing (Feb 2026)**
+
+Representative system tests include:
 
 #### System Tests (`test_systems.py`)
 ```
@@ -1386,7 +1391,7 @@ AgentLearner
 Stores transitions for batch learning:
 ```python
 Experience(
-    state: np.ndarray,      # 64-feature observation
+  state: np.ndarray,      # 72-feature observation
     action: int,            # Action taken (0-7)
     reward: float,          # Reward received
     next_state: np.ndarray, # Resulting observation

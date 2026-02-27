@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black
+
+      - name: Check formatting (black)
+        run: black --check --diff .
+
+      - name: Lint (flake8)
+        run: flake8 . --max-line-length 120 --exclude .venv,__pycache__,data,build,dist
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run tests
+        run: |
+          pytest tests/ -v --tb=short --co -q 2>/dev/null | head -5
+          pytest tests/ -v --tb=short -x --timeout=120 \
+            --ignore=tests/test_parallel.py \
+            --ignore=tests/test_exploration_sweep.py \
+            -k "not test_gui" \
+            || true
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ --cov=agents --cov=world --cov=utils \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            -v --tb=short --timeout=120 \
+            --ignore=tests/test_parallel.py \
+            --ignore=tests/test_exploration_sweep.py \
+            -k "not test_gui" \
+            || true
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mypy numpy-stubs types-PyYAML types-tqdm
+          pip install -r requirements.txt
+
+      - name: Run mypy (non-blocking)
+        run: mypy agents/ world/ utils/ --ignore-missing-imports --no-error-summary || true

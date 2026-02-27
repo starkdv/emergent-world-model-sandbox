@@ -15,6 +15,7 @@ from world.systems import WorldSystemManager
 
 if TYPE_CHECKING:
     from agents.agent import Agent
+    from utils.parallel import update_agents_parallel
 
 
 class World:
@@ -38,9 +39,10 @@ class World:
         width: int,
         height: int,
         seed: Optional[int] = None,
-        soil_ratio: float = 0.7,
+        soil_ratio: float = 0.65,
         rock_ratio: float = 0.2,
         water_ratio: float = 0.1,
+        sand_ratio: float = 0.05,
         fertility_range: Tuple[float, float] = (0.3, 1.0),
         moisture_range: Tuple[float, float] = (0.2, 0.8),
         # System configuration parameters
@@ -59,7 +61,17 @@ class World:
         safety_spawn_rate: float = 0.01,
         min_resources: int = 10,
         seed_max_age: int = 200,
-        allow_stacking: bool = False  # NEW: Controls object stacking
+        allow_stacking: bool = False,  # NEW: Controls object stacking
+        learning_train_interval_ticks: int = 3,
+        learning_max_updates_per_tick: int = 16,
+        learning_enable_stagger: bool = True,
+        learning_adaptive_budget: bool = True,
+        learning_min_updates_per_tick: int = 2,
+        learning_max_budget_updates_per_tick: int = 24,
+        learning_budget_adjust_step: int = 1,
+        learning_budget_high_frame_factor: float = 1.10,
+        learning_budget_low_frame_factor: float = 0.80,
+        parallel: bool = True,
     ):
         """
         Initialize a new world with generated terrain.
@@ -71,6 +83,7 @@ class World:
             soil_ratio: Proportion of tiles that are soil
             rock_ratio: Proportion of tiles that are rock
             water_ratio: Proportion of tiles that are water
+            sand_ratio: Proportion of tiles that are sand
             fertility_range: Min and max fertility for soil tiles
             moisture_range: Min and max moisture for tiles
             plant_mature_age: Age at which plants mature
@@ -88,6 +101,15 @@ class World:
             safety_spawn_rate: Safety net spawn probability
             min_resources: Minimum resources before safety spawning
             seed_max_age: Maximum age before seed rots (in ticks)
+            learning_train_interval_ticks: Minimum ticks between training attempts per agent
+            learning_max_updates_per_tick: Max agent training updates allowed per world tick
+            learning_enable_stagger: Whether to stagger training by agent id to avoid synchronization spikes
+            learning_adaptive_budget: Enable adaptive update-budget tuning based on frame time
+            learning_min_updates_per_tick: Lower bound for adaptive training budget
+            learning_max_budget_updates_per_tick: Upper bound for adaptive training budget
+            learning_budget_adjust_step: Step size when adjusting adaptive training budget
+            learning_budget_high_frame_factor: Decrease budget when frame_ms > target_ms * this factor
+            learning_budget_low_frame_factor: Increase budget when frame_ms < target_ms * this factor
             
         Raises:
             ValueError: If dimensions are invalid or ratios don't sum to 1.0
@@ -95,7 +117,7 @@ class World:
         if width <= 0 or height <= 0:
             raise ValueError(f"World dimensions must be positive, got {width}x{height}")
         
-        ratio_sum = soil_ratio + rock_ratio + water_ratio
+        ratio_sum = soil_ratio + rock_ratio + water_ratio + sand_ratio
         if not abs(ratio_sum - 1.0) < 0.01:
             raise ValueError(f"Terrain ratios must sum to 1.0, got {ratio_sum}")
         
@@ -104,6 +126,7 @@ class World:
         self.tick = 0
         self.seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         self.allow_stacking = allow_stacking  # NEW: Store stacking configuration
+        self.parallel = parallel  # Enable parallel agent updates
         
         # Set random seed for reproducibility
         random.seed(self.seed)
@@ -111,6 +134,10 @@ class World:
         self.tiles: List[List[Tile]] = []
         self.objects: Dict[int, WorldObject] = {}
         self.agents: Dict[int, 'Agent'] = {}  # Forward reference for Agent
+
+        # Index: object IDs that have a TileEffectSpec (e.g., sand).
+        # This prevents per-tick O(total_objects) scans in TileEffectSystem.
+        self._tile_effect_object_ids: set[int] = set()
         
         # Reproduction config (can be set after init)
         self.reproduction_config: Optional[dict] = None
@@ -118,6 +145,33 @@ class World:
         # Calamity config (can be set after init)
         self.calamity_config: Optional[dict] = None
         self.last_calamity_tick: int = 0
+
+        # Learning scheduler config
+        self.learning_train_interval_ticks = max(1, int(learning_train_interval_ticks))
+        self.learning_max_updates_per_tick = max(0, int(learning_max_updates_per_tick))
+        self.learning_enable_stagger = bool(learning_enable_stagger)
+        self._learning_updates_this_tick = 0
+
+        # Cached world counts (lazily computed, invalidated each tick)
+        self._cached_counts: dict | None = None
+        self._cached_soil_stats: tuple | None = None
+
+        # Adaptive learning budget config
+        self.learning_adaptive_budget = bool(learning_adaptive_budget)
+        self.learning_min_updates_per_tick = max(0, int(learning_min_updates_per_tick))
+        self.learning_max_budget_updates_per_tick = max(
+            self.learning_min_updates_per_tick,
+            int(learning_max_budget_updates_per_tick)
+        )
+        self.learning_budget_adjust_step = max(1, int(learning_budget_adjust_step))
+        self.learning_budget_high_frame_factor = max(1.0, float(learning_budget_high_frame_factor))
+        self.learning_budget_low_frame_factor = max(0.0, min(1.0, float(learning_budget_low_frame_factor)))
+
+        # Clamp initial budget into adaptive bounds
+        self.learning_max_updates_per_tick = min(
+            self.learning_max_budget_updates_per_tick,
+            max(self.learning_min_updates_per_tick, self.learning_max_updates_per_tick)
+        )
         
         # Initialize world systems with configuration
         self.systems = WorldSystemManager(
@@ -140,7 +194,7 @@ class World:
         
         # Generate terrain
         self._generate_terrain(
-            soil_ratio, rock_ratio, water_ratio,
+            soil_ratio, rock_ratio, water_ratio, sand_ratio,
             fertility_range, moisture_range
         )
     
@@ -149,6 +203,7 @@ class World:
         soil_ratio: float,
         rock_ratio: float,
         water_ratio: float,
+        sand_ratio: float,
         fertility_range: Tuple[float, float],
         moisture_range: Tuple[float, float]
     ) -> None:
@@ -159,14 +214,17 @@ class World:
             soil_ratio: Proportion of soil tiles
             rock_ratio: Proportion of rock tiles
             water_ratio: Proportion of water tiles
+            sand_ratio: Proportion of sand tiles
             fertility_range: Min and max fertility values
             moisture_range: Min and max moisture values
         """
+        total_tiles = self.width * self.height
         # Create terrain type distribution
         terrain_types = (
-            [TerrainType.SOIL] * int(self.width * self.height * soil_ratio) +
-            [TerrainType.ROCK] * int(self.width * self.height * rock_ratio) +
-            [TerrainType.WATER] * int(self.width * self.height * water_ratio)
+            [TerrainType.SOIL] * int(total_tiles * soil_ratio) +
+            [TerrainType.ROCK] * int(total_tiles * rock_ratio) +
+            [TerrainType.WATER] * int(total_tiles * water_ratio) +
+            [TerrainType.SAND] * int(total_tiles * sand_ratio)
         )
         
         # Fill remaining with soil
@@ -196,10 +254,26 @@ class World:
                 if terrain_type == TerrainType.WATER:
                     moisture = 1.0
                 
+                # Sand tiles have very low fertility and moisture
+                if terrain_type == TerrainType.SAND:
+                    fertility = random.uniform(0.0, 0.05)
+                    moisture = random.uniform(0.0, 0.05)
+                
                 tile = Tile(x, y, terrain_type, fertility, moisture)
                 row.append(tile)
             
             self.tiles.append(row)
+
+        # Spawn sand objects on SAND terrain tiles so TileEffectSystem can
+        # track them (and they appear in the renderer/observation).
+        from world.object_registry import ObjectRegistry
+        if ObjectRegistry.get("sand") is not None:
+            for y in range(self.height):
+                for x in range(self.width):
+                    tile = self.tiles[y][x]
+                    if tile.terrain_type == TerrainType.SAND:
+                        sand_obj = ObjectRegistry.create("sand", x, y)
+                        self.add_object(sand_obj)
     
     def get_tile(self, x: int, y: int) -> Optional[Tile]:
         """
@@ -245,40 +319,60 @@ class World:
         
         # Check stacking configuration
         if not self.allow_stacking:
-            # Enforce one-per-tile: Check if tile already has an object
+            # Enforce one-per-tile: Check if tile already has a *real* object
+            # (terrain-layer objects like sand are transparent to stacking)
             tile = self.get_tile(obj.x, obj.y)
             if tile and tile.object_ids:
-                # Tile is occupied - try to find nearby empty tile
-                nearby_positions = [
-                    (obj.x + dx, obj.y + dy)
-                    for dx in [-1, 0, 1]
-                    for dy in [-1, 0, 1]
-                    if (dx != 0 or dy != 0)  # Not same position
+                from world.object_registry import ObjectRegistry
+                real_objects = [
+                    oid for oid in tile.object_ids
+                    if not ObjectRegistry.is_terrain_layer(self.objects.get(oid))
                 ]
-                
-                # Shuffle for randomness
-                random.shuffle(nearby_positions)
-                
-                # Try to place in nearby empty tile
-                for nx, ny in nearby_positions:
-                    if self.is_valid_position(nx, ny):
-                        nearby_tile = self.get_tile(nx, ny)
-                        if nearby_tile and not nearby_tile.object_ids:
-                            # Found empty spot - move object there
-                            obj.x = nx
-                            obj.y = ny
-                            self.objects[obj.id] = obj
-                            nearby_tile.add_object(obj.id)
-                            return True
-                
-                # No empty nearby tiles - don't add object
-                return False
+                if real_objects:
+                    # Tile is occupied - try to find nearby empty tile
+                    nearby_positions = [
+                        (obj.x + dx, obj.y + dy)
+                        for dx in [-1, 0, 1]
+                        for dy in [-1, 0, 1]
+                        if (dx != 0 or dy != 0)  # Not same position
+                    ]
+                    
+                    # Shuffle for randomness
+                    random.shuffle(nearby_positions)
+                    
+                    # Try to place in nearby empty tile
+                    for nx, ny in nearby_positions:
+                        if self.is_valid_position(nx, ny):
+                            nearby_tile = self.get_tile(nx, ny)
+                            if nearby_tile:
+                                nearby_real = [
+                                    oid for oid in nearby_tile.object_ids
+                                    if not ObjectRegistry.is_terrain_layer(self.objects.get(oid))
+                                ]
+                                if not nearby_real:
+                                    # Found empty spot - move object there
+                                    obj.x = nx
+                                    obj.y = ny
+                                    self.objects[obj.id] = obj
+                                    nearby_tile.add_object(obj.id)
+                                    return True
+                    
+                    # No empty nearby tiles - don't add object
+                    return False
         
         # Stacking allowed OR tile is empty - add normally
         tile = self.get_tile(obj.x, obj.y)
         self.objects[obj.id] = obj
         if tile:
             tile.add_object(obj.id)
+
+        # Maintain tile-effect index
+        try:
+            from world.object_registry import ObjectRegistry
+            if ObjectRegistry.get_tile_effect(obj) is not None:
+                self._tile_effect_object_ids.add(obj.id)
+        except Exception:
+            pass
         return True
     
     def remove_object(self, object_id: int) -> bool:
@@ -298,9 +392,18 @@ class World:
         tile = self.get_tile(obj.x, obj.y)
         if tile:
             tile.remove_object(object_id)
+
+        # Maintain tile-effect index
+        if object_id in self._tile_effect_object_ids:
+            self._tile_effect_object_ids.discard(object_id)
         
         del self.objects[object_id]
         return True
+
+    @property
+    def tile_effect_object_ids(self) -> set[int]:
+        """Set of object IDs that have tile effects (read-only view)."""
+        return self._tile_effect_object_ids
     
     def move_object(self, object_id: int, new_x: int, new_y: int) -> bool:
         """
@@ -380,56 +483,198 @@ class World:
     def update(self) -> None:
         """
         Update world state for one simulation tick.
-        
-        This method advances the simulation by one tick, applying all
-        world systems (plant growth, seed germination, decay, fertilizer
-        effects, and resource spawning) and updating all agents.
-        
-        Author: Karan Vasa
+
+        Advances the simulation by one tick, applying all world systems
+        (plant growth, seed germination, decay, fertilizer, soil dynamics,
+        tile effects, and resource spawning) and updating all agents.
+        State logging is dispatched to a background thread when parallel
+        mode is enabled.
         """
         self.tick += 1
-        
+        self._learning_updates_this_tick = 0
+
+        # Invalidate cached world counts (lazily recomputed on first use)
+        self._cached_counts = None
+        self._cached_soil_stats = None
+
         # Check for calamity event
         self._check_calamity()
-        
+
         # Update agents first (they act in the world)
         self._update_agents()
-        
+
         # Then update world systems (physics, growth, decay)
         self.systems.update(self)
-          # Clean up dead agents
+
+        # Clean up dead agents
         self._cleanup_dead_agents()
-          # Log agent states if logger is enabled
+
+        # Log agent states — offload to thread when parallel
         from agents.agent import Agent
         if Agent.logger is not None:
-            Agent.logger.log_all_states(self.tick, self.agents)
+            if self.parallel:
+                from utils.parallel import get_io_pool
+                # Snapshot in main thread to avoid iterating a mutating dict
+                agent_snapshot = list(self.agents.values())
+                # I/O pool is single-threaded so file writes never overlap
+                self._log_future = get_io_pool().submit(
+                    Agent.logger.log_all_states, self.tick, agent_snapshot
+                )
+            else:
+                Agent.logger.log_all_states(self.tick, self.agents)
+
+    def get_cached_object_counts(self) -> dict:
+        """
+        Return cached counts of food, plants, seeds, and alive agents.
+
+        Recomputed at most once per tick (invalidated at start of update()).
+        This avoids O(agents * objects) scanning when every agent's logger
+        calls sum(...) independently.
+
+        Returns:
+            dict with keys: total_food, total_plants, total_seeds, alive_agents
+        """
+        if self._cached_counts is not None:
+            return self._cached_counts
+
+        from world.objects import EdibleComponent, PlantComponent, SeedComponent
+        food = 0
+        plants = 0
+        seeds = 0
+        for obj in self.objects.values():
+            if obj.has_component(EdibleComponent):
+                food += 1
+            if obj.has_component(PlantComponent):
+                plants += 1
+            if obj.has_component(SeedComponent):
+                seeds += 1
+        alive = sum(1 for a in self.agents.values() if a.alive)
+        self._cached_counts = {
+            'total_food': food,
+            'total_plants': plants,
+            'total_seeds': seeds,
+            'alive_agents': alive,
+        }
+        return self._cached_counts
+
+    def get_cached_soil_stats(self) -> tuple:
+        """
+        Return cached avg fertility and avg moisture for soil tiles.
+
+        Recomputed at most once per tick.
+
+        Returns:
+            (avg_fertility, avg_moisture)
+        """
+        if self._cached_soil_stats is not None:
+            return self._cached_soil_stats
+
+        total_fertility = 0.0
+        total_moisture = 0.0
+        tile_count = 0
+        for row in self.tiles:
+            for tile in row:
+                if tile.terrain_type.value == "soil":
+                    total_fertility += tile.fertility
+                    total_moisture += tile.moisture
+                    tile_count += 1
+        if tile_count > 0:
+            self._cached_soil_stats = (total_fertility / tile_count, total_moisture / tile_count)
+        else:
+            self._cached_soil_stats = (0.0, 0.0)
+        return self._cached_soil_stats
+
+    def try_acquire_learning_slot(self, agent_id: int, agent_age: int) -> bool:
+        """
+        Try to reserve one learning update slot for an agent this tick.
+
+        Applies interval-based training and a global per-tick budget to
+        prevent synchronized training spikes from tanking GUI FPS.
+
+        Args:
+            agent_id: Unique agent id
+            agent_age: Current age (ticks)
+
+        Returns:
+            True if the agent may run a learning update now, False otherwise
+        """
+        if self.learning_max_updates_per_tick <= 0:
+            return False
+
+        if self.learning_enable_stagger:
+            should_train_this_tick = ((agent_age + agent_id) % self.learning_train_interval_ticks) == 0
+        else:
+            should_train_this_tick = (agent_age % self.learning_train_interval_ticks) == 0
+
+        if not should_train_this_tick:
+            return False
+
+        if self._learning_updates_this_tick >= self.learning_max_updates_per_tick:
+            return False
+
+        self._learning_updates_this_tick += 1
+        return True
+
+    def adapt_learning_budget(self, frame_time_ms: float, target_fps: int) -> None:
+        """
+        Adapt learning budget based on measured frame time.
+
+        This keeps simulation responsive by lowering training load when frame
+        time spikes, and increasing it again when there's headroom.
+
+        Args:
+            frame_time_ms: Measured frame time in milliseconds
+            target_fps: Renderer target FPS
+        """
+        if not self.learning_adaptive_budget:
+            return
+
+        if target_fps <= 0:
+            return
+
+        target_frame_ms = 1000.0 / float(target_fps)
+        high_threshold = target_frame_ms * self.learning_budget_high_frame_factor
+        low_threshold = target_frame_ms * self.learning_budget_low_frame_factor
+
+        if frame_time_ms > high_threshold:
+            self.learning_max_updates_per_tick = max(
+                self.learning_min_updates_per_tick,
+                self.learning_max_updates_per_tick - self.learning_budget_adjust_step
+            )
+        elif frame_time_ms < low_threshold:
+            self.learning_max_updates_per_tick = min(
+                self.learning_max_budget_updates_per_tick,
+                self.learning_max_updates_per_tick + self.learning_budget_adjust_step
+            )
     
     def _update_agents(self) -> None:
-        """Update all agents in the world."""
+        """Update all agents — uses parallel pipeline when enabled."""
+        if self.parallel:
+            from utils.parallel import update_agents_parallel
+            update_agents_parallel(self)
+        else:
+            self._update_agents_serial()
+
+    def _update_agents_serial(self) -> None:
+        """Original serial agent update loop (fallback)."""
         new_offspring = []
-        
-        # Get max population from config (default: unlimited)
+
         max_population = None
         if self.reproduction_config:
             max_population = self.reproduction_config.get('max_population', None)
-        
+
         for agent in list(self.agents.values()):
             if agent.alive:
                 agent.update(self)
-                  # Check for reproduction after update (pass config)
                 if agent.can_reproduce(self.reproduction_config):
-                    # Check if population limit reached
                     if max_population is not None:
                         current_population = len(self.agents) + len(new_offspring)
                         if current_population >= max_population:
-                            continue  # Skip reproduction, population limit reached
-                    
+                            continue
                     offspring = agent.reproduce(self, self.reproduction_config)
                     if offspring is not None:
                         new_offspring.append(offspring)
-                        print(f"[REPRODUCTION] Agent {agent.id} -> Agent {offspring.id} (parent age: {agent.age}, parent energy: {agent.energy:.1f}, pop: {len(self.agents) + len(new_offspring)}/{max_population or 'unlimited'})")
-        
-        # Add all offspring to world
+
         for offspring in new_offspring:
             self.add_agent(offspring)
     def _cleanup_dead_agents(self) -> None:

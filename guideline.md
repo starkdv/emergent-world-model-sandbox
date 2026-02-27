@@ -10,11 +10,11 @@
 #### Virtual Environment (REQUIRED)
 - **ALWAYS use a virtual environment (venv)** for development
 - **NEVER install packages globally** - all packages must be installed in venv
-- Create venv at project root: `python -m venv venv`
+- Create venv at project root (project convention): `python -m venv .venv`
 - Activate venv before any development work:
-  - **Windows PowerShell:** `.\venv\Scripts\Activate.ps1`
-  - **Windows CMD:** `.\venv\Scripts\activate.bat`
-  - **Linux/Mac:** `source venv/bin/activate`
+    - **Windows PowerShell:** `\.\.venv\Scripts\Activate.ps1`
+    - **Windows CMD:** `\.\.venv\Scripts\activate.bat`
+    - **Linux/Mac:** `source .venv/bin/activate`
 
 #### Requirements Management
 - **ALWAYS update `requirements.txt`** when adding new dependencies
@@ -26,9 +26,10 @@
 - Use `pip list` to verify installed packages
 
 #### Development Workflow
-```powershell
-# 1. Activate virtual environment
-.\venv\Scripts\Activate.ps1
+```bash
+# 1. Create + activate virtual environment
+python -m venv .venv
+source .venv/bin/activate
 
 # 2. Install/update dependencies
 pip install -r requirements.txt
@@ -45,12 +46,11 @@ git commit -m "chore: update dependencies"
 ```
 
 ### 2. Code Quality Standards
+
 - **DO NOT create unnecessary .md files** unless specifically requested
 - Keep documentation minimal and focused
 - Use clear, descriptive file names
-- Follow the specified module structure from the design document
-
-### 2. Code Quality Standards
+- Follow the module structure already in this repo
 
 #### Documentation Requirements
 - **ALL functions and classes MUST have proper docstrings** following Python conventions:
@@ -101,6 +101,11 @@ git commit -m "chore: update dependencies"
 - Minimize object creation in simulation loops
 - Cache expensive calculations when possible
 - Profile before optimizing
+
+#### Concurrency & Determinism (Important)
+- Avoid mutating dictionaries/lists while iterating them in simulation ticks.
+- Snapshot IDs before bulk operations (e.g., calamities) to prevent "dictionary changed size during iteration" issues.
+- Keep world updates deterministic; parallelism must not introduce race conditions.
 
 ### 4. Testing Standards
 
@@ -174,10 +179,18 @@ git commit -m "chore: update dependencies"
 - Ensure world state is always consistent
 
 #### Agent Design
-- Neural networks should be simple MLPs initially
+- Keep the brain architecture simple, but consistent with the current implementation (GRU Actor-Critic).
 - Genome representation should be flexible for future extensions
 - Observation vectors should be normalized and bounded
+- Vision is egocentric (agent-aligned). If you change perception, update:
+    - observation layout docs (see `utils/agents/perception.py`)
+    - brain input size (`agents/brain.py`)
+    - any tests that assume observation size/layout
 - Action space should be continuous or discrete as appropriate
+
+#### Action Masking
+- Always update the action mask when adding or changing action legality.
+- Prefer masking invalid actions (e.g., illegal `DROP` in no-stacking mode) instead of relying on the policy to learn not to do them.
 
 #### Evolution System
 - Use well-established genetic algorithm techniques
@@ -306,20 +319,11 @@ tick, total_objects, total_food, total_seeds, total_plants, avg_fertility
 
 ### File Structure
 ```
-emergent_world_model/
-├── world/
+./
 ├── agents/
+├── world/
 ├── simulation/
 ├── utils/
-│   ├── render.py
-│   ├── ui/
-│   │   ├── main_window.py
-│   │   ├── world_view.py
-│   │   └── control_panel.py
-│   └── data/
-│       ├── logger.py
-│       ├── exporter.py
-│       └── analyzer.py
 ├── tests/
 ├── config/
 └── data/

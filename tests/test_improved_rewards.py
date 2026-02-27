@@ -25,8 +25,7 @@ def test_improved_rewards():
         "--config", "config/training_easy.yaml",
         "--learning",
         "--learning-rate", "0.01",
-        "--log",
-        "--duration", "50" # Shorten duration to verify it runs
+        "--log"
     ], capture_output=True, text=True) # Capture output to avoid spamming pytest logs unless failed
 
     if result.returncode != 0:

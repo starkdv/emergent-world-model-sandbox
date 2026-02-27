@@ -47,3 +47,8 @@ class ActionResult(NamedTuple):
     success: bool
     energy_cost: float
     message: str = ""
+    object_id: int = -1
+    object_type: str = ""
+    target_x: int = -1
+    target_y: int = -1
+    interaction_kind: str = ""

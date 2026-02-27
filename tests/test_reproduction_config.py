@@ -43,7 +43,12 @@ def test_reproduction_config_loading():
                 "max_population": 50,
             },
             "world": {"allow_stacking": False},
-            "brain": {"input_size": 64, "hidden_layers": [32, 16], "output_size": 8},
+            "brain": {
+                "input_size": 72,
+                "encoder_layers": [32],
+                "gru_hidden_size": 32,
+                "output_size": 8,
+            },
             "agents": {
                 "max_energy": 1000,
                 "max_age": 5000,
@@ -76,7 +81,8 @@ def test_reproduction_config_loading():
     brain_cfg = config["brain"]
     weight_count = Brain.calculate_weight_count(
         input_size=brain_cfg["input_size"],
-        hidden_sizes=brain_cfg["hidden_layers"],
+        encoder_layers=brain_cfg.get("encoder_layers", [32]),
+        gru_hidden_size=brain_cfg.get("gru_hidden_size", 32),
         output_size=brain_cfg["output_size"],
     )
 
@@ -173,7 +179,12 @@ def test_without_config():
 
     # Create agent
     trait_config = create_default_trait_config()
-    weight_count = Brain.calculate_weight_count(64, [32, 16], 8)
+    weight_count = Brain.calculate_weight_count(
+        input_size=72,
+        encoder_layers=[32],
+        gru_hidden_size=32,
+        output_size=8,
+    )
     genome = Genome.random(weight_count, trait_config)
 
     agent = Agent(

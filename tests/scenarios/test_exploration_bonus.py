@@ -7,7 +7,7 @@ import pytest
 import random
 from world.world import World
 from world.objects import WorldObject, EdibleComponent, SeedComponent, PlantComponent
-from agents import Agent, Genome, create_default_trait_config
+from agents import Agent, Brain, Genome, create_default_trait_config
 from utils.data.agent_logger import AgentLogger
 
 def populate_world_with_resources(world, berry_count=30, plant_count=20, seed_count=15):
@@ -55,12 +55,13 @@ def test_exploration_bonus(tmp_path):
         # Create agents
         agents = []
         trait_config = create_default_trait_config()
+        weight_count = Brain.calculate_weight_count()
         
         for i in range(10):
             x = random.randint(0, world.width - 1)
             y = random.randint(0, world.height - 1)
             
-            genome = Genome.random(weight_count=2744, trait_config=trait_config)
+            genome = Genome.random(weight_count=weight_count, trait_config=trait_config)
             agent = Agent(x, y, genome=genome)
             agent.learning_enabled = True
             agents.append(agent)

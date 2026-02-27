@@ -14,8 +14,9 @@ import random
 import yaml
 from world.world import World
 from world.objects import WorldObject, EdibleComponent, SeedComponent, PlantComponent
-from agents import Agent, Genome, create_default_trait_config
-from agents.evolution import EvolutionConfig, next_generation, calculate_fitness, EvolutionStats
+from agents import Agent, Brain, Genome, create_default_trait_config
+from agents.evolution import EvolutionConfig, next_generation
+from utils.agents import calculate_fitness, EvolutionStats
 
 
 def load_config(config_path='config/training_easy.yaml'):
@@ -70,11 +71,12 @@ def populate_world_with_resources(world, config):
 def create_initial_population(config, population_size=10):
     """Create initial population with random genomes."""
     trait_config = create_default_trait_config()
+    weight_count = Brain.calculate_weight_count()
     agent_config = config['agents']
     
     population = []
     for i in range(population_size):
-        genome = Genome.random(weight_count=2744, trait_config=trait_config)
+        genome = Genome.random(weight_count=weight_count, trait_config=trait_config)
         agent = Agent(
             x=0, y=0,  # Will be repositioned
             genome=genome,

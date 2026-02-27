@@ -8,7 +8,7 @@ Author: Karan Vasa
 """
 
 from enum import Enum
-from typing import List
+from typing import Set
 
 
 class TerrainType(Enum):
@@ -19,10 +19,12 @@ class TerrainType(Enum):
         SOIL: Plantable terrain with variable fertility
         ROCK: Impassable, non-plantable terrain
         WATER: Water terrain, affects moisture of nearby tiles
+        SAND: Low-fertility terrain, passable but poor for growth
     """
     SOIL = "soil"
     ROCK = "rock"
     WATER = "water"
+    SAND = "sand"
 
 
 class Tile:
@@ -74,7 +76,7 @@ class Tile:
         self.terrain_type = terrain_type
         self.fertility = fertility
         self.moisture = moisture
-        self.object_ids: List[int] = []
+        self.object_ids: Set[int] = set()
     
     def add_object(self, object_id: int) -> None:
         """
@@ -83,8 +85,7 @@ class Tile:
         Args:
             object_id: ID of the WorldObject to add
         """
-        if object_id not in self.object_ids:
-            self.object_ids.append(object_id)
+        self.object_ids.add(object_id)
     
     def remove_object(self, object_id: int) -> bool:
         """
@@ -97,7 +98,7 @@ class Tile:
             True if object was removed, False if not found
         """
         if object_id in self.object_ids:
-            self.object_ids.remove(object_id)
+            self.object_ids.discard(object_id)
             return True
         return False
     
@@ -108,16 +109,19 @@ class Tile:
         Returns:
             True if tile is passable, False otherwise
         """
-        return self.terrain_type != TerrainType.ROCK
+        return self.terrain_type not in (TerrainType.ROCK,)
     
     def is_plantable(self) -> bool:
         """
         Check if seeds can be planted on this tile.
         
+        Sand terrain *technically* allows planting, but with heavy
+        penalties applied by the TileEffectSpec system.
+        
         Returns:
             True if tile can support plants, False otherwise
         """
-        return self.terrain_type == TerrainType.SOIL
+        return self.terrain_type in (TerrainType.SOIL, TerrainType.SAND)
     
     def can_support_plant(self) -> bool:
         """

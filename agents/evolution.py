@@ -4,7 +4,14 @@ Evolution module for agents.
 Implements fission-based reproduction, mutation, and selection
 for Lamarckian evolution combined with reinforcement learning.
 
-Based on agent_training_world_design.md Section 6.
+Core classes:
+- EvolutionConfig: Evolution parameters
+- Clone and mutation functions
+
+Utility functions moved to utils.agents.evolution_utils:
+- EvolutionStats: Statistics tracking
+- calculate_fitness: Fitness calculation
+- adaptive_mutation_std: Adaptive mutation
 
 Author: Karan Vasa
 Date: November 16, 2025
@@ -14,6 +21,10 @@ import random
 import copy
 from typing import List, Tuple, Optional
 import numpy as np
+
+# Import utility functions
+from utils.agents import calculate_fitness, adaptive_mutation_std
+from utils.agents.evolution_utils import EvolutionStats
 
 if __name__ != "__main__":
     from agents.agent import Agent
@@ -54,30 +65,6 @@ class EvolutionConfig:
         assert elite_count < parent_count <= population_size
         assert 0.0 <= mutation_rate <= 1.0
         assert mutation_std > 0.0
-
-
-def calculate_fitness(agent: Agent) -> float:
-    """
-    Calculate agent fitness for selection.
-    
-    Fitness formula from design guide:
-        fitness = steps_survived + 5.0 * food_eaten
-    
-    Args:
-        agent: The agent to evaluate
-        
-    Returns:
-        Fitness score (higher is better)
-    """
-    # Use agent's existing fitness property, which tracks:
-    # - 0.1 per step survived
-    # - rewards for eating, planting, etc.
-    
-    # Alternative explicit calculation:
-    # food_eaten = getattr(agent, 'food_eaten_count', 0)
-    # return agent.age + 5.0 * food_eaten
-    
-    return agent.fitness
 
 
 def select_parents(
@@ -140,14 +127,23 @@ def clone_agent(
         metabolism_rate=parent.metabolism_rate
     )
     
-    # LAMARCKIAN INHERITANCE: Copy trained weights from parent
-    # This is the key to passing learned knowledge to offspring
-    child.brain.weights = [w.copy() for w in parent.brain.weights]
-    child.brain.biases = [b.copy() for b in parent.brain.biases]
+    # LAMARCKIAN INHERITANCE: The genome already contains the trained weights
+    # from the parent's end-of-life state (updated via AgentLearner._sync_genome_weights)
+    # No need to copy brain.weights/biases anymore - they're automatically loaded from genome
     
     # Apply mutation if requested
     if mutate:
-        mutate_weights(child.brain, mutation_std)
+        mutate_genome_weights(child.genome, mutation_std)
+        # Recreate brain with mutated genome to apply changes
+        child.brain = child.brain.__class__(
+            child.genome,
+            input_size=child.brain.input_size,
+            encoder_layers=child.brain.encoder_layers,
+            gru_hidden_size=child.brain.gru_hidden_size,
+            output_size=child.brain.output_size
+        )
+        # Reset hidden state
+        child.h = child.brain.initial_state()
     
     # Reset life-specific state
     child.age = 0
@@ -158,25 +154,21 @@ def clone_agent(
     return child
 
 
-def mutate_weights(brain, std: float = 0.02):
+def mutate_genome_weights(genome: Genome, std: float = 0.02):
     """
-    Apply Gaussian noise mutation to brain weights.
+    Apply Gaussian noise mutation to genome weights.
     
-    Mutates weights and biases in-place.
+    Mutates the flat weight array in-place.
+    Works with Brain v2 architecture where all parameters are stored
+    in genome.weights as a flat array.
     
     Args:
-        brain: The Brain object to mutate
+        genome: The Genome object containing weights to mutate
         std: Standard deviation of Gaussian noise
     """
-    # Mutate all weight matrices
-    for i in range(len(brain.weights)):
-        noise = np.random.normal(0.0, std, size=brain.weights[i].shape)
-        brain.weights[i] += noise
-    
-    # Mutate all bias vectors
-    for i in range(len(brain.biases)):
-        noise = np.random.normal(0.0, std, size=brain.biases[i].shape)
-        brain.biases[i] += noise
+    # Apply Gaussian noise to all weights
+    noise = np.random.normal(0.0, std, size=genome.weights.shape)
+    genome.weights += noise
 
 
 def next_generation(
@@ -234,145 +226,3 @@ def next_generation(
     
     return new_population
 
-
-class EvolutionStats:
-    """Track evolution statistics across generations."""
-    
-    def __init__(self):
-        self.generation = 0
-        self.best_fitness_history = []
-        self.avg_fitness_history = []
-        self.avg_age_history = []
-        self.survival_rate_history = []
-        self.diversity_history = []  # Track genetic diversity
-        
-    def calculate_diversity(self, population: List) -> float:
-        """
-        Calculate genetic diversity as average pairwise distance.
-        
-        Higher values indicate more diverse population.
-        Lower values indicate convergence (similar genomes).
-        """
-        if len(population) < 2:
-            return 0.0
-        
-        # Sample weights from first layer for efficiency
-        distances = []
-        for i in range(len(population)):
-            for j in range(i + 1, len(population)):                # Calculate L2 distance between weight matrices
-                w1 = population[i].brain.weights[0].flatten()
-                w2 = population[j].brain.weights[0].flatten()
-                dist = np.linalg.norm(w1 - w2)
-                distances.append(dist)
-        
-        return float(np.mean(distances)) if distances else 0.0
-    
-    def record_generation(self, population: List):
-        """Record statistics from a generation."""
-        fitnesses = [calculate_fitness(agent) for agent in population]
-        ages = [agent.age for agent in population]
-        alive = sum(1 for agent in population if agent.alive)
-        diversity = self.calculate_diversity(population)
-        self.best_fitness_history.append(max(fitnesses))
-        self.avg_fitness_history.append(sum(fitnesses) / len(fitnesses))
-        self.avg_age_history.append(sum(ages) / len(ages))
-        self.survival_rate_history.append(alive / len(population))
-        self.diversity_history.append(diversity)
-        self.generation += 1
-    
-    def print_summary(self):
-        """Print evolution summary."""
-        print("\n" + "=" * 70)
-        print("EVOLUTION SUMMARY")
-        print("=" * 70)
-        print(f"Generations completed: {self.generation}")
-        
-        if self.best_fitness_history:
-            print(f"\nBest fitness:")
-            print(f"  Generation 0: {self.best_fitness_history[0]:.1f}")
-            print(f"  Generation {self.generation-1}: {self.best_fitness_history[-1]:.1f}")
-            improvement = self.best_fitness_history[-1] - self.best_fitness_history[0]
-            print(f"  Improvement: {improvement:+.1f} ({improvement/self.best_fitness_history[0]*100:+.1f}%)")
-        
-        if self.avg_fitness_history:
-            print(f"\nAverage fitness:")
-            print(f"  Generation 0: {self.avg_fitness_history[0]:.1f}")
-            print(f"  Generation {self.generation-1}: {self.avg_fitness_history[-1]:.1f}")
-            improvement = self.avg_fitness_history[-1] - self.avg_fitness_history[0]
-            print(f"  Improvement: {improvement:+.1f}")
-        
-        if self.diversity_history:
-            print(f"\nGenetic diversity:")
-            print(f"  Generation 0: {self.diversity_history[0]:.2f}")
-            print(f"  Generation {self.generation-1}: {self.diversity_history[-1]:.2f}")
-            change = self.diversity_history[-1] - self.diversity_history[0]
-            print(f"  Change: {change:+.2f}")
-            if self.diversity_history[-1] < 2.0:
-                print(f"  ⚠️  Low diversity - population converging (consider increasing mutation)")
-            elif self.diversity_history[-1] < 5.0:
-                print(f"  ⚠️  Moderate diversity - monitor for convergence")
-            else:
-                print(f"  ✅  Healthy diversity maintained")
-        
-        if self.survival_rate_history:
-            avg_survival = sum(self.survival_rate_history) / len(self.survival_rate_history)
-            print(f"\nAverage survival rate: {avg_survival*100:.1f}%")
-        
-        print("=" * 70)
-
-
-def adaptive_mutation_std(
-    stats: 'EvolutionStats',
-    base_std: float = 0.02,
-    min_std: float = 0.01,
-    max_std: float = 0.05
-) -> float:
-    """
-    Adjust mutation standard deviation based on population diversity.
-    
-    When diversity is low, increase mutation to prevent convergence.
-    When diversity is high, decrease mutation to preserve good solutions.
-    
-    Args:
-        stats: Evolution statistics tracker
-        base_std: Base mutation standard deviation
-        min_std: Minimum mutation std
-        max_std: Maximum mutation std
-        
-    Returns:
-        Adjusted mutation standard deviation
-    """
-    if not stats.diversity_history:
-        return base_std
-    
-    current_diversity = stats.diversity_history[-1]
-    
-    # Low diversity threshold (adjust based on your observations)
-    low_diversity_threshold = 2.0
-    high_diversity_threshold = 20.0
-    
-    if current_diversity < low_diversity_threshold:
-        # Increase mutation when diversity is low
-        return max_std
-    elif current_diversity > high_diversity_threshold:
-        # Decrease mutation when diversity is high
-        return min_std
-    else:
-        # Scale linearly between thresholds
-        ratio = (current_diversity - low_diversity_threshold) / (high_diversity_threshold - low_diversity_threshold)
-        return max_std - (max_std - min_std) * ratio
-
-
-# Example usage
-if __name__ == "__main__":
-    print("Evolution module loaded successfully!")
-    print("\nKey functions:")
-    print("  - calculate_fitness(agent) -> float")
-    print("  - select_parents(population, config) -> List[Agent]")
-    print("  - clone_agent(parent, mutate=False) -> Agent")
-    print("  - mutate_weights(brain, std=0.02)")
-    print("  - next_generation(population, config) -> List[Agent]")
-    print("\nUsage example:")
-    print("  config = EvolutionConfig()")
-    print("  population = run_generation(population, world, max_ticks)")
-    print("  population = next_generation(population, config, stats)")

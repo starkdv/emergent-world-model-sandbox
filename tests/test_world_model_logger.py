@@ -10,6 +10,7 @@ import random
 from utils.data.agent_logger import WorldModelLogger
 from world.world import World
 from agents.agent import Agent
+from agents.brain import Brain
 from agents.genome import Genome
 from world.objects import WorldObject, EdibleComponent
 from agents.actions import Action
@@ -36,8 +37,7 @@ def test_world_model_logger(tmp_path):
         
         # Create an agent
         trait_config = {'metabolism_rate': (0.8, 1.2), 'vision_radius': (3, 7)}
-        # weights: 64*32 + 32 + 32*16 + 16 + 16*8 + 8 = 2744
-        weight_count = 2744
+        weight_count = Brain.calculate_weight_count()
         
         genome = Genome.random(weight_count, trait_config)
         agent = Agent(x=10, y=10, genome=genome)
@@ -48,7 +48,7 @@ def test_world_model_logger(tmp_path):
         Agent.world_model_logger = logger
         
         # Run a few ticks manually to generate transitions
-        from agents.observation import build_observation
+        from utils.agents import build_observation
         
         for tick in range(5):
             world.tick = tick
@@ -88,6 +88,9 @@ def test_world_model_logger(tmp_path):
             
             # Log world state
             logger.log_world_state(tick, world)
+        
+        # Close logger to flush all buffered writes before reading files
+        logger.close()
         
         # Verify files created
         assert Path(logger.transitions_file).exists()

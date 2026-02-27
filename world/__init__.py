@@ -2,7 +2,8 @@
 World module for the Emergent World-Model Sandbox.
 
 This module contains the world representation, terrain tiles, objects,
-and physics systems that govern the simulation environment.
+physics systems, and the unified object registry that governs the
+simulation environment.
 
 Author: Karan Vasa
 """

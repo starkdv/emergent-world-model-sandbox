@@ -11,8 +11,9 @@ from agents.agent import Agent
 from agents.brain import Brain
 from agents.genome import Genome, create_default_trait_config
 from agents.actions import Action, ActionResult, DIRECTIONS
-from agents.observation import build_observation, get_observation_size
-from agents.learning import AgentLearner, Experience, ReplayBuffer, RewardShaper
+from utils.agents import build_observation, get_observation_size
+from agents.learning import AgentLearner
+from utils.agents import Experience, ReplayBuffer, RewardShaper
 
 __version__ = "0.1.0"
 

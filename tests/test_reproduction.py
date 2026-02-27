@@ -14,7 +14,7 @@ import pytest
 import os
 from world.world import World
 from world.objects import WorldObject, EdibleComponent, SeedComponent, PlantComponent
-from agents import Agent, Genome, create_default_trait_config
+from agents import Agent, Brain, Genome, create_default_trait_config
 
 
 def load_config(config_path="config/training_easy.yaml"):
@@ -93,12 +93,13 @@ def test_reproduction():
 
     # Create initial agents
     trait_config = create_default_trait_config()
+    weight_count = Brain.calculate_weight_count()
     agent_config = config["agents"]
     num_initial_agents = 5
 
     print(f"\nCreating {num_initial_agents} initial agents...")
     for i in range(num_initial_agents):
-        genome = Genome.random(weight_count=2744, trait_config=trait_config)
+        genome = Genome.random(weight_count=weight_count, trait_config=trait_config)
         agent = Agent(
             x=random.randint(0, world.width - 1),
             y=random.randint(0, world.height - 1),

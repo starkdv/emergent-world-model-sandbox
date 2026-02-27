@@ -10,6 +10,7 @@ sys.path.insert(0, '.')
 
 from world.world import World
 from agents.agent import Agent
+from agents.brain import Brain
 from agents.genome import Genome
 from world.objects import EdibleComponent, WorldObject
 
@@ -65,7 +66,7 @@ def test_energy_sustainability():
 
     # Create agents
     trait_config = {'metabolism_rate': (0.8, 1.2), 'vision_radius': (3, 7)}
-    weight_count = 64 * 32 + 32 + 32 * 16 + 16 + 16 * 8 + 8
+    weight_count = Brain.calculate_weight_count()
 
     for i in range(5):
         x, y = random.randint(0, world_cfg['width']-1), random.randint(0, world_cfg['height']-1)

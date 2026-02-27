@@ -30,7 +30,8 @@ class ConsoleRenderer:
     TERRAIN_CHARS = {
         TerrainType.SOIL: '.',
         TerrainType.ROCK: '#',
-        TerrainType.WATER: '~'
+        TerrainType.WATER: '~',
+        TerrainType.SAND: ':'
     }
     
     OBJECT_CHARS = {
@@ -72,7 +73,7 @@ class ConsoleRenderer:
             lines.append(' '.join(row))
         
         lines.append("")
-        lines.append("Legend: . = Soil, # = Rock, ~ = Water")
+        lines.append("Legend: . = Soil, # = Rock, ~ = Water, : = Sand")
         if self.show_objects:
             lines.append("        P = Plant, s = Seed, o = Berry, A = Agent")
         
@@ -103,17 +104,32 @@ class ConsoleRenderer:
         if self.show_objects:
             objects = self.world.get_objects_at(x, y)
             if objects:
-                # Show the "most important" object
+                from world.object_registry import ObjectRegistry
+                # Skip terrain-layer objects when real objects exist
+                render_obj = None
+                terrain_obj = None
                 for obj in objects:
-                    if obj.has_component(PlantComponent):
+                    if ObjectRegistry.is_terrain_layer(obj):
+                        terrain_obj = obj
+                    else:
+                        render_obj = obj
+                        break
+                if render_obj is None:
+                    render_obj = terrain_obj
+
+                if render_obj is not None:
+                    # Try registry-based char first
+                    tid = getattr(render_obj, 'type_id', '')
+                    if tid:
+                        defn = ObjectRegistry.get(tid)
+                        if defn is not None and defn.render.char != '?':
+                            return defn.render.char
+                    # Fallback to component-based chars
+                    if render_obj.has_component(PlantComponent):
                         return self.OBJECT_CHARS['plant']
-                
-                for obj in objects:
-                    if obj.has_component(EdibleComponent):
+                    if render_obj.has_component(EdibleComponent):
                         return self.OBJECT_CHARS['berry']
-                
-                for obj in objects:
-                    if obj.has_component(SeedComponent):
+                    if render_obj.has_component(SeedComponent):
                         return self.OBJECT_CHARS['seed']
         
         # Show terrain

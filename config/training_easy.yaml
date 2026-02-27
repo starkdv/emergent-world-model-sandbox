@@ -14,9 +14,10 @@ world:
 
 # Terrain Settings - FLATTER, EASIER
 terrain:
-  soil_ratio: 0.85  # More passable terrain
+  soil_ratio: 0.83  # More passable terrain
   rock_ratio: 0.10  # Fewer obstacles
   water_ratio: 0.05  # Less water
+  sand_ratio: 0.02  # Minimal sand in easy mode
   fertility_range: [0.5, 1.0]  # Higher fertility
   moisture_range: [0.4, 0.9]  # More moisture
 
@@ -30,10 +31,11 @@ agents:
   max_age: 5000  # MUCH LONGER LIFESPAN (was 500) - let agents live and learn!
   inventory_size: 5
 
-# Neural Network Settings
+# Neural Network Settings (Brain v2 with GRU + Actor-Critic)
 brain:
-  input_size: 64
-  hidden_layers: [32, 16]
+  input_size: 72
+  encoder_layers: [32]  # Encoder MLP hidden layers
+  gru_hidden_size: 32  # GRU hidden state size (memory)
   output_size: 8
   activation: "tanh"
 
@@ -96,6 +98,7 @@ simulation:
   ticks_per_second: 10
   auto_save: true
   save_interval: 10
+  parallel: true
 
 # Visualization Settings
 visualization:
