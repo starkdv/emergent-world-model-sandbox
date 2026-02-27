@@ -39,6 +39,7 @@ brain:
 
 # Evolution Settings
 evolution:
+  mode: "rl"  # "rl" (RL + evolution) or "neuroevolution" (pure evolution, no gradient learning)
   selection_method: "tournament"  # "tournament" or "mutation" or "crossover"
   tournament_size: 5
   mutation_rate: 0.01

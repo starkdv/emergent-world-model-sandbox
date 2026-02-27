@@ -67,7 +67,13 @@ python main.py
   ```bash
   python main.py --log --log-dir data/logs --log-frequency 10
   ```
-- **Enable Agent Learning**:
+- **Evolution Mode** (select RL or pure neuroevolution):
+  ```bash
+  python main.py --mode rl              # RL + Lamarckian inheritance (agents learn via gradients)
+  python main.py --mode neuroevolution  # Pure evolution, no gradient learning
+  ```
+  Can also be set in `config/default.yaml` under `evolution.mode`. The `--mode` flag overrides config.
+- **Enable Agent Learning** (legacy, equivalent to `--mode rl`):
   ```bash
   python main.py --learning --learning-rate 0.01
   ```

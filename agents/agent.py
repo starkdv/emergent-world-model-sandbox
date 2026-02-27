@@ -91,7 +91,10 @@ class Agent:
         
         self.x = x
         self.y = y
-        self.direction = (0, -1)  # Start facing north
+        # Randomize initial facing direction to prevent population-wide
+        # turn bias from correlated starting orientations.
+        _cardinal = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+        self.direction = _cardinal[np.random.randint(4)]
         
         self.energy = max_energy  # Start with full energy
         self.max_energy = max_energy
@@ -384,9 +387,15 @@ class Agent:
         # Track action for next-step energy shaping
         self._previous_action = action
         
-        # Update fitness based on action outcomes
-        if result.success and action not in [Action.WAIT, Action.TURN_LEFT, Action.TURN_RIGHT]:
-            self.fitness += 0.1  # Small reward for successful action
+        # Update fitness based on action outcomes.
+        # Successful turns should not be penalized; otherwise the policy
+        # is structurally biased toward MOVE_FORWARD.
+        if result.success:
+            if action == Action.WAIT:
+                # WAIT is neutral from a fitness perspective.
+                self.fitness += 0.0
+            else:
+                self.fitness += 0.1  # Small reward for successful action
         else:
             self.fitness -= 0.05  # Small penalty for failed action
         

@@ -155,11 +155,14 @@ class Brain:
                 logits[Action.USE.value] += 0.5
 
             # ----------------------------------------------------------
-            # TURN TOWARD FOOD instinct
+            # DIRECTION-AWARE TURN TOWARD FOOD instinct
             #
             # When food is nearby but NOT in the agent's facing direction,
-            # bias turns so the agent reorients toward resources instead
-            # of walking in a straight line until hitting a wall.
+            # bias the CORRECT turn using the egocentric vision grid.
+            # The 5×5 vision (indices 8-57, 2 features per tile) is
+            # already rotated so dx<0 = agent's left, dx>0 = right.
+            # We sum food-like type encodings on each side to decide
+            # which turn actually points toward the food.
             #
             # Observation stimulus layout (indices 58-65):
             #   [60] food_ahead        (1.0 if food within 3 tiles ahead)
@@ -173,11 +176,42 @@ class Brain:
 
                 # Food is nearby but agent isn't facing it — encourage turning
                 if food_prox > 0.2 and food_dir < 0.6 and food_ahead_sig < 0.5:
-                    turn_bias = 0.8 * food_prox
-                    if action_mask[Action.TURN_LEFT.value] > 0:
-                        logits[Action.TURN_LEFT.value] += turn_bias
-                    if action_mask[Action.TURN_RIGHT.value] > 0:
-                        logits[Action.TURN_RIGHT.value] += turn_bias
+                    base_bias = 0.8 * food_prox
+
+                    # Scan egocentric vision to decide left vs right.
+                    # Vision grid: 5 rows (dy -2..+2) × 5 cols (dx -2..+2),
+                    # 2 features each, starting at obs index 8.
+                    left_score = 0.0
+                    right_score = 0.0
+                    for row in range(5):          # dy offset
+                        for col in range(5):      # dx offset
+                            idx = 8 + (row * 5 + col) * 2  # type_enc
+                            if idx < len(observation):
+                                t_enc = observation[idx]
+                                if t_enc >= 0.5:  # food / plant / seed
+                                    dx_ego = col - 2
+                                    if dx_ego < 0:
+                                        left_score += t_enc
+                                    elif dx_ego > 0:
+                                        right_score += t_enc
+
+                    # Bias the turn that faces the food side
+                    if left_score > right_score + 0.1:
+                        if action_mask[Action.TURN_LEFT.value] > 0:
+                            logits[Action.TURN_LEFT.value] += base_bias
+                        if action_mask[Action.TURN_RIGHT.value] > 0:
+                            logits[Action.TURN_RIGHT.value] += base_bias * 0.2
+                    elif right_score > left_score + 0.1:
+                        if action_mask[Action.TURN_RIGHT.value] > 0:
+                            logits[Action.TURN_RIGHT.value] += base_bias
+                        if action_mask[Action.TURN_LEFT.value] > 0:
+                            logits[Action.TURN_LEFT.value] += base_bias * 0.2
+                    else:
+                        # Food roughly centred / behind — boost both equally
+                        if action_mask[Action.TURN_LEFT.value] > 0:
+                            logits[Action.TURN_LEFT.value] += base_bias
+                        if action_mask[Action.TURN_RIGHT.value] > 0:
+                            logits[Action.TURN_RIGHT.value] += base_bias
         
         # Apply temperature scaling
         logits = logits / temperature

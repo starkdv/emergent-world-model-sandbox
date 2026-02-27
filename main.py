@@ -178,6 +178,14 @@ Examples:
         default=None,
         help='Path to custom object definitions YAML file (e.g., config/custom_objects.yaml)'
     )
+
+    parser.add_argument(
+        '--mode',
+        type=str,
+        choices=['rl', 'neuroevolution'],
+        default=None,
+        help='Evolution mode: "rl" (RL + evolution) or "neuroevolution" (pure evolution). Overrides config/--learning.'
+    )
     
     args = parser.parse_args()
     
@@ -197,14 +205,30 @@ Examples:
         
         if args.verbose:
             config['logging']['level'] = 'DEBUG'
+
+        # ── Resolve evolution mode ──────────────────────────────────
+        # Priority: --mode flag > --learning flag > config > default
+        evo_cfg_mode = config.get('evolution', {}).get('mode', 'neuroevolution')
+        if args.mode is not None:
+            evolution_mode = args.mode
+        elif args.learning:
+            evolution_mode = 'rl'
+        else:
+            evolution_mode = evo_cfg_mode
+        # Store resolved mode so downstream code can read it
+        config.setdefault('evolution', {})['mode'] = evolution_mode
+        use_learning = (evolution_mode == 'rl')
+
         print("Configuration loaded successfully!")
         print(f"World size: {config['world']['width']}x{config['world']['height']}")
         print(f"Initial population: {config['agents']['initial_population']}")
         print(f"Max generations: {config['simulation']['max_generations']}")
         print(f"Visualization: {'Enabled' if config['visualization']['enabled'] else 'Disabled'}")
+        print(f"Evolution mode: {evolution_mode.upper()}" +
+              (" (RL + Lamarckian inheritance)" if use_learning else " (pure neuroevolution, no gradient learning)"))
         if args.log:
             print(f"Logging: Enabled (frequency: every {args.log_frequency} tick(s))")
-        if args.learning:
+        if use_learning:
             print(f"Learning: ENABLED (rate: {args.learning_rate}) - Agents will learn to survive!")
         if args.load_weights:
             print(f"Pre-trained weights: Loading from {args.load_weights}")
@@ -516,8 +540,8 @@ Examples:
                         mutation_rate=0.02  # Small mutation for diversity
                     )
                 
-                # Enable learning if requested
-                if args.learning:
+                # Enable learning if RL mode is active
+                if use_learning:
                     agent.enable_learning(
                         learning_rate=args.learning_rate,
                         discount_factor=0.95,
@@ -533,7 +557,7 @@ Examples:
             attempts += 1
         print(f"Agents spawned: {len(world.agents)} agents")
 
-        if args.learning and world.agents:
+        if use_learning and world.agents:
             sample_agent = next(iter(world.agents.values()))
             if sample_agent.learner is not None:
                 print(
@@ -645,18 +669,58 @@ Examples:
                 agent_logger.close()
             
             return 0
-          # TODO: Initialize agents and run simulation
+
+        # Headless simulation mode (default when not using --gui)
         print("\n" + "="*60)
-        print("SIMULATION READY")
+        print("STARTING HEADLESS SIMULATION")
         print("="*60)
-        print("\nNext steps:")
-        print("  1. Agent system implementation")
-        print("  2. Simulation runner with generation management")
-        print("  3. World update systems (growth, decay, etc.)")
-        print("\nRun with --demo flag to see console visualization")
-        print("Run with --gui flag to see Pygame GUI visualization")
-        
-        # Close logger if enabled
+
+        sim_cfg = config.get('simulation', {})
+        evo_cfg = config.get('evolution', {})
+        max_generations = int(sim_cfg.get('max_generations', 1))
+        generation_length = int(evo_cfg.get('generation_length', 1000))
+
+        # At least one tick to avoid accidental no-op runs.
+        total_ticks = max(1, max_generations * generation_length)
+        progress_every = max(100, generation_length)
+
+        print(f"Mode: {'--no-viz' if args.no_viz else 'non-GUI'}")
+        print(f"Evolution: {evolution_mode.upper()}")
+        print(f"Planned run: {max_generations} generation(s) × {generation_length} ticks = {total_ticks} ticks")
+
+        for _ in range(total_ticks):
+            world.update()
+
+            if world.tick % progress_every == 0:
+                counts = world.get_cached_object_counts()
+                print(
+                    f"  Tick {world.tick}/{total_ticks} | "
+                    f"alive_agents={counts['alive_agents']} "
+                    f"food={counts['total_food']} plants={counts['total_plants']}"
+                )
+
+            # Stop early if population goes extinct
+            if not world.agents:
+                print(f"Population extinct at tick {world.tick}. Ending run early.")
+                break
+
+        print("\nHeadless simulation complete")
+        print(f"Final tick: {world.tick}")
+        final_counts = world.get_cached_object_counts()
+        print(
+            f"Final counts: alive_agents={final_counts['alive_agents']}, "
+            f"food={final_counts['total_food']}, plants={final_counts['total_plants']}, "
+            f"seeds={final_counts['total_seeds']}"
+        )
+
+        # Save best agent weights if requested
+        if best_agent_tracker is not None:
+            print("\nSaving best agent weights...")
+            for agent in world.agents.values():
+                if agent.alive:
+                    best_agent_tracker.update(agent, world)
+            best_agent_tracker.save_best_weights()
+
         if agent_logger:
             agent_logger.close()
         return 0

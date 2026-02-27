@@ -12,8 +12,8 @@ This project implements a **2D grid world** where:
 - **Agents** move around, consume resources, and manipulate objects using only primitive actions
 - **Evolution** drives the emergence of complex behaviors like farming, cooperation, and communication
 - **World physics** governs resource transformation, plant growth, and environmental dynamics
-- **Learning** — each agent trains an Actor-Critic GRU brain online using its own experience
-- **No hardcoded behaviors** — all complex strategies emerge through natural selection and reinforcement learning
+- **Dual-mode evolution** — choose between **RL mode** (online Actor-Critic learning with Lamarckian inheritance) or **pure neuroevolution** (no gradient learning, genome-only) via `--mode` flag or config
+- **No hardcoded behaviors** — all complex strategies emerge through natural selection and (optionally) reinforcement learning
 
 ## Key Features
 
@@ -21,7 +21,8 @@ This project implements a **2D grid world** where:
 - 🏜️ **Environmental Hazards**: Sand terrain spreads and degrades soil unless trees block it
 - 🧩 **Custom Object System**: Define new objects via YAML — foods, plants, terrain effects, structures
 - 🤝 **Cooperation**: Group behaviors emerge without explicit programming
-- 🧠 **Neural Evolution + Online Learning**: Agents use evolved GRU Actor-Critic networks that learn in real time
+- 🧠 **Neural Evolution + Online Learning**: Agents use evolved GRU Actor-Critic networks with optional real-time RL
+- 🔀 **Dual Evolution Mode**: RL mode (gradient learning + Lamarckian inheritance) or pure neuroevolution — selectable via `--mode rl` / `--mode neuroevolution`
 - 🎮 **Dual Renderer**: Pygame 2D GUI **or** a GPU-accelerated isometric 2.5D renderer via ModernGL
 - 🎯 **Contextual Instincts**: Survival-bootstrapping biases (PICK_UP, EAT, USE, turn-toward-food) that fade as learned weights strengthen
 - 🔬 **Scientific Analysis**: Comprehensive action-distribution and survival-metric analysis tools
@@ -55,6 +56,12 @@ python main.py --gui --seed 42
 
 # GPU isometric 2.5D renderer (requires OpenGL 3.3+)
 python main.py --gpu --seed 42
+
+# Pure neuroevolution mode (no gradient learning)
+python main.py --gui --mode neuroevolution
+
+# RL mode (online Actor-Critic learning + Lamarckian inheritance)
+python main.py --gui --mode rl
 
 # Run with custom configuration
 python main.py --config config/training_easy.yaml --gui
@@ -149,7 +156,9 @@ Complex behaviors emerge from combinations of primitive actions:
 - **Communication**: Evolved signalling between agents
 
 ### Evolution System
+- **Dual Mode**: `--mode rl` (gradient learning + Lamarckian weight inheritance) or `--mode neuroevolution` (pure evolution, no gradients). Set in config via `evolution.mode` or CLI.
 - **Neural Networks**: Each agent has an evolved GRU Actor-Critic brain
+- **Lamarckian Inheritance**: In RL mode, learned weights are synced back to the genome and passed to offspring (with mutation), so children inherit both genetic and learned knowledge
 - **Genetic Algorithm**: Tournament selection, crossover, and mutation
 - **Fitness-based Selection**: Survival and reproduction based on energy accumulation
 - **Trait Inheritance**: Both neural weights and behavioural traits evolve
@@ -157,6 +166,7 @@ Complex behaviors emerge from combinations of primitive actions:
 ## Configuration
 
 Key simulation parameters in `config/default.yaml`:
+- **Evolution mode** (`evolution.mode`): `"rl"` or `"neuroevolution"`
 - World size, terrain generation (soil, rock, water, sand ratios)
 - Population size, genetic parameters
 - Resource availability and growth rates
@@ -281,10 +291,14 @@ This sandbox is designed for studying:
 
 ## Future Extensions
 
-- **Curiosity-driven Learning**: Intrinsic motivation for exploration
-- **Communication Evolution**: Emergent language and signalling
+- **Curiosity-driven Learning**: Intrinsic motivation for exploration (ICM / RND)
+- **Communication Evolution**: Emergent language and signalling via SIGNAL action
 - **Tool Construction**: Building and using complex tools
-- **Environmental Dynamics**: Seasons, climate, and resource cycles
+- **Environmental Dynamics**: Day/night cycles, seasons, temperature, and weather
+- **Speciation (NEAT-style)**: Species-level diversity protection
+- **World Models**: Dreamer-style imagination and model-based planning
+
+See [SUGGESTIONS.md](SUGGESTIONS.md) for the full 80+ item roadmap.
 
 ## License
 

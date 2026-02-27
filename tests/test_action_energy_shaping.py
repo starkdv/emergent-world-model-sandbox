@@ -95,6 +95,18 @@ def test_non_wait_resets_wait_streak():
     assert r.energy_cost == round(base_wait_cost, 3)
 
 
+def test_successful_turn_does_not_reduce_fitness():
+    """Successful turning should not incur a fitness penalty."""
+    world = World(width=20, height=20, seed=42)
+    agent = _create_agent_on_passable_tile(world)
+
+    start_fitness = agent.fitness
+    result = agent.execute_action(Action.TURN_LEFT, world)
+
+    assert result.success
+    assert agent.fitness >= start_fitness
+
+
 def test_brain_no_move_forward_bias():
     """Brain should NOT apply a hardcoded bias to MOVE_FORWARD.
 

@@ -105,6 +105,8 @@ class RewardShaper:
         self.last_actions = []  # Track recent actions to detect spinning
         self.last_position = None  # Track position to detect movement
         self.recent_positions = deque(maxlen=24)  # Track recent positions to discourage loops
+        self.forward_run_length = 0  # Consecutive successful forward moves
+        self.blocked_forward_cooldown = 0  # Short memory of recent blocked-forward event
         self.consecutive_waits = 0  # Track consecutive wait actions
         self.positions_visited = set()  # Track visited positions for exploration
         self.steps_without_movement = 0  # Track steps without position change
@@ -147,6 +149,23 @@ class RewardShaper:
         from agents.actions import Action
         
         reward = 0.0
+
+        prev_forward_run = self.forward_run_length
+
+        # Track straight-run and blocked-forward context before shaping terms.
+        if action == Action.MOVE_FORWARD:
+            if action_result.success:
+                self.forward_run_length += 1
+            else:
+                self.forward_run_length = 0
+                self.blocked_forward_cooldown = 4
+        elif action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
+            self.forward_run_length = 0
+        elif action != Action.WAIT:
+            self.forward_run_length = 0
+
+        if action != Action.MOVE_FORWARD and self.blocked_forward_cooldown > 0:
+            self.blocked_forward_cooldown -= 1
         
         # ===== DENSE REWARD #1: Base survival =====
         reward += 0.0  # Neutral baseline to avoid implicit idling incentive
@@ -198,8 +217,45 @@ class RewardShaper:
         # ===== ANTI-LOOP: discourage tight movement cycles =====
         # Only apply when we actually moved (avoid punishing WAIT/turn-in-place).
         if moved_this_step:
-            if current_position in self.recent_positions:
-                reward -= 0.04
+            immediate_backtrack = (
+                len(self.recent_positions) >= 2
+                and current_position == self.recent_positions[-2]
+            )
+
+            if immediate_backtrack:
+                # Immediate A→B→A backtrack (common in rock-bounce loops)
+                reward -= 0.10
+            elif current_position in self.recent_positions:
+                # Penalise short-horizon revisits more strongly than long-horizon
+                # revisits to reduce repeated path cycling.
+                recent_list = list(self.recent_positions)
+                steps_ago = None
+                for idx in range(len(recent_list) - 1, -1, -1):
+                    if recent_list[idx] == current_position:
+                        steps_ago = len(recent_list) - idx
+                        break
+
+                if steps_ago is None:
+                    reward -= 0.04
+                elif steps_ago <= 4:
+                    reward -= 0.10
+                elif steps_ago <= 8:
+                    reward -= 0.07
+                else:
+                    reward -= 0.04
+
+            # Low spatial novelty penalty: if we keep moving but only through
+            # a tiny set of cells, nudge the policy to break route cycles.
+            # This captures patterns that are not strict ABA/ABAB loops.
+            recent_list = list(self.recent_positions)
+            if len(recent_list) >= 10:
+                recent_window = recent_list[-10:] + [current_position]
+                unique_recent = len(set(recent_window))
+                if unique_recent <= 4:
+                    reward -= 0.08
+                elif unique_recent <= 6:
+                    reward -= 0.04
+
             self.recent_positions.append(current_position)
 
         # ===== WAIT: very gentle discouragement =====
@@ -261,6 +317,18 @@ class RewardShaper:
             recent = self.last_actions[-6:]
             if recent.count(Action.MOVE_FORWARD) >= 5:
                 reward += 0.03
+
+            # Stronger proactive turn reward after straight runs.
+            # Only counts as proactive when there isn't a very recent blocked-forward event.
+            if prev_forward_run >= 3 and self.blocked_forward_cooldown == 0:
+                reward += min(0.12, 0.03 * (prev_forward_run - 2))
+
+        # ===== STRAIGHT-RUN DAMPING =====
+        # Mildly discourage very long forward runs when no food is visible.
+        # This nudges agents to sample turns before hitting obstacles.
+        if nearest_food_dist is None and action == Action.MOVE_FORWARD and action_result.success:
+            if prev_forward_run >= 6:
+                reward -= min(0.08, 0.01 * (prev_forward_run - 5))
           # ===== ENERGY-AWARE EATING REWARDS =====
         energy_gain = energy_after - energy_before
         
@@ -389,6 +457,22 @@ class RewardShaper:
                 reward -= 0.60
             elif turn_count >= 4:
                 reward -= 0.30
+
+        # ===== TURN-BALANCE regularization =====
+        # Prevent the population from locking into a single turn
+        # direction through evolutionary drift.  If recent turns are
+        # heavily skewed L or R, mildly penalise the dominant one.
+        if action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
+            recent_turns = [a for a in self.last_actions
+                           if a in [Action.TURN_LEFT, Action.TURN_RIGHT]]
+            if len(recent_turns) >= 4:
+                left_ct  = recent_turns.count(Action.TURN_LEFT)
+                right_ct = recent_turns.count(Action.TURN_RIGHT)
+                # Penalise the dominant direction (ratio >= 4:1)
+                if left_ct >= 4 * max(right_ct, 1) and action == Action.TURN_LEFT:
+                    reward -= 0.06
+                elif right_ct >= 4 * max(left_ct, 1) and action == Action.TURN_RIGHT:
+                    reward -= 0.06
         
         # ===== TURN-TOWARD-FOOD reward =====
         # Reward turns that improve alignment with nearest food.
@@ -521,6 +605,8 @@ class RewardShaper:
         self.last_actions = []
         self.last_position = None
         self.recent_positions.clear()
+        self.forward_run_length = 0
+        self.blocked_forward_cooldown = 0
         self.consecutive_waits = 0
         self.positions_visited.clear()
         self.steps_without_movement = 0
