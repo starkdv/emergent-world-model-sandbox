@@ -23,6 +23,7 @@ from typing import Tuple, TYPE_CHECKING
 
 try:
     import torch
+
     TORCH_AVAILABLE = True
 except Exception:
     torch = None
@@ -39,14 +40,14 @@ if TYPE_CHECKING:
 class AgentLearner:
     """
     Actor-Critic learning system for agent neural networks.
-    
+
     Implements Actor-Critic algorithm with GRU hidden states:
     - Policy gradient for action selection (Actor)
     - Value function for advantage estimation (Critic)
     - TD advantage for variance reduction
     - Entropy regularization for exploration
     """
-    
+
     def __init__(
         self,
         learning_rate: float = 0.001,
@@ -59,7 +60,7 @@ class AgentLearner:
     ):
         """
         Initialize the learner.
-        
+
         Args:
             learning_rate: Learning rate for gradient updates
             discount_factor: Discount factor for future rewards
@@ -81,7 +82,9 @@ class AgentLearner:
             compute_device,
         )
 
-    def _resolve_compute_backend(self, compute_backend: str, compute_device: str) -> tuple[str, str]:
+    def _resolve_compute_backend(
+        self, compute_backend: str, compute_device: str
+    ) -> tuple[str, str]:
         """
         Resolve compute backend/device with safe fallbacks.
         """
@@ -98,7 +101,11 @@ class AgentLearner:
             return "numpy", "cpu"
 
         if backend == "auto":
-            if TORCH_AVAILABLE and torch.cuda.is_available() and self._torch_device_usable("cuda"):
+            if (
+                TORCH_AVAILABLE
+                and torch.cuda.is_available()
+                and self._torch_device_usable("cuda")
+            ):
                 return "torch", "cuda"
             if (
                 TORCH_AVAILABLE
@@ -121,7 +128,9 @@ class AgentLearner:
                 return "torch", "mps"
             return "torch", "cpu"
 
-        if device == "cuda" and (not torch.cuda.is_available() or not self._torch_device_usable("cuda")):
+        if device == "cuda" and (
+            not torch.cuda.is_available() or not self._torch_device_usable("cuda")
+        ):
             return "torch", "cpu"
 
         if device == "mps":
@@ -151,7 +160,7 @@ class AgentLearner:
             return True
         except Exception:
             return False
-    
+
     def store_experience(
         self,
         observation: np.ndarray,
@@ -160,11 +169,11 @@ class AgentLearner:
         reward: float,
         next_observation: np.ndarray,
         next_hidden_state: np.ndarray,
-        done: bool
+        done: bool,
     ) -> None:
         """
         Store an experience in the replay buffer.
-        
+
         Args:
             observation: State before action
             hidden_state: Hidden state before action
@@ -175,52 +184,63 @@ class AgentLearner:
             done: Whether episode ended
         """
         experience = Experience(
-            observation, hidden_state, action, reward,
-            next_observation, next_hidden_state, done
+            observation,
+            hidden_state,
+            action,
+            reward,
+            next_observation,
+            next_hidden_state,
+            done,
         )
         self.replay_buffer.add(experience)
-    
-    def learn(self, brain: 'Brain') -> float:
+
+    def learn(self, brain: "Brain") -> float:
         """
         Update brain weights using Actor-Critic learning.
-        
+
         Computes:
         - TD advantage: A = r + γV(s') * (1-done) - V(s)
         - Policy loss: -log π(a|s) * A
         - Value loss: 0.5 * (V(s) - target)^2
         - Entropy bonus: -β * H(π)
-        
+
         Args:
             brain: Agent's brain to update
-            
+
         Returns:
             Average loss for this update
-        """        
+        """
         if len(self.replay_buffer) < self.batch_size:
             return 0.0
-        
+
         experiences = self.replay_buffer.sample(self.batch_size)
 
         if self.compute_backend == "torch" and TORCH_AVAILABLE:
-            total_loss, total_policy_loss, total_value_loss, total_entropy = self._learn_vectorized_torch(brain, experiences)
+            total_loss, total_policy_loss, total_value_loss, total_entropy = (
+                self._learn_vectorized_torch(brain, experiences)
+            )
         else:
-            total_loss, total_policy_loss, total_value_loss, total_entropy = self._learn_vectorized_numpy(brain, experiences)
-        
+            total_loss, total_policy_loss, total_value_loss, total_entropy = (
+                self._learn_vectorized_numpy(brain, experiences)
+            )
+
         # Sync updated parameters back to genome
         self._sync_genome_weights(brain)
-        
+
         # Debug logging occasionally
         if random.random() < 0.01:
             avg_policy = total_policy_loss / len(experiences)
             avg_value = total_value_loss / len(experiences)
             avg_entropy = total_entropy / len(experiences)
-            print(f"  [LEARN] Policy: {avg_policy:.3f}, Value: {avg_value:.3f}, Entropy: {avg_entropy:.3f}")
-        
+            print(
+                f"  [LEARN] Policy: {avg_policy:.3f}, Value: {avg_value:.3f}, Entropy: {avg_entropy:.3f}"
+            )
+
         return total_loss / len(experiences)
-    
+
     def _forward_batch_numpy(
         self,
-        brain: 'Brain',
+        brain: "Brain",
         obs_batch: np.ndarray,
         h_batch: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -229,24 +249,53 @@ class AgentLearner:
         """
         x = obs_batch
 
-        for i in range(len(brain.params['encoder_weights'])):
-            x = np.tanh(x @ brain.params['encoder_weights'][i] + brain.params['encoder_biases'][i])
+        for i in range(len(brain.params["encoder_weights"])):
+            x = np.tanh(
+                x @ brain.params["encoder_weights"][i]
+                + brain.params["encoder_biases"][i]
+            )
 
-        gru = brain.params['gru']
-        r = 1.0 / (1.0 + np.exp(-np.clip(x @ gru['Wr_input'] + h_batch @ gru['Wr_hidden'] + gru['br'], -20, 20)))
-        z = 1.0 / (1.0 + np.exp(-np.clip(x @ gru['Wz_input'] + h_batch @ gru['Wz_hidden'] + gru['bz'], -20, 20)))
-        h_tilde = np.tanh(x @ gru['Wh_input'] + (r * h_batch) @ gru['Wh_hidden'] + gru['bh'])
+        gru = brain.params["gru"]
+        r = 1.0 / (
+            1.0
+            + np.exp(
+                -np.clip(
+                    x @ gru["Wr_input"] + h_batch @ gru["Wr_hidden"] + gru["br"],
+                    -20,
+                    20,
+                )
+            )
+        )
+        z = 1.0 / (
+            1.0
+            + np.exp(
+                -np.clip(
+                    x @ gru["Wz_input"] + h_batch @ gru["Wz_hidden"] + gru["bz"],
+                    -20,
+                    20,
+                )
+            )
+        )
+        h_tilde = np.tanh(
+            x @ gru["Wh_input"] + (r * h_batch) @ gru["Wh_hidden"] + gru["bh"]
+        )
         h_next = (1 - z) * h_batch + z * h_tilde
 
-        logits = h_next @ brain.params['policy_head']['W'] + brain.params['policy_head']['b']
+        logits = (
+            h_next @ brain.params["policy_head"]["W"] + brain.params["policy_head"]["b"]
+        )
         logits = logits - np.max(logits, axis=1, keepdims=True)
         exp_logits = np.exp(logits)
         probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
 
-        values = (h_next @ brain.params['value_head']['W'] + brain.params['value_head']['b']).squeeze(-1)
+        values = (
+            h_next @ brain.params["value_head"]["W"] + brain.params["value_head"]["b"]
+        ).squeeze(-1)
         return probs, values, h_next
 
-    def _learn_vectorized_numpy(self, brain: 'Brain', experiences: list[Experience]) -> tuple[float, float, float, float]:
+    def _learn_vectorized_numpy(
+        self, brain: "Brain", experiences: list[Experience]
+    ) -> tuple[float, float, float, float]:
         """
         Vectorized numpy learning step over a full batch.
         """
@@ -256,7 +305,9 @@ class AgentLearner:
         rewards = np.array([exp.reward for exp in experiences], dtype=np.float32)
         next_obs = np.stack([exp.next_observation for exp in experiences], axis=0)
         next_hidden = np.stack([exp.next_hidden_state for exp in experiences], axis=0)
-        dones = np.array([1 if exp.done else 0 for exp in experiences], dtype=np.float32)
+        dones = np.array(
+            [1 if exp.done else 0 for exp in experiences], dtype=np.float32
+        )
 
         probs, values, h_out = self._forward_batch_numpy(brain, obs, hidden)
         _, next_values, _ = self._forward_batch_numpy(brain, next_obs, next_hidden)
@@ -276,71 +327,118 @@ class AgentLearner:
         action_gradient[batch_idx, actions] -= 1.0
         action_gradient *= (advantage * self.learning_rate)[:, None]
 
-        brain.params['policy_head']['W'] -= h_out.T @ action_gradient
-        brain.params['policy_head']['b'] -= np.sum(action_gradient, axis=0)
+        brain.params["policy_head"]["W"] -= h_out.T @ action_gradient
+        brain.params["policy_head"]["b"] -= np.sum(action_gradient, axis=0)
 
         value_gradient = 2.0 * (values - td_target) * self.learning_rate
         dW_value = np.sum(h_out * value_gradient[:, None], axis=0).reshape(-1, 1)
-        dB_value = np.array([np.sum(value_gradient)], dtype=brain.params['value_head']['b'].dtype)
+        dB_value = np.array(
+            [np.sum(value_gradient)], dtype=brain.params["value_head"]["b"].dtype
+        )
 
-        brain.params['value_head']['W'] -= dW_value
-        brain.params['value_head']['b'] -= dB_value
+        brain.params["value_head"]["W"] -= dW_value
+        brain.params["value_head"]["b"] -= dB_value
 
-        return float(np.sum(np.abs(loss))), float(np.sum(np.abs(policy_loss))), float(np.sum(value_loss)), float(np.sum(entropy))
+        return (
+            float(np.sum(np.abs(loss))),
+            float(np.sum(np.abs(policy_loss))),
+            float(np.sum(value_loss)),
+            float(np.sum(entropy)),
+        )
 
-    def _forward_batch_torch(self, brain: 'Brain', obs_batch, h_batch, device):
+    def _forward_batch_torch(self, brain: "Brain", obs_batch, h_batch, device):
         """
         Batched forward pass using torch tensors.
         """
         x = obs_batch
 
-        for i in range(len(brain.params['encoder_weights'])):
-            w = torch.as_tensor(brain.params['encoder_weights'][i], dtype=torch.float32, device=device)
-            b = torch.as_tensor(brain.params['encoder_biases'][i], dtype=torch.float32, device=device)
+        for i in range(len(brain.params["encoder_weights"])):
+            w = torch.as_tensor(
+                brain.params["encoder_weights"][i], dtype=torch.float32, device=device
+            )
+            b = torch.as_tensor(
+                brain.params["encoder_biases"][i], dtype=torch.float32, device=device
+            )
             x = torch.tanh(x @ w + b)
 
-        gru = brain.params['gru']
-        wr_i = torch.as_tensor(gru['Wr_input'], dtype=torch.float32, device=device)
-        wr_h = torch.as_tensor(gru['Wr_hidden'], dtype=torch.float32, device=device)
-        br = torch.as_tensor(gru['br'], dtype=torch.float32, device=device)
-        wz_i = torch.as_tensor(gru['Wz_input'], dtype=torch.float32, device=device)
-        wz_h = torch.as_tensor(gru['Wz_hidden'], dtype=torch.float32, device=device)
-        bz = torch.as_tensor(gru['bz'], dtype=torch.float32, device=device)
-        wh_i = torch.as_tensor(gru['Wh_input'], dtype=torch.float32, device=device)
-        wh_h = torch.as_tensor(gru['Wh_hidden'], dtype=torch.float32, device=device)
-        bh = torch.as_tensor(gru['bh'], dtype=torch.float32, device=device)
+        gru = brain.params["gru"]
+        wr_i = torch.as_tensor(gru["Wr_input"], dtype=torch.float32, device=device)
+        wr_h = torch.as_tensor(gru["Wr_hidden"], dtype=torch.float32, device=device)
+        br = torch.as_tensor(gru["br"], dtype=torch.float32, device=device)
+        wz_i = torch.as_tensor(gru["Wz_input"], dtype=torch.float32, device=device)
+        wz_h = torch.as_tensor(gru["Wz_hidden"], dtype=torch.float32, device=device)
+        bz = torch.as_tensor(gru["bz"], dtype=torch.float32, device=device)
+        wh_i = torch.as_tensor(gru["Wh_input"], dtype=torch.float32, device=device)
+        wh_h = torch.as_tensor(gru["Wh_hidden"], dtype=torch.float32, device=device)
+        bh = torch.as_tensor(gru["bh"], dtype=torch.float32, device=device)
 
         r = torch.sigmoid(torch.clamp(x @ wr_i + h_batch @ wr_h + br, -20, 20))
         z = torch.sigmoid(torch.clamp(x @ wz_i + h_batch @ wz_h + bz, -20, 20))
         h_tilde = torch.tanh(x @ wh_i + (r * h_batch) @ wh_h + bh)
         h_next = (1 - z) * h_batch + z * h_tilde
 
-        pw = torch.as_tensor(brain.params['policy_head']['W'], dtype=torch.float32, device=device)
-        pb = torch.as_tensor(brain.params['policy_head']['b'], dtype=torch.float32, device=device)
+        pw = torch.as_tensor(
+            brain.params["policy_head"]["W"], dtype=torch.float32, device=device
+        )
+        pb = torch.as_tensor(
+            brain.params["policy_head"]["b"], dtype=torch.float32, device=device
+        )
         logits = h_next @ pw + pb
         probs = torch.softmax(logits, dim=1)
 
-        vw = torch.as_tensor(brain.params['value_head']['W'], dtype=torch.float32, device=device)
-        vb = torch.as_tensor(brain.params['value_head']['b'], dtype=torch.float32, device=device)
+        vw = torch.as_tensor(
+            brain.params["value_head"]["W"], dtype=torch.float32, device=device
+        )
+        vb = torch.as_tensor(
+            brain.params["value_head"]["b"], dtype=torch.float32, device=device
+        )
         values = (h_next @ vw + vb).squeeze(-1)
         return probs, values, h_next
 
-    def _learn_vectorized_torch(self, brain: 'Brain', experiences: list[Experience]) -> tuple[float, float, float, float]:
+    def _learn_vectorized_torch(
+        self, brain: "Brain", experiences: list[Experience]
+    ) -> tuple[float, float, float, float]:
         """
         Vectorized torch learning step (uses GPU when available).
         """
         device = torch.device(self.compute_device)
 
-        obs = torch.as_tensor(np.stack([exp.observation for exp in experiences], axis=0), dtype=torch.float32, device=device)
-        hidden = torch.as_tensor(np.stack([exp.hidden_state for exp in experiences], axis=0), dtype=torch.float32, device=device)
-        actions = torch.as_tensor([exp.action for exp in experiences], dtype=torch.long, device=device)
-        rewards = torch.as_tensor([exp.reward for exp in experiences], dtype=torch.float32, device=device)
-        next_obs = torch.as_tensor(np.stack([exp.next_observation for exp in experiences], axis=0), dtype=torch.float32, device=device)
-        next_hidden = torch.as_tensor(np.stack([exp.next_hidden_state for exp in experiences], axis=0), dtype=torch.float32, device=device)
-        dones = torch.as_tensor([1 if exp.done else 0 for exp in experiences], dtype=torch.float32, device=device)
+        obs = torch.as_tensor(
+            np.stack([exp.observation for exp in experiences], axis=0),
+            dtype=torch.float32,
+            device=device,
+        )
+        hidden = torch.as_tensor(
+            np.stack([exp.hidden_state for exp in experiences], axis=0),
+            dtype=torch.float32,
+            device=device,
+        )
+        actions = torch.as_tensor(
+            [exp.action for exp in experiences], dtype=torch.long, device=device
+        )
+        rewards = torch.as_tensor(
+            [exp.reward for exp in experiences], dtype=torch.float32, device=device
+        )
+        next_obs = torch.as_tensor(
+            np.stack([exp.next_observation for exp in experiences], axis=0),
+            dtype=torch.float32,
+            device=device,
+        )
+        next_hidden = torch.as_tensor(
+            np.stack([exp.next_hidden_state for exp in experiences], axis=0),
+            dtype=torch.float32,
+            device=device,
+        )
+        dones = torch.as_tensor(
+            [1 if exp.done else 0 for exp in experiences],
+            dtype=torch.float32,
+            device=device,
+        )
 
         probs, values, h_out = self._forward_batch_torch(brain, obs, hidden, device)
-        _, next_values, _ = self._forward_batch_torch(brain, next_obs, next_hidden, device)
+        _, next_values, _ = self._forward_batch_torch(
+            brain, next_obs, next_hidden, device
+        )
         next_values = next_values * (1.0 - dones)
 
         td_target = rewards + self.discount_factor * next_values
@@ -355,7 +453,9 @@ class AgentLearner:
 
         action_gradient = probs.clone()
         action_gradient[batch_idx, actions] -= 1.0
-        action_gradient = action_gradient * (advantage * self.learning_rate).unsqueeze(1)
+        action_gradient = action_gradient * (advantage * self.learning_rate).unsqueeze(
+            1
+        )
 
         dW_policy = h_out.transpose(0, 1) @ action_gradient
         dB_policy = torch.sum(action_gradient, dim=0)
@@ -364,10 +464,10 @@ class AgentLearner:
         dW_value = torch.sum(h_out * value_gradient.unsqueeze(1), dim=0).unsqueeze(1)
         dB_value = torch.sum(value_gradient).unsqueeze(0)
 
-        brain.params['policy_head']['W'] -= dW_policy.detach().cpu().numpy()
-        brain.params['policy_head']['b'] -= dB_policy.detach().cpu().numpy()
-        brain.params['value_head']['W'] -= dW_value.detach().cpu().numpy()
-        brain.params['value_head']['b'] -= dB_value.detach().cpu().numpy()
+        brain.params["policy_head"]["W"] -= dW_policy.detach().cpu().numpy()
+        brain.params["policy_head"]["b"] -= dB_policy.detach().cpu().numpy()
+        brain.params["value_head"]["W"] -= dW_value.detach().cpu().numpy()
+        brain.params["value_head"]["b"] -= dB_value.detach().cpu().numpy()
 
         return (
             float(torch.sum(torch.abs(loss)).detach().cpu().item()),
@@ -375,52 +475,53 @@ class AgentLearner:
             float(torch.sum(value_loss).detach().cpu().item()),
             float(torch.sum(entropy).detach().cpu().item()),
         )
-    
-    
-    def _sync_genome_weights(self, brain: 'Brain') -> None:
+
+    def _sync_genome_weights(self, brain: "Brain") -> None:
         """
         Sync brain parameters back to genome.
-        
+
         This ensures learned weights are stored in the genome
         and can be passed to offspring (Lamarckian inheritance).
-        
+
         Args:
             brain: Brain with updated parameters
         """
         # Use np.concatenate on flat views — avoids building a Python list
         # of thousands of individual floats via .extend()
         parts = []
-        
+
         # 1. Encoder
-        for w, b in zip(brain.params['encoder_weights'], brain.params['encoder_biases']):
+        for w, b in zip(
+            brain.params["encoder_weights"], brain.params["encoder_biases"]
+        ):
             parts.append(w.ravel())
             parts.append(b.ravel())
-        
+
         # 2. GRU (3 gates: reset, update, candidate)
-        gru = brain.params['gru']
+        gru = brain.params["gru"]
 
         # Reset gate
-        parts.append(gru['Wr_input'].ravel())
-        parts.append(gru['Wr_hidden'].ravel())
-        parts.append(gru['br'].ravel())
+        parts.append(gru["Wr_input"].ravel())
+        parts.append(gru["Wr_hidden"].ravel())
+        parts.append(gru["br"].ravel())
 
         # Update gate
-        parts.append(gru['Wz_input'].ravel())
-        parts.append(gru['Wz_hidden'].ravel())
-        parts.append(gru['bz'].ravel())
+        parts.append(gru["Wz_input"].ravel())
+        parts.append(gru["Wz_hidden"].ravel())
+        parts.append(gru["bz"].ravel())
 
         # Candidate
-        parts.append(gru['Wh_input'].ravel())
-        parts.append(gru['Wh_hidden'].ravel())
-        parts.append(gru['bh'].ravel())
-        
+        parts.append(gru["Wh_input"].ravel())
+        parts.append(gru["Wh_hidden"].ravel())
+        parts.append(gru["bh"].ravel())
+
         # 3. Policy head
-        parts.append(brain.params['policy_head']['W'].ravel())
-        parts.append(brain.params['policy_head']['b'].ravel())
-        
+        parts.append(brain.params["policy_head"]["W"].ravel())
+        parts.append(brain.params["policy_head"]["b"].ravel())
+
         # 4. Value head
-        parts.append(brain.params['value_head']['W'].ravel())
-        parts.append(brain.params['value_head']['b'].ravel())
-        
+        parts.append(brain.params["value_head"]["W"].ravel())
+        parts.append(brain.params["value_head"]["b"].ravel())
+
         # Update genome - single concatenation (no Python float intermediaries)
         brain.genome.weights = np.concatenate(parts).astype(np.float32)

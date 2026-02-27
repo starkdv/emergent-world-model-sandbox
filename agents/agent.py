@@ -30,13 +30,13 @@ if TYPE_CHECKING:
 class Agent:
     """
     An autonomous agent in the simulation.
-    
+
     Agents must:
     - Maintain energy by consuming food
     - Navigate the world using primitive actions
     - Learn behaviors through evolutionary processes
     - Survive and reproduce to pass on genes
-    
+
     Attributes:
         id (int): Unique identifier
         x (int): X coordinate in world
@@ -54,16 +54,16 @@ class Agent:
         traits (dict[str, float]): Phenotypic traits
         fitness (float): Fitness score for evolution
         metabolism_rate (float): Energy consumed per tick
-        
+
     Class Attributes:
         logger (AgentLogger): Optional logger for tracking actions/states
         world_model_logger: Optional logger for world model training data
     """
-    
+
     _next_id = 0
-    logger: ClassVar[Optional['AgentLogger']] = None
-    world_model_logger: ClassVar[Optional['WorldModelLogger']] = None
-    
+    logger: ClassVar[Optional["AgentLogger"]] = None
+    world_model_logger: ClassVar[Optional["WorldModelLogger"]] = None
+
     def __init__(
         self,
         x: int,
@@ -76,7 +76,7 @@ class Agent:
     ):
         """
         Initialize a new agent.
-        
+
         Args:
             x: Starting x coordinate
             y: Starting y coordinate
@@ -88,33 +88,33 @@ class Agent:
         """
         self.id = Agent._next_id
         Agent._next_id += 1
-        
+
         self.x = x
         self.y = y
         # Randomize initial facing direction to prevent population-wide
         # turn bias from correlated starting orientations.
         _cardinal = [(0, -1), (1, 0), (0, 1), (-1, 0)]
         self.direction = _cardinal[np.random.randint(4)]
-        
+
         self.energy = max_energy  # Start with full energy
         self.max_energy = max_energy
         self.age = 0
         self.max_age = max_age
         self.alive = True
-        
+
         self.inventory: List[int] = []
         self.inventory_size = inventory_size
-          # Evolutionary components
+        # Evolutionary components
         self.genome = genome
         self.brain = Brain(genome)
         self.traits = genome.traits.copy()
         self.fitness = 0.0
-        
+
         # GRU hidden state (memory)
         self.h = self.brain.initial_state()
-        
+
         # Learning components
-        self.learner: Optional['AgentLearner'] = None
+        self.learner: Optional["AgentLearner"] = None
         self.last_observation: Optional[np.ndarray] = None
         self.last_hidden_state: Optional[np.ndarray] = None
         self.learning_enabled = True  # Can be disabled for pure evolution
@@ -124,39 +124,49 @@ class Agent:
         self._previous_action: Optional[Action] = None
         self._consecutive_turns = 0
         self._consecutive_waits = 0
-          # Apply trait-based modifications
-        self.metabolism_rate = metabolism_rate * self.traits.get('metabolism_rate', 1.0)
-        self.vision_radius = int(self.traits.get('vision_radius', 5.0))
-    
-    def update(self, world: 'World') -> None:
+        # Apply trait-based modifications
+        self.metabolism_rate = metabolism_rate * self.traits.get("metabolism_rate", 1.0)
+        self.vision_radius = int(self.traits.get("vision_radius", 5.0))
+
+    def update(self, world: "World") -> None:
         """
         Update agent state each tick.
-        
+
         Args:
             world: The world the agent exists in
         """
         if not self.alive:
             return
-        
+
         # Age the agent
         self.age += 1
-        
+
         # Consume energy for metabolism
         energy_before = self.energy
         self.energy -= self.metabolism_rate
-        
+
         # Check for death conditions
         if self.energy <= 0 or self.age >= self.max_age:
             death_reason = "starvation" if self.energy <= 0 else "old_age"
-            
+
             # Compute terminal observation ONCE for both loggers
             terminal_obs = None
-            if (Agent.world_model_logger is not None and self.last_observation is not None) or \
-               (self.learning_enabled and self.learner and self.last_observation is not None):
+            if (
+                Agent.world_model_logger is not None
+                and self.last_observation is not None
+            ) or (
+                self.learning_enabled
+                and self.learner
+                and self.last_observation is not None
+            ):
                 terminal_obs = self.observe(world)
 
             # Log terminal transition for world model
-            if Agent.world_model_logger is not None and self.last_observation is not None and terminal_obs is not None:
+            if (
+                Agent.world_model_logger is not None
+                and self.last_observation is not None
+                and terminal_obs is not None
+            ):
                 Agent.world_model_logger.log_transition(
                     tick=world.tick,
                     agent=self,
@@ -170,13 +180,18 @@ class Agent:
                     y_before=self.y,
                     energy_before=energy_before,
                     done=True,
-                    death_reason=death_reason
+                    death_reason=death_reason,
                 )
-            
+
             self.die(world)
-            
+
             # Store terminal experience if learning
-            if self.learning_enabled and self.learner and self.last_observation is not None and self.last_hidden_state is not None:
+            if (
+                self.learning_enabled
+                and self.learner
+                and self.last_observation is not None
+                and self.last_hidden_state is not None
+            ):
                 if terminal_obs is None:
                     terminal_obs = self.observe(world)
                 terminal_h = self.brain.initial_state()  # Dead state
@@ -187,14 +202,14 @@ class Agent:
                     -1.0,  # Death penalty
                     terminal_obs,
                     terminal_h,
-                    True  # Episode done
+                    True,  # Episode done
                 )
-            return# Get observation and decide action
+            return  # Get observation and decide action
         observation = self.observe(world)
-        
+
         # AUTO-EAT: If energy is low and agent has food, eat automatically
         # This ensures agents don't starve while holding food
-        
+
         # Check if agent has food in inventory
         has_food = False
         if self.inventory:
@@ -203,7 +218,7 @@ class Agent:
                 if obj is not None and obj.has_component(EdibleComponent):
                     has_food = True
                     break
-        
+
         # Force EAT when hungry with food (50% threshold for safety)
         action_mask = self.get_action_mask(world)
         if self.energy < self.max_energy * 0.5 and has_food:
@@ -213,35 +228,35 @@ class Agent:
                 observation,
                 self.h,
                 action_mask=action_mask,
-                temperature=self.temperature
+                temperature=self.temperature,
             )
         else:
             # Use brain to decide action (samples from policy)
             action, self.h, _ = self.brain.decide(
-            observation,
-            self.h,
-            action_mask=action_mask,
-            temperature=self.temperature
-        )
-        
+                observation,
+                self.h,
+                action_mask=action_mask,
+                temperature=self.temperature,
+            )
+
         # Store observation before action for logging
         obs_before = observation  # no copy needed — not modified before use
         x_before_action = self.x
         y_before_action = self.y
-        
+
         # Execute action
         result = self.execute_action(action, world)
-        
+
         # Get observation after action
         obs_after = self.observe(world)
-        
+
         # Calculate reward (needed for both learning and logging)
         reward = 0.0
         if self.learning_enabled and self.learner:
             reward = self.learner.reward_shaper.calculate_reward(
                 action, result, energy_before, self.energy, self, world
             )
-        
+
         # World model logging (captures full transitions for training)
         if Agent.world_model_logger is not None:
             Agent.world_model_logger.log_transition(
@@ -257,9 +272,9 @@ class Agent:
                 y_before=y_before_action,
                 energy_before=energy_before,
                 done=False,
-                death_reason=""
+                death_reason="",
             )
-        
+
         # Learning step
         if self.learning_enabled and self.learner:
             # Store experience (if we have previous observation and hidden state)
@@ -272,68 +287,69 @@ class Agent:
                     reward,
                     obs_after,
                     self.h,  # Current (next) hidden state
-                    False  # Not done yet
+                    False,  # Not done yet
                 )
-            
+
             # Learn when world scheduler grants a training slot (staggered + capped)
-            has_enough_experience = len(self.learner.replay_buffer) >= self.learner.batch_size
+            has_enough_experience = (
+                len(self.learner.replay_buffer) >= self.learner.batch_size
+            )
             can_train_now = False
 
             if has_enough_experience:
-                if hasattr(world, 'try_acquire_learning_slot'):
+                if hasattr(world, "try_acquire_learning_slot"):
                     can_train_now = world.try_acquire_learning_slot(self.id, self.age)
                 else:
-                    can_train_now = (self.age % 3 == 0)
+                    can_train_now = self.age % 3 == 0
 
             if can_train_now:
-                loss = self.learner.learn(self.brain)
-            
+                self.learner.learn(self.brain)
+
             # Store current observation and hidden state for next step
             self.last_observation = obs_after.copy()
             self.last_hidden_state = self.h.copy()
 
-    def get_action_mask(self, world: 'World') -> np.ndarray:
+    def get_action_mask(self, world: "World") -> np.ndarray:
         """
         Binary mask over Action enum (1 = valid, 0 = invalid).
         Delegates to agent_utils.
         """
         return agent_utils.get_action_mask(self, world)
 
-
-    
-    def observe(self, world: 'World') -> np.ndarray:
+    def observe(self, world: "World") -> np.ndarray:
         """
         Build observation vector from world state.
-        
+
         Args:
             world: The world to observe
-            
+
         Returns:
-            Normalized observation vector        """
+            Normalized observation vector"""
         from utils.agents import build_observation
+
         return build_observation(self, world)
-    
-    def execute_action(self, action: Action, world: 'World') -> ActionResult:
+
+    def execute_action(self, action: Action, world: "World") -> ActionResult:
         """
         Execute a primitive action in the world.
-        
+
         Args:
             action: The action to execute
             world: The world to act in
-            
+
         Returns:
             Result of the action execution
         """
         if not self.alive:
             return ActionResult(False, 0.0, "Agent is dead")
-        
+
         # Store state before action for logging
         x_before = self.x
         y_before = self.y
         energy_before = self.energy
-        
+
         result = ActionResult(True, 0.0)
-        
+
         if action == Action.MOVE_FORWARD:
             result = agent_utils.execute_move_forward(self, world)
         elif action == Action.TURN_LEFT:
@@ -370,7 +386,10 @@ class Agent:
             effective_energy_cost += min(0.02 * extra_wait_penalty, 0.10)
         elif action == Action.MOVE_FORWARD:
             # Reward turn->move transition with a tiny cost discount
-            if result.success and self._previous_action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
+            if result.success and self._previous_action in [
+                Action.TURN_LEFT,
+                Action.TURN_RIGHT,
+            ]:
                 effective_energy_cost = max(0.10, effective_energy_cost - 0.02)
             self._consecutive_turns = 0
             self._consecutive_waits = 0
@@ -386,7 +405,7 @@ class Agent:
 
         # Track action for next-step energy shaping
         self._previous_action = action
-        
+
         # Update fitness based on action outcomes.
         # Successful turns should not be penalized; otherwise the policy
         # is structurally biased toward MOVE_FORWARD.
@@ -398,46 +417,47 @@ class Agent:
                 self.fitness += 0.1  # Small reward for successful action
         else:
             self.fitness -= 0.05  # Small penalty for failed action
-        
+
         # Log action if logger is enabled
         if Agent.logger is not None:
             Agent.logger.log_action(
-                world.tick, self, action, result,
-                x_before, y_before, energy_before
+                world.tick, self, action, result, x_before, y_before, energy_before
             )
-        
+
         return result
-    
-    def die(self, world: 'World') -> None:
+
+    def die(self, world: "World") -> None:
         """
         Handle agent death.
-        
+
         Args:
             world: The world the agent exists in
         """
         import random
-        
+
         self.alive = False
-        
+
         # Reset hidden state (agent's memory is lost on death)
         self.h = self.brain.initial_state()
-        
+
         # Death penalty to fitness (proportional to how early the death was)
         # Dying young = big penalty, dying old = small penalty
         age_ratio = self.age / self.max_age
-        death_penalty = 10.0 * (1.0 - age_ratio)  # Max -10 for instant death, 0 for old age
+        death_penalty = 10.0 * (
+            1.0 - age_ratio
+        )  # Max -10 for instant death, 0 for old age
         self.fitness -= death_penalty
-        
+
         # Extra penalty for starvation (should have eaten!)
         if self.energy <= 0:
             self.fitness -= 5.0  # Starvation penalty
-        
+
         # Drop all inventory items with stacking configuration check
         for obj_id in self.inventory:
             obj = world.objects.get(obj_id)
             if obj is not None:
                 tile = world.tiles[self.y][self.x]
-                
+
                 # Check stacking configuration
                 if world.allow_stacking or not tile.object_ids:
                     # Stacking allowed OR tile is empty - drop here
@@ -446,14 +466,21 @@ class Agent:
                     obj.y = self.y
                 else:
                     # Stacking disabled and tile occupied - try nearby tiles
-                    directions = [(-1, 0), (1, 0), (0, -1), (0, 1), 
-                                (-1, -1), (-1, 1), (1, -1), (1, 1)]
+                    directions = [
+                        (-1, 0),
+                        (1, 0),
+                        (0, -1),
+                        (0, 1),
+                        (-1, -1),
+                        (-1, 1),
+                        (1, -1),
+                        (1, 1),
+                    ]
                     nearby_positions = [
-                        (self.x + dx, self.y + dy) 
-                        for dx, dy in directions
+                        (self.x + dx, self.y + dy) for dx, dy in directions
                     ]
                     random.shuffle(nearby_positions)
-                    
+
                     placed = False
                     for nx, ny in nearby_positions:
                         if 0 <= nx < world.width and 0 <= ny < world.height:
@@ -465,80 +492,79 @@ class Agent:
                                 obj.y = ny
                                 placed = True
                                 break
-                    
+
                     # If no space found, remove object from world
                     if not placed:
                         world.remove_object(obj_id)
-        
+
         self.inventory.clear()
-    def can_reproduce(self, config: dict = None) -> bool:        
+
+    def can_reproduce(self, config: dict = None) -> bool:
         """
         Check if agent has sufficient energy to reproduce.
-        
+
         Reproduction requires:
         - Agent must be alive
         - Energy >= threshold (from config)
         - Age >= minimum (from config)
-        
+
         Args:
             config: Optional reproduction config dict
-        
+
         Returns:
             True if agent can reproduce, False otherwise
         """
         if not self.alive:
             return False
-        
+
         # Default values if no config provided
         if config is None:
             energy_threshold_pct = 0.6
             min_age = 100
         else:
-            energy_threshold_pct = config.get('energy_threshold', 0.6)
-            min_age = config.get('min_age', 100)
-        
+            energy_threshold_pct = config.get("energy_threshold", 0.6)
+            min_age = config.get("min_age", 100)
+
         energy_threshold = self.max_energy * energy_threshold_pct
-        
+
         return self.energy >= energy_threshold and self.age >= min_age
-    def reproduce(self, world: 'World', config: dict = None) -> Optional['Agent']:
+
+    def reproduce(self, world: "World", config: dict = None) -> Optional["Agent"]:
         """
         Reproduce via fission, creating an offspring.
-        
+
         Uses config for reproduction parameters or defaults if not provided.
-        
+
         Args:
             world: The world to spawn offspring in
             config: Optional reproduction config dict
-            
+
         Returns:
             Offspring agent if successful, None if reproduction failed
         """
         if not self.can_reproduce(config):
             return None
-        
+
         # Get config values or use defaults
         if config is None:
             energy_split = 0.6
             mutation_std = 0.02
         else:
-            energy_split = config.get('energy_split', 0.6)
-            mutation_std = config.get('mutation_std', 0.02)
-        
+            energy_split = config.get("energy_split", 0.6)
+            mutation_std = config.get("mutation_std", 0.02)
+
         # Import here to avoid circular dependency
         from agents.evolution import clone_agent
-          # Create offspring using evolution system
-        offspring = clone_agent(
-            parent=self,
-            mutate=True,
-            mutation_std=mutation_std
-        )
-        
+
+        # Create offspring using evolution system
+        offspring = clone_agent(parent=self, mutate=True, mutation_std=mutation_std)
+
         # Give offspring FULL energy for best survival chance
         # Parent loses energy based on split ratio
         energy_cost = self.energy * energy_split
         self.energy -= energy_cost
         offspring.energy = offspring.max_energy  # Start with FULL energy!
-        
+
         # Find nearby empty position for offspring
         spawn_positions = [
             (self.x + dx, self.y + dy)
@@ -546,10 +572,11 @@ class Agent:
             for dy in [-1, 0, 1]
             if (dx != 0 or dy != 0)  # Not same position
         ]
-          # Try positions in random order
+        # Try positions in random order
         import random
+
         random.shuffle(spawn_positions)
-        
+
         for x, y in spawn_positions:
             if world.is_valid_position(x, y):
                 # Check if position is empty (no other agents)
@@ -558,14 +585,14 @@ class Agent:
                     for agent in world.agents.values()
                     if agent.alive
                 )
-                
-                if not occupied:                    
+
+                if not occupied:
                     offspring.x = x
                     offspring.y = y
-                    
+
                     # Offspring starts with fresh memory (no inherited hidden state)
                     offspring.h = offspring.brain.initial_state()
-                    
+
                     # Enable learning if parent has it
                     if self.learner:
                         offspring.enable_learning(
@@ -576,17 +603,17 @@ class Agent:
                             compute_backend=self.learner.compute_backend,
                             compute_device=self.learner.compute_device,
                         )
-                    
+
                     # Inherit parent's temperature
                     offspring.temperature = self.temperature
-                    
+
                     return offspring
-        
+
         # No valid position found - reproduction fails
         # Refund energy
         self.energy += energy_cost
         return None
-    
+
     def enable_learning(
         self,
         learning_rate: float = 0.001,
@@ -598,7 +625,7 @@ class Agent:
     ) -> None:
         """
         Enable reinforcement learning for this agent.
-        
+
         Args:
             learning_rate: Learning rate for gradient updates
             discount_factor: Discount factor for future rewards
@@ -608,7 +635,7 @@ class Agent:
             compute_device: 'auto', 'cpu', 'cuda', or 'mps'
         """
         from agents.learning import AgentLearner
-        
+
         self.learner = AgentLearner(
             learning_rate=learning_rate,
             discount_factor=discount_factor,
@@ -619,42 +646,42 @@ class Agent:
         )
         self.learning_enabled = True
         self.last_observation = None
-    
+
     def disable_learning(self) -> None:
         """Disable learning for this agent (use pure evolution)."""
         self.learning_enabled = False
         self.learner = None
         self.last_observation = None
-    
+
     def get_learned_knowledge(self) -> Optional[np.ndarray]:
         """
         Extract learned weights from brain.
-        
+
         Returns:
             Flattened weight array or None if no learning
         """
         if not self.learning_enabled or self.learner is None:
             return None
-        
+
         # Get current brain weights (already synced by learner)
         return self.genome.weights.copy()
-    
+
     def inherit_knowledge(self, parent_knowledge: np.ndarray) -> None:
         """
         Initialize brain with knowledge from parent.
-        
+
         This allows offspring to start with learned behaviors
         from their parents, combining evolution with learning.
-        
+
         Args:
             parent_knowledge: Flattened weight array from parent
         """
         # Update genome with parent's learned weights
         self.genome.weights = parent_knowledge.copy()
-        
+
         # Rebuild brain with new weights
         self.brain = Brain(self.genome)
-    
+
     def __repr__(self) -> str:
         return (
             f"Agent(id={self.id}, pos=({self.x},{self.y}), "

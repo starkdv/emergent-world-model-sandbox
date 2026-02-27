@@ -38,10 +38,10 @@ from world.objects import (
     ToolComponent,
 )
 
-
 # ---------------------------------------------------------------------------
 # Component specification dataclasses
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class EdibleSpec:
@@ -53,6 +53,7 @@ class EdibleSpec:
         toxicity: Toxicity level (0.0 = safe).
         freshness: Initial freshness (0.0-1.0).
     """
+
     calories: float = 20.0
     toxicity: float = 0.0
     freshness: float = 1.0
@@ -70,6 +71,7 @@ class SeedSpec:
         required_moisture: Minimum soil moisture to germinate.
         max_age: Maximum ticks before seed rots.
     """
+
     grows_into: str = ""
     grow_time: int = 50
     required_fertility: float = 0.3
@@ -88,6 +90,7 @@ class PlantSpec:
         produces: type_id of the resource produced when mature.
         spawn_rate: Per-tick probability of producing a resource when mature.
     """
+
     mature_age: int = 100
     max_age: int = 500
     produces: str = ""
@@ -104,6 +107,7 @@ class FertilizerSpec:
         duration: Remaining ticks before effect expires.
         radius: Tiles within this Manhattan distance are affected.
     """
+
     fertility_boost: float = 0.2
     duration: int = 100
     radius: int = 2
@@ -118,6 +122,7 @@ class ToolSpec:
         effect_type: Type of tool effect (e.g. "DIG", "HARVEST_BOOST").
         efficiency: Multiplier for effect strength.
     """
+
     effect_type: str = ""
     efficiency: float = 1.0
 
@@ -125,6 +130,7 @@ class ToolSpec:
 # ---------------------------------------------------------------------------
 # Cross-cutting specs (physics, observation, interaction, tile-effects)
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class PhysicsSpec:
@@ -137,6 +143,7 @@ class PhysicsSpec:
         decompose_chance: Probability of spawning decompose_into on decomposition.
         nutrient_return: Fertility returned to soil tile on death / decomposition.
     """
+
     decay_rate: float = 0.0
     decompose_into: str = ""
     decompose_chance: float = 0.0
@@ -154,6 +161,7 @@ class InteractionSpec:
         passable: Whether agents can walk through the tile this occupies.
         blocks_growth: If True, seeds cannot germinate on the same tile.
     """
+
     pickable: bool = True
     usable: bool = False
     passable: bool = True
@@ -198,6 +206,7 @@ class TileEffectSpec:
         reclaim_interval: Ticks a blocking object must be present on
             the same tile before reclamation triggers (0 = disabled).
     """
+
     germination_multiplier: float = 1.0
     growth_multiplier: float = 1.0
     spawn_rate_multiplier: float = 1.0
@@ -223,6 +232,7 @@ class RenderSpec:
         color: RGB colour tuple ``[R, G, B]`` for the pygame renderer.
             Each channel is 0-255.
     """
+
     char: str = "?"
     color: List[int] = field(default_factory=lambda: [200, 200, 200])
 
@@ -241,6 +251,7 @@ class ObservationSpec:
             "duration"   -> fertilizer.duration / fertilizer.max_duration
             "none"       -> 0.0
     """
+
     vision_encoding: float = 0.5
     value_source: str = "none"
 
@@ -258,6 +269,7 @@ class SpawnSpec:
             "any"      - any walkable tile (SOIL, SAND, WATER)
             "plantable"- tiles that can support plants (is_plantable)
     """
+
     initial_count: int = 0
     terrain: str = "soil"
 
@@ -265,6 +277,7 @@ class SpawnSpec:
 # ---------------------------------------------------------------------------
 # Unified object definition
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ObjectDefinition:
@@ -281,9 +294,9 @@ class ObjectDefinition:
     """
 
     # Identity
-    type_id: str               # Unique machine key, e.g. "berry"
-    display_name: str          # Human-readable name, e.g. "Berry"
-    category: str              # Semantic tag: "food" | "seed" | "plant" | "fertilizer" | "tool"
+    type_id: str  # Unique machine key, e.g. "berry"
+    display_name: str  # Human-readable name, e.g. "Berry"
+    category: str  # Semantic tag: "food" | "seed" | "plant" | "fertilizer" | "tool"
 
     # Component specifications (None = component not present)
     edible: Optional[EdibleSpec] = None
@@ -305,7 +318,7 @@ class ObjectDefinition:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_dict(cls, type_id: str, data: dict) -> 'ObjectDefinition':
+    def from_dict(cls, type_id: str, data: dict) -> "ObjectDefinition":
         """
         Construct an ObjectDefinition from a plain dictionary (e.g. parsed
         from YAML ``objects:`` section).
@@ -320,11 +333,17 @@ class ObjectDefinition:
         edible = EdibleSpec(**data["edible"]) if "edible" in data else None
         seed = SeedSpec(**data["seed"]) if "seed" in data else None
         plant = PlantSpec(**data["plant"]) if "plant" in data else None
-        fertilizer = FertilizerSpec(**data["fertilizer"]) if "fertilizer" in data else None
+        fertilizer = (
+            FertilizerSpec(**data["fertilizer"]) if "fertilizer" in data else None
+        )
         tool = ToolSpec(**data["tool"]) if "tool" in data else None
 
         physics = PhysicsSpec(**data["physics"]) if "physics" in data else PhysicsSpec()
-        interaction = InteractionSpec(**data["interaction"]) if "interaction" in data else InteractionSpec()
+        interaction = (
+            InteractionSpec(**data["interaction"])
+            if "interaction" in data
+            else InteractionSpec()
+        )
 
         tile_effect = None
         if "tile_effect" in data:
@@ -332,7 +351,11 @@ class ObjectDefinition:
             # spread_blocked_by may come from YAML as a list already
             tile_effect = TileEffectSpec(**te_data)
 
-        observation = ObservationSpec(**data["observation"]) if "observation" in data else ObservationSpec()
+        observation = (
+            ObservationSpec(**data["observation"])
+            if "observation" in data
+            else ObservationSpec()
+        )
 
         render = RenderSpec(**data["render"]) if "render" in data else RenderSpec()
 
@@ -450,6 +473,7 @@ class ObjectDefinition:
 # Registry
 # ---------------------------------------------------------------------------
 
+
 class ObjectRegistry:
     """
     Singleton registry mapping *type_id* → :class:`ObjectDefinition`.
@@ -537,8 +561,10 @@ class ObjectRegistry:
         """
         defn = cls._definitions.get(type_id)
         if defn is None:
-            raise KeyError(f"Unknown object type: {type_id!r}. "
-                           f"Registered types: {list(cls._definitions.keys())}")
+            raise KeyError(
+                f"Unknown object type: {type_id!r}. "
+                f"Registered types: {list(cls._definitions.keys())}"
+            )
 
         obj = WorldObject(x, y)
         obj.type_id = type_id
@@ -546,45 +572,61 @@ class ObjectRegistry:
 
         # --- Edible ---
         if defn.edible is not None:
-            obj.add_component(EdibleComponent(
-                calories=overrides.get("calories", defn.edible.calories),
-                toxicity=overrides.get("toxicity", defn.edible.toxicity),
-                freshness=overrides.get("freshness", defn.edible.freshness),
-            ))
+            obj.add_component(
+                EdibleComponent(
+                    calories=overrides.get("calories", defn.edible.calories),
+                    toxicity=overrides.get("toxicity", defn.edible.toxicity),
+                    freshness=overrides.get("freshness", defn.edible.freshness),
+                )
+            )
 
         # --- Seed ---
         if defn.seed is not None:
-            obj.add_component(SeedComponent(
-                plant_type=overrides.get("grows_into", defn.seed.grows_into),
-                grow_time=overrides.get("grow_time", defn.seed.grow_time),
-                required_fertility=overrides.get("required_fertility", defn.seed.required_fertility),
-                required_moisture=overrides.get("required_moisture", defn.seed.required_moisture),
-                max_age=overrides.get("seed_max_age", defn.seed.max_age),
-            ))
+            obj.add_component(
+                SeedComponent(
+                    plant_type=overrides.get("grows_into", defn.seed.grows_into),
+                    grow_time=overrides.get("grow_time", defn.seed.grow_time),
+                    required_fertility=overrides.get(
+                        "required_fertility", defn.seed.required_fertility
+                    ),
+                    required_moisture=overrides.get(
+                        "required_moisture", defn.seed.required_moisture
+                    ),
+                    max_age=overrides.get("seed_max_age", defn.seed.max_age),
+                )
+            )
 
         # --- Plant ---
         if defn.plant is not None:
-            obj.add_component(PlantComponent(
-                mature_age=overrides.get("mature_age", defn.plant.mature_age),
-                max_age=overrides.get("plant_max_age", defn.plant.max_age),
-                spawn_resource_type=overrides.get("produces", defn.plant.produces),
-                spawn_rate=overrides.get("spawn_rate", defn.plant.spawn_rate),
-            ))
+            obj.add_component(
+                PlantComponent(
+                    mature_age=overrides.get("mature_age", defn.plant.mature_age),
+                    max_age=overrides.get("plant_max_age", defn.plant.max_age),
+                    spawn_resource_type=overrides.get("produces", defn.plant.produces),
+                    spawn_rate=overrides.get("spawn_rate", defn.plant.spawn_rate),
+                )
+            )
 
         # --- Fertilizer ---
         if defn.fertilizer is not None:
-            obj.add_component(FertilizerComponent(
-                fertility_boost=overrides.get("fertility_boost", defn.fertilizer.fertility_boost),
-                duration=overrides.get("duration", defn.fertilizer.duration),
-                radius=overrides.get("radius", defn.fertilizer.radius),
-            ))
+            obj.add_component(
+                FertilizerComponent(
+                    fertility_boost=overrides.get(
+                        "fertility_boost", defn.fertilizer.fertility_boost
+                    ),
+                    duration=overrides.get("duration", defn.fertilizer.duration),
+                    radius=overrides.get("radius", defn.fertilizer.radius),
+                )
+            )
 
         # --- Tool ---
         if defn.tool is not None:
-            obj.add_component(ToolComponent(
-                effect_type=overrides.get("effect_type", defn.tool.effect_type),
-                efficiency=overrides.get("efficiency", defn.tool.efficiency),
-            ))
+            obj.add_component(
+                ToolComponent(
+                    effect_type=overrides.get("effect_type", defn.tool.effect_type),
+                    efficiency=overrides.get("efficiency", defn.tool.efficiency),
+                )
+            )
 
         # --- Cached flags for hot-path checks ---
         obj.is_terrain = defn.tile_effect is not None
@@ -708,7 +750,7 @@ class ObjectRegistry:
         """
         if obj is None:
             return False
-        return getattr(obj, 'is_terrain', False)
+        return getattr(obj, "is_terrain", False)
 
     @classmethod
     def get_tile_effect(cls, obj: WorldObject) -> Optional[TileEffectSpec]:
@@ -750,7 +792,9 @@ class ObjectRegistry:
 
         # Legacy fallback
         if obj.has_component(PlantComponent):
-            return InteractionSpec(pickable=False, usable=False, passable=True, blocks_growth=False)
+            return InteractionSpec(
+                pickable=False, usable=False, passable=True, blocks_growth=False
+            )
         return InteractionSpec()
 
     # ------------------------------------------------------------------
@@ -783,6 +827,7 @@ class ObjectRegistry:
 # Built-in object definitions
 # ---------------------------------------------------------------------------
 
+
 def register_builtin_objects() -> None:
     """
     Register all built-in object types.
@@ -801,121 +846,129 @@ def register_builtin_objects() -> None:
     """
 
     # ---- Berry (food) ----
-    ObjectRegistry.register(ObjectDefinition(
-        type_id="berry",
-        display_name="Berry",
-        category="food",
-        edible=EdibleSpec(
-            calories=20.0,
-            toxicity=0.0,
-            freshness=1.0,
-        ),
-        physics=PhysicsSpec(
-            decay_rate=0.01,
-            decompose_into="berry_seed",
-            decompose_chance=0.7,
-            nutrient_return=0.15,
-        ),
-        interaction=InteractionSpec(
-            pickable=True,
-            usable=False,
-            passable=True,
-        ),
-        observation=ObservationSpec(
-            vision_encoding=1.0,
-            value_source="freshness",
-        ),
-        render=RenderSpec(
-            char="o",
-            color=[220, 20, 60],
-        ),
-    ))
+    ObjectRegistry.register(
+        ObjectDefinition(
+            type_id="berry",
+            display_name="Berry",
+            category="food",
+            edible=EdibleSpec(
+                calories=20.0,
+                toxicity=0.0,
+                freshness=1.0,
+            ),
+            physics=PhysicsSpec(
+                decay_rate=0.01,
+                decompose_into="berry_seed",
+                decompose_chance=0.7,
+                nutrient_return=0.15,
+            ),
+            interaction=InteractionSpec(
+                pickable=True,
+                usable=False,
+                passable=True,
+            ),
+            observation=ObservationSpec(
+                vision_encoding=1.0,
+                value_source="freshness",
+            ),
+            render=RenderSpec(
+                char="o",
+                color=[220, 20, 60],
+            ),
+        )
+    )
 
     # ---- Berry Seed ----
-    ObjectRegistry.register(ObjectDefinition(
-        type_id="berry_seed",
-        display_name="Berry Seed",
-        category="seed",
-        seed=SeedSpec(
-            grows_into="berry_plant",
-            grow_time=50,
-            required_fertility=0.3,
-            required_moisture=0.2,
-            max_age=200,
-        ),
-        physics=PhysicsSpec(
-            nutrient_return=0.0,
-        ),
-        interaction=InteractionSpec(
-            pickable=True,
-            usable=True,     # agents can plant seeds via USE action
-            passable=True,
-        ),
-        observation=ObservationSpec(
-            vision_encoding=0.6,
-            value_source="viability",
-        ),
-        render=RenderSpec(
-            char="s",
-            color=[205, 170, 125],
-        ),
-    ))
+    ObjectRegistry.register(
+        ObjectDefinition(
+            type_id="berry_seed",
+            display_name="Berry Seed",
+            category="seed",
+            seed=SeedSpec(
+                grows_into="berry_plant",
+                grow_time=50,
+                required_fertility=0.3,
+                required_moisture=0.2,
+                max_age=200,
+            ),
+            physics=PhysicsSpec(
+                nutrient_return=0.0,
+            ),
+            interaction=InteractionSpec(
+                pickable=True,
+                usable=True,  # agents can plant seeds via USE action
+                passable=True,
+            ),
+            observation=ObservationSpec(
+                vision_encoding=0.6,
+                value_source="viability",
+            ),
+            render=RenderSpec(
+                char="s",
+                color=[205, 170, 125],
+            ),
+        )
+    )
 
     # ---- Berry Plant (NOT pickable) ----
-    ObjectRegistry.register(ObjectDefinition(
-        type_id="berry_plant",
-        display_name="Berry Plant",
-        category="plant",
-        plant=PlantSpec(
-            mature_age=100,
-            max_age=500,
-            produces="berry",
-            spawn_rate=0.1,
-        ),
-        physics=PhysicsSpec(
-            nutrient_return=0.15,
-        ),
-        interaction=InteractionSpec(
-            pickable=False,     # plants cannot be picked up
-            usable=False,
-            passable=True,
-            blocks_growth=False,
-        ),
-        observation=ObservationSpec(
-            vision_encoding=0.75,
-            value_source="maturity",
-        ),
-        render=RenderSpec(
-            char="P",
-            color=[34, 139, 34],
-        ),
-    ))
+    ObjectRegistry.register(
+        ObjectDefinition(
+            type_id="berry_plant",
+            display_name="Berry Plant",
+            category="plant",
+            plant=PlantSpec(
+                mature_age=100,
+                max_age=500,
+                produces="berry",
+                spawn_rate=0.1,
+            ),
+            physics=PhysicsSpec(
+                nutrient_return=0.15,
+            ),
+            interaction=InteractionSpec(
+                pickable=False,  # plants cannot be picked up
+                usable=False,
+                passable=True,
+                blocks_growth=False,
+            ),
+            observation=ObservationSpec(
+                vision_encoding=0.75,
+                value_source="maturity",
+            ),
+            render=RenderSpec(
+                char="P",
+                color=[34, 139, 34],
+            ),
+        )
+    )
 
     # ---- Fertilizer ----
-    ObjectRegistry.register(ObjectDefinition(
-        type_id="fertilizer",
-        display_name="Fertilizer",
-        category="fertilizer",
-        fertilizer=FertilizerSpec(
-            fertility_boost=0.2,
-            duration=100,
-            radius=2,
-        ),
-        physics=PhysicsSpec(),
-        interaction=InteractionSpec(
-            pickable=True,
-            usable=True,      # agents can apply fertilizer via USE action
-            passable=True,
-        ),
-        observation=ObservationSpec(
-            vision_encoding=0.4,
-            value_source="duration",
-        ),
-        render=RenderSpec(
-            char="f",
-            color=[139, 90, 43],
-        ),
-    ))
+    ObjectRegistry.register(
+        ObjectDefinition(
+            type_id="fertilizer",
+            display_name="Fertilizer",
+            category="fertilizer",
+            fertilizer=FertilizerSpec(
+                fertility_boost=0.2,
+                duration=100,
+                radius=2,
+            ),
+            physics=PhysicsSpec(),
+            interaction=InteractionSpec(
+                pickable=True,
+                usable=True,  # agents can apply fertilizer via USE action
+                passable=True,
+            ),
+            observation=ObservationSpec(
+                vision_encoding=0.4,
+                value_source="duration",
+            ),
+            render=RenderSpec(
+                char="f",
+                color=[139, 90, 43],
+            ),
+        )
+    )
 
     # ---- Sand (terrain hazard, not pickable) ----
     # Sand dramatically hinders plant life:
@@ -925,38 +978,40 @@ def register_builtin_objects() -> None:
     # - Spreads to adjacent soil tiles if no plant is within radius
     #   for spread_interval ticks
     # - Kills fertility and moisture on its tile
-    ObjectRegistry.register(ObjectDefinition(
-        type_id="sand",
-        display_name="Sand",
-        category="terrain",
-        interaction=InteractionSpec(
-            pickable=False,
-            usable=False,
-            passable=True,       # agents can walk on sand
-            blocks_growth=False, # seeds CAN germinate (but multiplier is 0.1)
-        ),
-        tile_effect=TileEffectSpec(
-            germination_multiplier=0.1,    # 10× harder to germinate
-            growth_multiplier=0.1,         # 10× slower growth
-            spawn_rate_multiplier=0.3,     # 70% less food production
-            spread_type_id="sand",         # spreads by placing more sand
-            spread_radius=1,               # adjacent tiles only
-            spread_interval=200,           # 200 ticks without a plant → spread
-            spread_blocked_by=["plant"],   # any plant category blocks spreading
-            spread_chance=0.05,            # 5% per tick once interval met
-            converts_terrain="sand",       # mark tile terrain as SAND
-            fertility_override=0.05,       # sand has almost no fertility
-            moisture_override=0.05,        # sand has almost no moisture
-            reclaim_terrain="soil",        # plants can reclaim sand → soil
-            reclaim_interval=150,          # 150 ticks with a plant → reclaim
-        ),
-        physics=PhysicsSpec(),
-        observation=ObservationSpec(
-            vision_encoding=0.15,          # distinct from rock(0.0), water(0.25)
-            value_source="none",
-        ),
-        render=RenderSpec(
-            char=":",
-            color=[210, 180, 120],
-        ),
-    ))
+    ObjectRegistry.register(
+        ObjectDefinition(
+            type_id="sand",
+            display_name="Sand",
+            category="terrain",
+            interaction=InteractionSpec(
+                pickable=False,
+                usable=False,
+                passable=True,  # agents can walk on sand
+                blocks_growth=False,  # seeds CAN germinate (but multiplier is 0.1)
+            ),
+            tile_effect=TileEffectSpec(
+                germination_multiplier=0.1,  # 10× harder to germinate
+                growth_multiplier=0.1,  # 10× slower growth
+                spawn_rate_multiplier=0.3,  # 70% less food production
+                spread_type_id="sand",  # spreads by placing more sand
+                spread_radius=1,  # adjacent tiles only
+                spread_interval=200,  # 200 ticks without a plant → spread
+                spread_blocked_by=["plant"],  # any plant category blocks spreading
+                spread_chance=0.05,  # 5% per tick once interval met
+                converts_terrain="sand",  # mark tile terrain as SAND
+                fertility_override=0.05,  # sand has almost no fertility
+                moisture_override=0.05,  # sand has almost no moisture
+                reclaim_terrain="soil",  # plants can reclaim sand → soil
+                reclaim_interval=150,  # 150 ticks with a plant → reclaim
+            ),
+            physics=PhysicsSpec(),
+            observation=ObservationSpec(
+                vision_encoding=0.15,  # distinct from rock(0.0), water(0.25)
+                value_source="none",
+            ),
+            render=RenderSpec(
+                char=":",
+                color=[210, 180, 120],
+            ),
+        )
+    )

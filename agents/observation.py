@@ -11,7 +11,7 @@ Updated: February 2026 — redirected to canonical perception module
 """
 
 # Re-export from canonical location
-from utils.agents.perception import (      # noqa: F401
+from utils.agents.perception import (  # noqa: F401
     build_observation,
     get_observation_size,
 )

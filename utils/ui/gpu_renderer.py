@@ -45,41 +45,40 @@ from world.objects import (
 )
 from world.object_registry import ObjectRegistry
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Colour palette (matches the pygame renderer)
 # ═══════════════════════════════════════════════════════════════════════════
 
 TERRAIN_COLORS: Dict[str, Tuple[float, float, float]] = {
-    "soil":  (101 / 255, 67 / 255, 33 / 255),
-    "rock":  (105 / 255, 105 / 255, 105 / 255),
+    "soil": (101 / 255, 67 / 255, 33 / 255),
+    "rock": (105 / 255, 105 / 255, 105 / 255),
     "water": (30 / 255, 144 / 255, 255 / 255),
-    "sand":  (210 / 255, 180 / 255, 120 / 255),
+    "sand": (210 / 255, 180 / 255, 120 / 255),
 }
 
 OBJECT_COLORS: Dict[str, Tuple[float, float, float]] = {
-    "plant":           (34 / 255, 139 / 255, 34 / 255),
-    "berry":           (220 / 255, 20 / 255, 60 / 255),
-    "seed":            (205 / 255, 170 / 255, 125 / 255),
-    "seed_planted":    (255 / 255, 200 / 255, 0 / 255),
-    "seed_sprouting":  (120 / 255, 200 / 255, 80 / 255),
-    "fertilizer":      (100 / 255, 200 / 255, 100 / 255),
-    "default":         (200 / 255, 200 / 255, 200 / 255),
+    "plant": (34 / 255, 139 / 255, 34 / 255),
+    "berry": (220 / 255, 20 / 255, 60 / 255),
+    "seed": (205 / 255, 170 / 255, 125 / 255),
+    "seed_planted": (255 / 255, 200 / 255, 0 / 255),
+    "seed_sprouting": (120 / 255, 200 / 255, 80 / 255),
+    "fertilizer": (100 / 255, 200 / 255, 100 / 255),
+    "default": (200 / 255, 200 / 255, 200 / 255),
 }
 
 UI_COLORS = {
-    "background":  (18, 18, 24),
-    "panel_bg":    (35, 35, 45, 230),
+    "background": (18, 18, 24),
+    "panel_bg": (35, 35, 45, 230),
     "panel_border": (70, 70, 90),
     "panel_header": (45, 45, 60),
-    "text":        (240, 240, 245),
-    "text_dim":    (140, 140, 155),
+    "text": (240, 240, 245),
+    "text_dim": (140, 140, 155),
     "text_accent": (100, 200, 255),
-    "text_good":   (80, 220, 80),
-    "text_warn":   (255, 190, 0),
-    "text_bad":    (255, 80, 80),
+    "text_good": (80, 220, 80),
+    "text_warn": (255, 190, 0),
+    "text_bad": (255, 80, 80),
     "status_running": (50, 255, 100),
-    "status_paused":  (255, 180, 50),
+    "status_paused": (255, 180, 50),
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -269,6 +268,7 @@ void main() {
 # Renderer
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 class IsometricRenderer:
     """
     GPU-accelerated isometric renderer using ModernGL.
@@ -296,7 +296,7 @@ class IsometricRenderer:
         self.target_fps = target_fps
 
         # Isometric half-sizes
-        self.tile_hw = tile_size * 0.75   # half-width of diamond
+        self.tile_hw = tile_size * 0.75  # half-width of diamond
         self.tile_hh = tile_size * 0.375  # half-height of diamond
 
         # ── Pygame window (with OpenGL context) ──
@@ -396,8 +396,15 @@ class IsometricRenderer:
             self.sprite_prog,
             [
                 (self.sprite_vbo, "2f", "in_vert"),
-                (self._obj_buf, "2f 3f 1f 1f 1f/i", "in_world_pos", "in_color",
-                 "in_radius", "in_glow", "in_shape"),
+                (
+                    self._obj_buf,
+                    "2f 3f 1f 1f 1f/i",
+                    "in_world_pos",
+                    "in_color",
+                    "in_radius",
+                    "in_glow",
+                    "in_shape",
+                ),
             ],
         )
 
@@ -406,15 +413,20 @@ class IsometricRenderer:
             self.sprite_prog,
             [
                 (self.sprite_vbo, "2f", "in_vert"),
-                (self._agent_buf, "2f 3f 1f 1f 1f/i", "in_world_pos", "in_color",
-                 "in_radius", "in_glow", "in_shape"),
+                (
+                    self._agent_buf,
+                    "2f 3f 1f 1f 1f/i",
+                    "in_world_pos",
+                    "in_color",
+                    "in_radius",
+                    "in_glow",
+                    "in_shape",
+                ),
             ],
         )
 
         # ── UI overlay texture (cached, only re-upload when dirty) ──
-        self.ui_surface = pygame.Surface(
-            (window_width, window_height), pygame.SRCALPHA
-        )
+        self.ui_surface = pygame.Surface((window_width, window_height), pygame.SRCALPHA)
         self.ui_texture: Optional[moderngl.Texture] = None
         self._ui_dirty: bool = True
         self._last_ui_tick: int = -1
@@ -428,41 +440,80 @@ class IsometricRenderer:
     def _build_tile_geometry(self):
         """Unit diamond quad: 6 verts forming 2 triangles."""
         # Diamond: top=(0,-1), right=(1,0), bottom=(0,1), left=(-1,0)
-        verts = np.array([
-            # tri 1
-            0.0, -1.0,
-            1.0,  0.0,
-            0.0,  1.0,
-            # tri 2
-            0.0, -1.0,
-            0.0,  1.0,
-           -1.0,  0.0,
-        ], dtype="f4")
+        verts = np.array(
+            [
+                # tri 1
+                0.0,
+                -1.0,
+                1.0,
+                0.0,
+                0.0,
+                1.0,
+                # tri 2
+                0.0,
+                -1.0,
+                0.0,
+                1.0,
+                -1.0,
+                0.0,
+            ],
+            dtype="f4",
+        )
         self.tile_vbo = self.ctx.buffer(verts)
 
     def _build_sprite_geometry(self):
         """Unit quad for sprite instancing (circle/diamond/triangle via shader)."""
-        verts = np.array([
-            -1.0, -1.0,
-             1.0, -1.0,
-             1.0,  1.0,
-            -1.0, -1.0,
-             1.0,  1.0,
-            -1.0,  1.0,
-        ], dtype="f4")
+        verts = np.array(
+            [
+                -1.0,
+                -1.0,
+                1.0,
+                -1.0,
+                1.0,
+                1.0,
+                -1.0,
+                -1.0,
+                1.0,
+                1.0,
+                -1.0,
+                1.0,
+            ],
+            dtype="f4",
+        )
         self.sprite_vbo = self.ctx.buffer(verts)
 
     def _build_overlay_geometry(self):
         """Fullscreen quad for HUD texture."""
-        verts = np.array([
-            # pos        uv
-            -1.0, -1.0,  0.0, 0.0,
-             1.0, -1.0,  1.0, 0.0,
-             1.0,  1.0,  1.0, 1.0,
-            -1.0, -1.0,  0.0, 0.0,
-             1.0,  1.0,  1.0, 1.0,
-            -1.0,  1.0,  0.0, 1.0,
-        ], dtype="f4")
+        verts = np.array(
+            [
+                # pos        uv
+                -1.0,
+                -1.0,
+                0.0,
+                0.0,
+                1.0,
+                -1.0,
+                1.0,
+                0.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                -1.0,
+                -1.0,
+                0.0,
+                0.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                -1.0,
+                1.0,
+                0.0,
+                1.0,
+            ],
+            dtype="f4",
+        )
         buf = self.ctx.buffer(verts)
         self.overlay_vao = self.ctx.vertex_array(
             self.overlay_prog,
@@ -609,7 +660,7 @@ class IsometricRenderer:
             shape = 0.0  # circle
 
             # Check terrain layer (use cached flag — set at creation)
-            is_terrain = getattr(obj, 'is_terrain', False)
+            is_terrain = getattr(obj, "is_terrain", False)
 
             # Registry colour
             tid = getattr(obj, "type_id", "")
@@ -658,7 +709,7 @@ class IsometricRenderer:
 
             elif is_terrain:
                 radius = 1.1  # fill tile
-                shape = 1.0   # diamond
+                shape = 1.0  # diamond
                 glow = 0.0
 
             data[i] = (obj.x, obj.y, r, g, b, radius, glow, shape)
@@ -798,12 +849,15 @@ class IsometricRenderer:
         panel.fill(UI_COLORS["panel_bg"])
         self.ui_surface.blit(panel, (pad, pad))
         pygame.draw.rect(
-            self.ui_surface, UI_COLORS["panel_border"],
-            (pad, pad, pw, ph), 1,
+            self.ui_surface,
+            UI_COLORS["panel_border"],
+            (pad, pad, pw, ph),
+            1,
         )
         # Header
         pygame.draw.rect(
-            self.ui_surface, UI_COLORS["panel_header"],
+            self.ui_surface,
+            UI_COLORS["panel_header"],
             (pad, pad, pw, 28),
         )
         title = self.font_medium.render("World Status", True, UI_COLORS["text"])
@@ -821,7 +875,7 @@ class IsometricRenderer:
         y += lh
         self._text(f"Objects: {len(self.world.objects)}", pad + 15, y, "text")
         y += lh
-        alive = self.world.get_cached_object_counts().get('alive_agents', 0)
+        alive = self.world.get_cached_object_counts().get("alive_agents", 0)
         self._text(f"Agents: {alive}", pad + 15, y, "text")
         y += lh
         fps = int(self.clock.get_fps())
@@ -836,8 +890,10 @@ class IsometricRenderer:
             hp.fill((30, 30, 40, 200))
             self.ui_surface.blit(hp, (hx, hy))
             pygame.draw.rect(
-                self.ui_surface, UI_COLORS["panel_border"],
-                (hx, hy, hpw, hph), 1,
+                self.ui_surface,
+                UI_COLORS["panel_border"],
+                (hx, hy, hpw, hph),
+                1,
             )
             self._text("Controls", hx + 10, hy + 8, "text_accent")
             ctrls = [
@@ -855,8 +911,10 @@ class IsometricRenderer:
                 self._text(a, hx + 75, cy, "text_dim", font=self.font_small)
         else:
             self._text(
-                "Press H for help", pad,
-                self.window_height - 25, "text_dim",
+                "Press H for help",
+                pad,
+                self.window_height - 25,
+                "text_dim",
             )
 
         # -- Top-right: zoom --
@@ -893,28 +951,53 @@ class IsometricRenderer:
                 lines.append((f"  {name}", "text"))
                 if obj.has_component(EdibleComponent):
                     e = obj.get_component(EdibleComponent)
-                    lines.append((f"    Cal: {e.calories:.0f}  Fresh: {e.freshness:.0%}", "text_dim"))
+                    lines.append(
+                        (
+                            f"    Cal: {e.calories:.0f}  Fresh: {e.freshness:.0%}",
+                            "text_dim",
+                        )
+                    )
                 if obj.has_component(PlantComponent):
                     p = obj.get_component(PlantComponent)
-                    lines.append((f"    Age: {p.age}/{p.max_age}  Mature: {'✓' if p.is_mature() else '✗'}", "text_dim"))
+                    lines.append(
+                        (
+                            f"    Age: {p.age}/{p.max_age}  Mature: {'✓' if p.is_mature() else '✗'}",
+                            "text_dim",
+                        )
+                    )
                 if obj.has_component(SeedComponent):
                     s = obj.get_component(SeedComponent)
-                    lines.append((f"    Soil: {s.time_in_soil}/{s.grow_time}", "text_dim"))
+                    lines.append(
+                        (f"    Soil: {s.time_in_soil}/{s.grow_time}", "text_dim")
+                    )
 
         # Agents on tile
         agents_here = [
-            a for a in self.world.agents.values()
-            if a.x == x and a.y == y and a.alive
+            a for a in self.world.agents.values() if a.x == x and a.y == y and a.alive
         ]
         if agents_here:
             lines.append(("", "text"))
             lines.append((f"— Agents ({len(agents_here)}) —", "text_accent"))
             for agent in agents_here[:2]:
                 ep = agent.energy / agent.max_energy
-                ek = "text_good" if ep > 0.5 else ("text_warn" if ep > 0.2 else "text_bad")
+                ek = (
+                    "text_good"
+                    if ep > 0.5
+                    else ("text_warn" if ep > 0.2 else "text_bad")
+                )
                 lines.append((f"  Agent #{agent.id}", "text"))
-                lines.append((f"    Energy: {agent.energy:.0f}/{agent.max_energy:.0f} ({ep:.0%})", ek))
-                lines.append((f"    Age: {agent.age}  Gen: {agent.genome.generation}", "text_dim"))
+                lines.append(
+                    (
+                        f"    Energy: {agent.energy:.0f}/{agent.max_energy:.0f} ({ep:.0%})",
+                        ek,
+                    )
+                )
+                lines.append(
+                    (
+                        f"    Age: {agent.age}  Gen: {agent.genome.generation}",
+                        "text_dim",
+                    )
+                )
                 # -- Inventory as coloured item icons --
                 if agent.inventory:
                     inv_text = f"    Inventory ({len(agent.inventory)}/{agent.inventory_size}):"
@@ -932,9 +1015,7 @@ class IsometricRenderer:
                     lines.append((f"    Inventory: empty", "text_dim"))
 
         # Measure & render panel
-        max_w = max(
-            (self.font_small.size(t)[0] for t, _ in lines), default=100
-        )
+        max_w = max((self.font_small.size(t)[0] for t, _ in lines), default=100)
         pw = max_w + 30
         phl = len(lines) * 18 + 12
         px = mx + 15
@@ -948,8 +1029,10 @@ class IsometricRenderer:
         panel.fill(UI_COLORS["panel_bg"])
         self.ui_surface.blit(panel, (px, py))
         pygame.draw.rect(
-            self.ui_surface, UI_COLORS["panel_border"],
-            (px, py, pw, phl), 1,
+            self.ui_surface,
+            UI_COLORS["panel_border"],
+            (px, py, pw, phl),
+            1,
         )
 
         # Draw lines with inventory item colour dots
@@ -962,13 +1045,13 @@ class IsometricRenderer:
                 item_name = text.strip()[2:]
                 dot_color = self._lookup_item_color(item_name)
                 pygame.draw.circle(
-                    self.ui_surface, dot_color,
-                    (px + 52, ty + 7), 5,
+                    self.ui_surface,
+                    dot_color,
+                    (px + 52, ty + 7),
+                    5,
                 )
                 # Render the name after the dot
-                rendered = self.font_small.render(
-                    f"  {item_name}", True, col
-                )
+                rendered = self.font_small.render(f"  {item_name}", True, col)
                 self.ui_surface.blit(rendered, (px + 58, ty))
             else:
                 rendered = self.font_small.render(text, True, col)
@@ -1099,10 +1182,9 @@ class IsometricRenderer:
             self._ui_dirty = True
 
             from agents.agent import Agent
+
             if Agent.world_model_logger is not None:
-                Agent.world_model_logger.log_world_state(
-                    self.world.tick, self.world
-                )
+                Agent.world_model_logger.log_world_state(self.world.tick, self.world)
 
     def render(self):
         """Full render frame: tiles → objects → agents → UI overlay."""

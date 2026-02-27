@@ -35,7 +35,8 @@ if TYPE_CHECKING:
 # Public API
 # ---------------------------------------------------------------------------
 
-def build_observation(agent: 'Agent', world: 'World') -> np.ndarray:
+
+def build_observation(agent: "Agent", world: "World") -> np.ndarray:
     """
     Build observation vector for agent.
 
@@ -80,7 +81,8 @@ def get_observation_size() -> int:
 # 1. Agent state  (8 features)
 # ---------------------------------------------------------------------------
 
-def _encode_agent_state(agent: 'Agent') -> list[float]:
+
+def _encode_agent_state(agent: "Agent") -> list[float]:
     """
     Encode agent's internal state.
 
@@ -97,10 +99,10 @@ def _encode_agent_state(agent: 'Agent') -> list[float]:
     features.append(agent.age / agent.max_age)
 
     direction_map = {
-        (0, -1): [1, 0, 0, 0],   # North
-        (1, 0):  [0, 1, 0, 0],   # East
-        (0, 1):  [0, 0, 1, 0],   # South
-        (-1, 0): [0, 0, 0, 1],   # West
+        (0, -1): [1, 0, 0, 0],  # North
+        (1, 0): [0, 1, 0, 0],  # East
+        (0, 1): [0, 0, 1, 0],  # South
+        (-1, 0): [0, 0, 0, 1],  # West
     }
     features.extend(direction_map.get(agent.direction, [0, 0, 0, 0]))
 
@@ -114,7 +116,8 @@ def _encode_agent_state(agent: 'Agent') -> list[float]:
 # 2. Vision grid  (50 features — 5×5 tiles × 2 features each)
 # ---------------------------------------------------------------------------
 
-def _encode_vision(agent: 'Agent', world: 'World') -> list[float]:
+
+def _encode_vision(agent: "Agent", world: "World") -> list[float]:
     """
     Encode the 5×5 vision grid around the agent.
 
@@ -140,7 +143,7 @@ def _encode_vision(agent: 'Agent', world: 'World') -> list[float]:
             wy = agent.y + ry * dx + fy * (-dy)
 
             if not (0 <= wx < world.width and 0 <= wy < world.height):
-                features.append(0.0)   # Rock (out of bounds)
+                features.append(0.0)  # Rock (out of bounds)
                 features.append(0.0)
                 continue
 
@@ -152,7 +155,7 @@ def _encode_vision(agent: 'Agent', world: 'World') -> list[float]:
     return features
 
 
-def _encode_tile(tile, world: 'World') -> tuple[float, float]:
+def _encode_tile(tile, world: "World") -> tuple[float, float]:
     """
     Encode a single tile — terrain-layer aware, registry-first.
 
@@ -172,7 +175,7 @@ def _encode_tile(tile, world: 'World') -> tuple[float, float]:
             o = world.objects.get(oid)
             if o is None:
                 continue
-            if getattr(o, 'is_terrain', False):
+            if getattr(o, "is_terrain", False):
                 terrain_obj = o
             else:
                 render_obj = o
@@ -198,12 +201,20 @@ def _encode_tile(tile, world: 'World') -> tuple[float, float]:
 
             plant = obj.get_component(PlantComponent)
             if plant is not None:
-                mat = min(1.0, plant.age / plant.mature_age) if plant.mature_age > 0 else 0.0
+                mat = (
+                    min(1.0, plant.age / plant.mature_age)
+                    if plant.mature_age > 0
+                    else 0.0
+                )
                 return 0.75, mat
 
             seed = obj.get_component(SeedComponent)
             if seed is not None:
-                via = 1.0 - min(1.0, seed.time_in_soil / seed.max_age) if seed.max_age > 0 else 0.0
+                via = (
+                    1.0 - min(1.0, seed.time_in_soil / seed.max_age)
+                    if seed.max_age > 0
+                    else 0.0
+                )
                 return 0.6, via
 
     # No (real) objects — encode terrain
@@ -228,13 +239,20 @@ def _compute_observation_value(obj, value_source: str) -> float:
     elif value_source == "maturity":
         plant = obj.get_component(PlantComponent)
         if plant is not None:
-            return min(1.0, plant.age / plant.mature_age) if plant.mature_age > 0 else 0.0
+            return (
+                min(1.0, plant.age / plant.mature_age) if plant.mature_age > 0 else 0.0
+            )
     elif value_source == "viability":
         seed = obj.get_component(SeedComponent)
         if seed is not None:
-            return 1.0 - min(1.0, seed.time_in_soil / seed.max_age) if seed.max_age > 0 else 0.0
+            return (
+                1.0 - min(1.0, seed.time_in_soil / seed.max_age)
+                if seed.max_age > 0
+                else 0.0
+            )
     elif value_source == "duration":
         from world.objects import FertilizerComponent
+
         fert = obj.get_component(FertilizerComponent)
         if fert is not None:
             return fert.duration / fert.max_duration if fert.max_duration > 0 else 0.0
@@ -245,7 +263,8 @@ def _compute_observation_value(obj, value_source: str) -> float:
 # 3. Stimulus features  (8 features — explicit survival signals)
 # ---------------------------------------------------------------------------
 
-def _encode_stimulus(agent: 'Agent', world: 'World') -> list[float]:
+
+def _encode_stimulus(agent: "Agent", world: "World") -> list[float]:
     """
     Pre-processed survival signals that give the brain direct,
     actionable information without requiring spatial learning.
@@ -268,7 +287,7 @@ def _encode_stimulus(agent: 'Agent', world: 'World') -> list[float]:
     tile = world.tiles[agent.y][agent.x]
     for oid in tile.object_ids:
         o = world.objects.get(oid)
-        if o is None or getattr(o, 'is_terrain', False):
+        if o is None or getattr(o, "is_terrain", False):
             continue
         if o.get_component(EdibleComponent) is not None:
             features[0] = 1.0  # food_on_tile
@@ -285,27 +304,31 @@ def _encode_stimulus(agent: 'Agent', world: 'World') -> list[float]:
         ahead_tile = world.tiles[ly][lx]
         for oid in ahead_tile.object_ids:
             o = world.objects.get(oid)
-            if o is None or getattr(o, 'is_terrain', False):
+            if o is None or getattr(o, "is_terrain", False):
                 continue
             if o.get_component(EdibleComponent) is not None:
                 features[2] = 1.0  # food_ahead
                 features[3] = 1.0  # resource_ahead
-            elif (o.get_component(SeedComponent) is not None or
-                  o.get_component(PlantComponent) is not None):
+            elif (
+                o.get_component(SeedComponent) is not None
+                or o.get_component(PlantComponent) is not None
+            ):
                 features[3] = 1.0  # resource_ahead
 
     # --- Nearest food scan (within vision radius 5) ---
-    best_dist = float('inf')
+    best_dist = float("inf")
     best_fx, best_fy = 0, 0
     scan_r = 5
     for sy in range(max(0, agent.y - scan_r), min(world.height, agent.y + scan_r + 1)):
-        for sx in range(max(0, agent.x - scan_r), min(world.width, agent.x + scan_r + 1)):
+        for sx in range(
+            max(0, agent.x - scan_r), min(world.width, agent.x + scan_r + 1)
+        ):
             stile = world.tiles[sy][sx]
             for oid in stile.object_ids:
                 o = world.objects.get(oid)
                 if o is None:
                     continue
-                if getattr(o, 'is_terrain', False):
+                if getattr(o, "is_terrain", False):
                     continue
                 if o.get_component(EdibleComponent) is not None:
                     d = abs(sx - agent.x) + abs(sy - agent.y)  # Manhattan
@@ -313,7 +336,7 @@ def _encode_stimulus(agent: 'Agent', world: 'World') -> list[float]:
                         best_dist = d
                         best_fx, best_fy = sx, sy
 
-    if best_dist < float('inf'):
+    if best_dist < float("inf"):
         # Proximity: 1.0 when on the food, ~0 at scan_r distance
         features[4] = max(0.0, 1.0 - best_dist / scan_r)
 
@@ -340,13 +363,13 @@ def _encode_stimulus(agent: 'Agent', world: 'World') -> list[float]:
     # --- Can interact: any of PICK_UP / EAT / USE is possible ---
     has_inv_space = len(agent.inventory) < agent.inventory_size
     has_food_inv = any(
-        world.objects.get(oid) is not None and
-        world.objects.get(oid).get_component(EdibleComponent) is not None
+        world.objects.get(oid) is not None
+        and world.objects.get(oid).get_component(EdibleComponent) is not None
         for oid in agent.inventory
     )
     has_seed_inv = any(
-        world.objects.get(oid) is not None and
-        world.objects.get(oid).get_component(SeedComponent) is not None
+        world.objects.get(oid) is not None
+        and world.objects.get(oid).get_component(SeedComponent) is not None
         for oid in agent.inventory
     )
     # Can pick up if food/seed on tile and inventory space
@@ -364,7 +387,8 @@ def _encode_stimulus(agent: 'Agent', world: 'World') -> list[float]:
 # 4. Inventory  (6 features)
 # ---------------------------------------------------------------------------
 
-def _encode_inventory(agent: 'Agent', world: 'World') -> list[float]:
+
+def _encode_inventory(agent: "Agent", world: "World") -> list[float]:
     """
     Encode agent's inventory.
 
@@ -400,6 +424,7 @@ def _encode_inventory(agent: 'Agent', world: 'World') -> list[float]:
             has_seed = 1.0
 
         from world.objects import FertilizerComponent
+
         if obj.get_component(FertilizerComponent) is not None:
             has_fertilizer = 1.0
 

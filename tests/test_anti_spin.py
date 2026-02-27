@@ -96,9 +96,9 @@ def test_anti_spin():
     else:
         print("\n❌ FAILURE: Spinning is still better than moving!")
 
-    assert avg_move_reward > avg_spin_reward, (
-        "Moving should be more rewarding than spinning"
-    )
+    assert (
+        avg_move_reward > avg_spin_reward
+    ), "Moving should be more rewarding than spinning"
 
 
 if __name__ == "__main__":

@@ -17,7 +17,10 @@ def _create_agent_on_passable_tile(world: World) -> Agent:
             left = world.get_tile(x - 1, y)
             right = world.get_tile(x + 1, y)
             if (
-                tile and up and left and right
+                tile
+                and up
+                and left
+                and right
                 and tile.is_passable()
                 and up.is_passable()
                 and left.is_passable()
@@ -27,7 +30,9 @@ def _create_agent_on_passable_tile(world: World) -> Agent:
                 world.add_agent(agent)
                 return agent
 
-    raise AssertionError("Could not find passable spawn tile with passable forward tile")
+    raise AssertionError(
+        "Could not find passable spawn tile with passable forward tile"
+    )
 
 
 def test_turn_streak_energy_cost_increases():
@@ -143,9 +148,9 @@ def test_brain_no_move_forward_bias():
     use_prob = probs_all[Action.USE.value]
 
     # 1. MOVE_FORWARD should equal other non-biased actions (TURN_LEFT, TURN_RIGHT, DROP, WAIT)
-    assert abs(move_prob - turn_l_prob) < 0.001, (
-        f"MOVE_FORWARD ({move_prob:.4f}) should match TURN_LEFT ({turn_l_prob:.4f})"
-    )
+    assert (
+        abs(move_prob - turn_l_prob) < 0.001
+    ), f"MOVE_FORWARD ({move_prob:.4f}) should match TURN_LEFT ({turn_l_prob:.4f})"
 
     # 2. Contextual instinct ordering: PICK_UP > EAT > USE > MOVE_FORWARD
     assert pick_prob > eat_prob > use_prob > move_prob, (

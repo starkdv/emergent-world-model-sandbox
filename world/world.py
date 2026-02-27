@@ -21,9 +21,9 @@ if TYPE_CHECKING:
 class World:
     """
     Main world simulation class.
-    
+
     Manages the 2D grid world, tiles, objects, agents, and simulation state.
-    
+
     Attributes:
         width: Width of the world grid
         height: Height of the world grid
@@ -34,6 +34,7 @@ class World:
         seed: Random seed for reproducibility
       Author: Karan Vasa
     """
+
     def __init__(
         self,
         width: int,
@@ -75,7 +76,7 @@ class World:
     ):
         """
         Initialize a new world with generated terrain.
-        
+
         Args:
             width: Width of the world grid
             height: Height of the world grid
@@ -110,38 +111,38 @@ class World:
             learning_budget_adjust_step: Step size when adjusting adaptive training budget
             learning_budget_high_frame_factor: Decrease budget when frame_ms > target_ms * this factor
             learning_budget_low_frame_factor: Increase budget when frame_ms < target_ms * this factor
-            
+
         Raises:
             ValueError: If dimensions are invalid or ratios don't sum to 1.0
-        """        
+        """
         if width <= 0 or height <= 0:
             raise ValueError(f"World dimensions must be positive, got {width}x{height}")
-        
+
         ratio_sum = soil_ratio + rock_ratio + water_ratio + sand_ratio
         if not abs(ratio_sum - 1.0) < 0.01:
             raise ValueError(f"Terrain ratios must sum to 1.0, got {ratio_sum}")
-        
+
         self.width = width
         self.height = height
         self.tick = 0
         self.seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         self.allow_stacking = allow_stacking  # NEW: Store stacking configuration
         self.parallel = parallel  # Enable parallel agent updates
-        
+
         # Set random seed for reproducibility
         random.seed(self.seed)
-          # Initialize data structures
+        # Initialize data structures
         self.tiles: List[List[Tile]] = []
         self.objects: Dict[int, WorldObject] = {}
-        self.agents: Dict[int, 'Agent'] = {}  # Forward reference for Agent
+        self.agents: Dict[int, "Agent"] = {}  # Forward reference for Agent
 
         # Index: object IDs that have a TileEffectSpec (e.g., sand).
         # This prevents per-tick O(total_objects) scans in TileEffectSystem.
         self._tile_effect_object_ids: set[int] = set()
-        
+
         # Reproduction config (can be set after init)
         self.reproduction_config: Optional[dict] = None
-        
+
         # Calamity config (can be set after init)
         self.calamity_config: Optional[dict] = None
         self.last_calamity_tick: int = 0
@@ -161,18 +162,22 @@ class World:
         self.learning_min_updates_per_tick = max(0, int(learning_min_updates_per_tick))
         self.learning_max_budget_updates_per_tick = max(
             self.learning_min_updates_per_tick,
-            int(learning_max_budget_updates_per_tick)
+            int(learning_max_budget_updates_per_tick),
         )
         self.learning_budget_adjust_step = max(1, int(learning_budget_adjust_step))
-        self.learning_budget_high_frame_factor = max(1.0, float(learning_budget_high_frame_factor))
-        self.learning_budget_low_frame_factor = max(0.0, min(1.0, float(learning_budget_low_frame_factor)))
+        self.learning_budget_high_frame_factor = max(
+            1.0, float(learning_budget_high_frame_factor)
+        )
+        self.learning_budget_low_frame_factor = max(
+            0.0, min(1.0, float(learning_budget_low_frame_factor))
+        )
 
         # Clamp initial budget into adaptive bounds
         self.learning_max_updates_per_tick = min(
             self.learning_max_budget_updates_per_tick,
-            max(self.learning_min_updates_per_tick, self.learning_max_updates_per_tick)
+            max(self.learning_min_updates_per_tick, self.learning_max_updates_per_tick),
         )
-        
+
         # Initialize world systems with configuration
         self.systems = WorldSystemManager(
             plant_mature_age=plant_mature_age,
@@ -189,15 +194,19 @@ class World:
             berry_calories=berry_calories,
             safety_spawn_rate=safety_spawn_rate,
             min_resources=min_resources,
-            seed_max_age=seed_max_age
+            seed_max_age=seed_max_age,
         )
-        
+
         # Generate terrain
         self._generate_terrain(
-            soil_ratio, rock_ratio, water_ratio, sand_ratio,
-            fertility_range, moisture_range
+            soil_ratio,
+            rock_ratio,
+            water_ratio,
+            sand_ratio,
+            fertility_range,
+            moisture_range,
         )
-    
+
     def _generate_terrain(
         self,
         soil_ratio: float,
@@ -205,11 +214,11 @@ class World:
         water_ratio: float,
         sand_ratio: float,
         fertility_range: Tuple[float, float],
-        moisture_range: Tuple[float, float]
+        moisture_range: Tuple[float, float],
     ) -> None:
         """
         Generate the world terrain with specified ratios.
-        
+
         Args:
             soil_ratio: Proportion of soil tiles
             rock_ratio: Proportion of rock tiles
@@ -221,19 +230,19 @@ class World:
         total_tiles = self.width * self.height
         # Create terrain type distribution
         terrain_types = (
-            [TerrainType.SOIL] * int(total_tiles * soil_ratio) +
-            [TerrainType.ROCK] * int(total_tiles * rock_ratio) +
-            [TerrainType.WATER] * int(total_tiles * water_ratio) +
-            [TerrainType.SAND] * int(total_tiles * sand_ratio)
+            [TerrainType.SOIL] * int(total_tiles * soil_ratio)
+            + [TerrainType.ROCK] * int(total_tiles * rock_ratio)
+            + [TerrainType.WATER] * int(total_tiles * water_ratio)
+            + [TerrainType.SAND] * int(total_tiles * sand_ratio)
         )
-        
+
         # Fill remaining with soil
         while len(terrain_types) < self.width * self.height:
             terrain_types.append(TerrainType.SOIL)
-        
+
         # Shuffle for random distribution
         random.shuffle(terrain_types)
-        
+
         # Create tiles
         idx = 0
         for y in range(self.height):
@@ -241,32 +250,33 @@ class World:
             for x in range(self.width):
                 terrain_type = terrain_types[idx]
                 idx += 1
-                
+
                 # Generate random fertility and moisture
                 fertility = random.uniform(fertility_range[0], fertility_range[1])
                 moisture = random.uniform(moisture_range[0], moisture_range[1])
-                
+
                 # Rock tiles have no fertility
                 if terrain_type == TerrainType.ROCK:
                     fertility = 0.0
-                
+
                 # Water tiles have high moisture
                 if terrain_type == TerrainType.WATER:
                     moisture = 1.0
-                
+
                 # Sand tiles have very low fertility and moisture
                 if terrain_type == TerrainType.SAND:
                     fertility = random.uniform(0.0, 0.05)
                     moisture = random.uniform(0.0, 0.05)
-                
+
                 tile = Tile(x, y, terrain_type, fertility, moisture)
                 row.append(tile)
-            
+
             self.tiles.append(row)
 
         # Spawn sand objects on SAND terrain tiles so TileEffectSystem can
         # track them (and they appear in the renderer/observation).
         from world.object_registry import ObjectRegistry
+
         if ObjectRegistry.get("sand") is not None:
             for y in range(self.height):
                 for x in range(self.width):
@@ -274,49 +284,50 @@ class World:
                     if tile.terrain_type == TerrainType.SAND:
                         sand_obj = ObjectRegistry.create("sand", x, y)
                         self.add_object(sand_obj)
-    
+
     def get_tile(self, x: int, y: int) -> Optional[Tile]:
         """
         Get tile at the given coordinates.
-        
+
         Args:
             x: X-coordinate
             y: Y-coordinate
-            
+
         Returns:
             Tile at position or None if out of bounds
         """
         if 0 <= x < self.width and 0 <= y < self.height:
             return self.tiles[y][x]
         return None
-    
+
     def is_valid_position(self, x: int, y: int) -> bool:
         """
         Check if coordinates are within world bounds.
-        
+
         Args:
             x: X-coordinate
             y: Y-coordinate
-            
+
         Returns:
             True if position is valid, False otherwise
         """
-        return 0 <= x < self.width and 0 <= y < self.height      
+        return 0 <= x < self.width and 0 <= y < self.height
+
     def add_object(self, obj: WorldObject) -> bool:
         """
         Add a world object to the simulation.
-        
+
         Enforces one-object-per-tile rule if allow_stacking is False.
-        
+
         Args:
             obj: WorldObject to add
-            
+
         Returns:
             True if added successfully, False if position invalid or tile occupied
         """
         if not self.is_valid_position(obj.x, obj.y):
             return False
-        
+
         # Check stacking configuration
         if not self.allow_stacking:
             # Enforce one-per-tile: Check if tile already has a *real* object
@@ -324,8 +335,10 @@ class World:
             tile = self.get_tile(obj.x, obj.y)
             if tile and tile.object_ids:
                 from world.object_registry import ObjectRegistry
+
                 real_objects = [
-                    oid for oid in tile.object_ids
+                    oid
+                    for oid in tile.object_ids
                     if not ObjectRegistry.is_terrain_layer(self.objects.get(oid))
                 ]
                 if real_objects:
@@ -336,18 +349,21 @@ class World:
                         for dy in [-1, 0, 1]
                         if (dx != 0 or dy != 0)  # Not same position
                     ]
-                    
+
                     # Shuffle for randomness
                     random.shuffle(nearby_positions)
-                    
+
                     # Try to place in nearby empty tile
                     for nx, ny in nearby_positions:
                         if self.is_valid_position(nx, ny):
                             nearby_tile = self.get_tile(nx, ny)
                             if nearby_tile:
                                 nearby_real = [
-                                    oid for oid in nearby_tile.object_ids
-                                    if not ObjectRegistry.is_terrain_layer(self.objects.get(oid))
+                                    oid
+                                    for oid in nearby_tile.object_ids
+                                    if not ObjectRegistry.is_terrain_layer(
+                                        self.objects.get(oid)
+                                    )
                                 ]
                                 if not nearby_real:
                                     # Found empty spot - move object there
@@ -356,10 +372,10 @@ class World:
                                     self.objects[obj.id] = obj
                                     nearby_tile.add_object(obj.id)
                                     return True
-                    
+
                     # No empty nearby tiles - don't add object
                     return False
-        
+
         # Stacking allowed OR tile is empty - add normally
         tile = self.get_tile(obj.x, obj.y)
         self.objects[obj.id] = obj
@@ -369,25 +385,26 @@ class World:
         # Maintain tile-effect index
         try:
             from world.object_registry import ObjectRegistry
+
             if ObjectRegistry.get_tile_effect(obj) is not None:
                 self._tile_effect_object_ids.add(obj.id)
         except Exception:
             pass
         return True
-    
+
     def remove_object(self, object_id: int) -> bool:
         """
         Remove a world object from the simulation.
-        
+
         Args:
             object_id: ID of object to remove
-            
+
         Returns:
             True if removed successfully, False if not found
         """
         if object_id not in self.objects:
             return False
-        
+
         obj = self.objects[object_id]
         tile = self.get_tile(obj.x, obj.y)
         if tile:
@@ -396,7 +413,7 @@ class World:
         # Maintain tile-effect index
         if object_id in self._tile_effect_object_ids:
             self._tile_effect_object_ids.discard(object_id)
-        
+
         del self.objects[object_id]
         return True
 
@@ -404,68 +421,70 @@ class World:
     def tile_effect_object_ids(self) -> set[int]:
         """Set of object IDs that have tile effects (read-only view)."""
         return self._tile_effect_object_ids
-    
+
     def move_object(self, object_id: int, new_x: int, new_y: int) -> bool:
         """
         Move an object to a new position.
-        
+
         Args:
             object_id: ID of object to move
             new_x: New X-coordinate
             new_y: New Y-coordinate
-            
+
         Returns:
             True if moved successfully, False otherwise
         """
         if object_id not in self.objects:
             return False
-        
+
         if not self.is_valid_position(new_x, new_y):
             return False
-        
+
         obj = self.objects[object_id]
-        
+
         # Remove from old tile
         old_tile = self.get_tile(obj.x, obj.y)
         if old_tile:
             old_tile.remove_object(object_id)
-        
+
         # Update position
         obj.x = new_x
         obj.y = new_y
-        
+
         # Add to new tile
         new_tile = self.get_tile(new_x, new_y)
         if new_tile:
             new_tile.add_object(object_id)
-        
+
         return True
-    
+
     def get_objects_at(self, x: int, y: int) -> List[WorldObject]:
         """
         Get all objects at a specific position.
-        
+
         Args:
             x: X-coordinate
             y: Y-coordinate
-            
+
         Returns:
             List of WorldObjects at that position
         """
         tile = self.get_tile(x, y)
         if not tile:
             return []
-        
-        return [self.objects[obj_id] for obj_id in tile.object_ids if obj_id in self.objects]
-    
+
+        return [
+            self.objects[obj_id] for obj_id in tile.object_ids if obj_id in self.objects
+        ]
+
     def get_neighbors(self, x: int, y: int, radius: int = 1) -> List[Tile]:
         """
         Get all tiles within a radius of a position.
-        
+
         Args:
             x: Center X-coordinate            y: Center Y-coordinate
             radius: Radius to search (default 1 for immediate neighbors)
-        
+
         Returns:
             List of Tiles within radius
         """
@@ -474,12 +493,14 @@ class World:
             for dx in range(-radius, radius + 1):
                 if dx == 0 and dy == 0:
                     continue
-                
+
                 nx, ny = x + dx, y + dy
                 tile = self.get_tile(nx, ny)
-                if tile:                neighbors.append(tile)
-        
+                if tile:
+                    neighbors.append(tile)
+
         return neighbors
+
     def update(self) -> None:
         """
         Update world state for one simulation tick.
@@ -511,9 +532,11 @@ class World:
 
         # Log agent states — offload to thread when parallel
         from agents.agent import Agent
+
         if Agent.logger is not None:
             if self.parallel:
                 from utils.parallel import get_io_pool
+
                 # Snapshot in main thread to avoid iterating a mutating dict
                 agent_snapshot = list(self.agents.values())
                 # I/O pool is single-threaded so file writes never overlap
@@ -538,6 +561,7 @@ class World:
             return self._cached_counts
 
         from world.objects import EdibleComponent, PlantComponent, SeedComponent
+
         food = 0
         plants = 0
         seeds = 0
@@ -550,10 +574,10 @@ class World:
                 seeds += 1
         alive = sum(1 for a in self.agents.values() if a.alive)
         self._cached_counts = {
-            'total_food': food,
-            'total_plants': plants,
-            'total_seeds': seeds,
-            'alive_agents': alive,
+            "total_food": food,
+            "total_plants": plants,
+            "total_seeds": seeds,
+            "alive_agents": alive,
         }
         return self._cached_counts
 
@@ -579,7 +603,10 @@ class World:
                     total_moisture += tile.moisture
                     tile_count += 1
         if tile_count > 0:
-            self._cached_soil_stats = (total_fertility / tile_count, total_moisture / tile_count)
+            self._cached_soil_stats = (
+                total_fertility / tile_count,
+                total_moisture / tile_count,
+            )
         else:
             self._cached_soil_stats = (0.0, 0.0)
         return self._cached_soil_stats
@@ -602,9 +629,13 @@ class World:
             return False
 
         if self.learning_enable_stagger:
-            should_train_this_tick = ((agent_age + agent_id) % self.learning_train_interval_ticks) == 0
+            should_train_this_tick = (
+                (agent_age + agent_id) % self.learning_train_interval_ticks
+            ) == 0
         else:
-            should_train_this_tick = (agent_age % self.learning_train_interval_ticks) == 0
+            should_train_this_tick = (
+                agent_age % self.learning_train_interval_ticks
+            ) == 0
 
         if not should_train_this_tick:
             return False
@@ -639,18 +670,19 @@ class World:
         if frame_time_ms > high_threshold:
             self.learning_max_updates_per_tick = max(
                 self.learning_min_updates_per_tick,
-                self.learning_max_updates_per_tick - self.learning_budget_adjust_step
+                self.learning_max_updates_per_tick - self.learning_budget_adjust_step,
             )
         elif frame_time_ms < low_threshold:
             self.learning_max_updates_per_tick = min(
                 self.learning_max_budget_updates_per_tick,
-                self.learning_max_updates_per_tick + self.learning_budget_adjust_step
+                self.learning_max_updates_per_tick + self.learning_budget_adjust_step,
             )
-    
+
     def _update_agents(self) -> None:
         """Update all agents — uses parallel pipeline when enabled."""
         if self.parallel:
             from utils.parallel import update_agents_parallel
+
             update_agents_parallel(self)
         else:
             self._update_agents_serial()
@@ -661,7 +693,7 @@ class World:
 
         max_population = None
         if self.reproduction_config:
-            max_population = self.reproduction_config.get('max_population', None)
+            max_population = self.reproduction_config.get("max_population", None)
 
         for agent in list(self.agents.values()):
             if agent.alive:
@@ -677,45 +709,45 @@ class World:
 
         for offspring in new_offspring:
             self.add_agent(offspring)
+
     def _cleanup_dead_agents(self) -> None:
         """Remove dead agents from the world."""
         dead_agent_ids = [
-            agent_id for agent_id, agent in self.agents.items()
-            if not agent.alive
+            agent_id for agent_id, agent in self.agents.items() if not agent.alive
         ]
         for agent_id in dead_agent_ids:
             del self.agents[agent_id]
-    
+
     def _check_calamity(self) -> None:
         """Check if a calamity should occur and trigger it if needed."""
-        if not self.calamity_config or not self.calamity_config.get('enabled', False):
+        if not self.calamity_config or not self.calamity_config.get("enabled", False):
             return
-        
-        interval = self.calamity_config.get('interval', 500)
-        
+
+        interval = self.calamity_config.get("interval", 500)
+
         # Check if it's time for a calamity
         if self.tick - self.last_calamity_tick >= interval:
             self._trigger_calamity()
             self.last_calamity_tick = self.tick
-    
+
     def _trigger_calamity(self) -> None:
         """Trigger a calamity event that destroys resources."""
         from world.objects import EdibleComponent, PlantComponent, SeedComponent
-        
-        destruction_rate = self.calamity_config.get('destruction_rate', 0.3)
-        affect_plants = self.calamity_config.get('affect_plants', True)
-        affect_food = self.calamity_config.get('affect_food', True)
-        affect_seeds = self.calamity_config.get('affect_seeds', False)
-        
+
+        destruction_rate = self.calamity_config.get("destruction_rate", 0.3)
+        affect_plants = self.calamity_config.get("affect_plants", True)
+        affect_food = self.calamity_config.get("affect_food", True)
+        affect_seeds = self.calamity_config.get("affect_seeds", False)
+
         objects_to_destroy = []
         plants_destroyed = 0
         food_destroyed = 0
         seeds_destroyed = 0
-        
+
         # Collect objects to destroy
         for obj_id, obj in list(self.objects.items()):
             should_destroy = False
-            
+
             # Check if should affect this object type
             if affect_plants and obj.has_component(PlantComponent):
                 if random.random() < destruction_rate:
@@ -729,41 +761,47 @@ class World:
                 if random.random() < destruction_rate:
                     should_destroy = True
                     seeds_destroyed += 1
-            
+
             if should_destroy:
                 objects_to_destroy.append(obj_id)
-        
+
         # Destroy the selected objects
         for obj_id in objects_to_destroy:
             self.remove_object(obj_id)
-        
+
         # Print calamity report
         total_destroyed = plants_destroyed + food_destroyed + seeds_destroyed
         print(f"\n⚠️  [CALAMITY] Tick {self.tick}: Environmental disaster!")
-        print(f"   Destroyed {total_destroyed} objects ({destruction_rate*100:.0f}% rate)")
-        print(f"   Plants: {plants_destroyed}, Food: {food_destroyed}, Seeds: {seeds_destroyed}")
+        print(
+            f"   Destroyed {total_destroyed} objects ({destruction_rate*100:.0f}% rate)"
+        )
+        print(
+            f"   Plants: {plants_destroyed}, Food: {food_destroyed}, Seeds: {seeds_destroyed}"
+        )
         print(f"   Remaining objects: {len(self.objects)}")
-    
-    def add_agent(self, agent: 'Agent') -> None:
+
+    def add_agent(self, agent: "Agent") -> None:
         """
         Add an agent to the world.
-        
+
         Args:
             agent: The agent to add
         """
         self.agents[agent.id] = agent
-    
+
     def remove_agent(self, agent_id: int) -> None:
         """
         Remove an agent from the world.
-        
+
         Args:
             agent_id: ID of agent to remove
         """
         if agent_id in self.agents:
             del self.agents[agent_id]
-    
+
     def __repr__(self) -> str:
         """String representation of the world."""
-        return (f"World(size={self.width}x{self.height}, tick={self.tick}, "
-                f"objects={len(self.objects)}, agents={len(self.agents)})")
+        return (
+            f"World(size={self.width}x{self.height}, tick={self.tick}, "
+            f"objects={len(self.objects)}, agents={len(self.agents)})"
+        )

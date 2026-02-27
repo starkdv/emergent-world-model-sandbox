@@ -7,6 +7,7 @@ import subprocess
 import sys
 import pytest
 
+
 def test_improved_rewards():
     print("=" * 60)
     print("TESTING IMPROVED REWARD SHAPING")
@@ -20,23 +21,33 @@ def test_improved_rewards():
 
     # Run the simulation with learning enabled
     # We use a short run or just check return code
-    result = subprocess.run([
-        sys.executable, "main.py",
-        "--config", "config/training_easy.yaml",
-        "--learning",
-        "--learning-rate", "0.01",
-        "--log"
-    ], capture_output=True, text=True) # Capture output to avoid spamming pytest logs unless failed
+    result = subprocess.run(
+        [
+            sys.executable,
+            "main.py",
+            "--config",
+            "config/training_easy.yaml",
+            "--learning",
+            "--learning-rate",
+            "0.01",
+            "--log",
+        ],
+        capture_output=True,
+        text=True,
+    )  # Capture output to avoid spamming pytest logs unless failed
 
     if result.returncode != 0:
         print(result.stdout)
         print(result.stderr)
-        
-    assert result.returncode == 0, f"Simulation failed with return code {result.returncode}"
+
+    assert (
+        result.returncode == 0
+    ), f"Simulation failed with return code {result.returncode}"
 
     print("\n" + "=" * 60)
     print("Simulation complete!")
     print("=" * 60)
+
 
 if __name__ == "__main__":
     test_improved_rewards()

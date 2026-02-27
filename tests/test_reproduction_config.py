@@ -155,9 +155,9 @@ def test_reproduction_config_loading():
                 print(f"   Actual parent lost: {energy_lost_pct:.1f}%")
                 print(f"   Difference: {diff:.1f}%")
 
-            assert diff < tolerance, (
-                f"Energy split incorrect. Expected {expected_loss_pct}%, got {energy_lost_pct}%"
-            )
+            assert (
+                diff < tolerance
+            ), f"Energy split incorrect. Expected {expected_loss_pct}%, got {energy_lost_pct}%"
 
         else:
             pytest.fail("Reproduction failed (no offspring created)")
