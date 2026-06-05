@@ -1,0 +1,5347 @@
+{
+  "version": "1.0.0",
+  "gitCommitHash": "42115797aafa6867bbc11b1461730983882688e2",
+  "generatedAt": "2026-06-04T16:01:10.689Z",
+  "files": {
+    ".flake8": {
+      "filePath": ".flake8",
+      "contentHash": "3655dc879f8f52ff3965002a3ea877b39f177cf9dc4fdce0f74fd5bd2a0cff79",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 42,
+      "hasStructuralAnalysis": false
+    },
+    ".understand-anything/.understandignore": {
+      "filePath": ".understand-anything/.understandignore",
+      "contentHash": "cb50520da2efe66db10bf9b260560f7078d91dde62fc7772d6b67391a9b68632",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 35,
+      "hasStructuralAnalysis": false
+    },
+    "agents/__init__.py": {
+      "filePath": "agents/__init__.py",
+      "contentHash": "e15181ac440faa2edc29626975f2efa98dcca805e3ac162cb6de4f3da88095a5",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "agents.agent",
+          "specifiers": [
+            "Agent"
+          ]
+        },
+        {
+          "source": "agents.brain",
+          "specifiers": [
+            "Brain"
+          ]
+        },
+        {
+          "source": "agents.genome",
+          "specifiers": [
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action",
+            "ActionResult",
+            "DIRECTIONS"
+          ]
+        },
+        {
+          "source": "utils.agents",
+          "specifiers": [
+            "build_observation",
+            "get_observation_size"
+          ]
+        },
+        {
+          "source": "agents.learning",
+          "specifiers": [
+            "AgentLearner"
+          ]
+        },
+        {
+          "source": "utils.agents",
+          "specifiers": [
+            "Experience",
+            "ReplayBuffer",
+            "RewardShaper"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 35,
+      "hasStructuralAnalysis": true
+    },
+    "agents/actions.py": {
+      "filePath": "agents/actions.py",
+      "contentHash": "059a1720bbb509681f2567c05856453ebce191b114cf9c75402779dbba829185",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Action",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "ActionResult",
+          "methods": [],
+          "properties": [
+            "success",
+            "energy_cost",
+            "message",
+            "object_id",
+            "object_type",
+            "target_x",
+            "target_y",
+            "interaction_kind"
+          ],
+          "exported": true,
+          "lineCount": 11
+        }
+      ],
+      "imports": [
+        {
+          "source": "enum",
+          "specifiers": [
+            "IntEnum"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "NamedTuple"
+          ]
+        }
+      ],
+      "exports": [
+        "Action",
+        "ActionResult"
+      ],
+      "totalLines": 56,
+      "hasStructuralAnalysis": true
+    },
+    "agents/agent.py": {
+      "filePath": "agents/agent.py",
+      "contentHash": "e298930bec11d41a3d500be8d099e24870c8e9a4d06a54a9b06579c22abbe2f9",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Agent",
+          "methods": [
+            "__init__",
+            "update",
+            "get_action_mask",
+            "observe",
+            "execute_action",
+            "die",
+            "can_reproduce",
+            "reproduce",
+            "enable_learning",
+            "disable_learning",
+            "get_learned_knowledge",
+            "inherit_knowledge",
+            "__repr__"
+          ],
+          "properties": [
+            "logger",
+            "world_model_logger"
+          ],
+          "exported": true,
+          "lineCount": 660
+        }
+      ],
+      "imports": [
+        {
+          "source": "typing",
+          "specifiers": [
+            "TYPE_CHECKING",
+            "Optional",
+            "List",
+            "ClassVar"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action",
+            "ActionResult",
+            "DIRECTIONS"
+          ]
+        },
+        {
+          "source": "agents.brain",
+          "specifiers": [
+            "Brain"
+          ]
+        },
+        {
+          "source": "agents.genome",
+          "specifiers": [
+            "Genome"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "EdibleComponent"
+          ]
+        },
+        {
+          "source": "utils.agents.agent_utils",
+          "specifiers": [
+            "agent_utils"
+          ]
+        }
+      ],
+      "exports": [
+        "Agent"
+      ],
+      "totalLines": 690,
+      "hasStructuralAnalysis": true
+    },
+    "agents/brain.py": {
+      "filePath": "agents/brain.py",
+      "contentHash": "623e59a5ce9be855bc6c9d2428e77588e845cfdd970d92227eab51190bccc12f",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Brain",
+          "methods": [
+            "__init__",
+            "initial_state",
+            "forward",
+            "_gru_step",
+            "decide",
+            "calculate_weight_count",
+            "get_action_preferences"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 289
+        }
+      ],
+      "imports": [
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "TYPE_CHECKING",
+            "Tuple",
+            "Optional"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action"
+          ]
+        },
+        {
+          "source": "utils.agents.brain_utils",
+          "specifiers": [
+            "brain_utils"
+          ]
+        }
+      ],
+      "exports": [
+        "Brain"
+      ],
+      "totalLines": 317,
+      "hasStructuralAnalysis": true
+    },
+    "agents/evolution.py": {
+      "filePath": "agents/evolution.py",
+      "contentHash": "24aebed7bfc74e83d727d347b3e5b12d87c86551d84dc64ff1a56a92d757cacc",
+      "functions": [
+        {
+          "name": "select_parents",
+          "params": [
+            "population",
+            "config"
+          ],
+          "returnType": "List[Agent]",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "clone_agent",
+          "params": [
+            "parent",
+            "mutate",
+            "mutation_std"
+          ],
+          "returnType": "Agent",
+          "exported": true,
+          "lineCount": 61
+        },
+        {
+          "name": "mutate_genome_weights",
+          "params": [
+            "genome",
+            "std"
+          ],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "next_generation",
+          "params": [
+            "population",
+            "config",
+            "stats"
+          ],
+          "returnType": "List[Agent]",
+          "exported": true,
+          "lineCount": 48
+        }
+      ],
+      "classes": [
+        {
+          "name": "EvolutionConfig",
+          "methods": [
+            "__init__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 34
+        }
+      ],
+      "imports": [
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "copy",
+          "specifiers": [
+            "copy"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "Tuple",
+            "Optional"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "utils.agents",
+          "specifiers": [
+            "calculate_fitness",
+            "adaptive_mutation_std"
+          ]
+        },
+        {
+          "source": "utils.agents.evolution_utils",
+          "specifiers": [
+            "EvolutionStats"
+          ]
+        }
+      ],
+      "exports": [
+        "EvolutionConfig",
+        "select_parents",
+        "clone_agent",
+        "mutate_genome_weights",
+        "next_generation"
+      ],
+      "totalLines": 216,
+      "hasStructuralAnalysis": true
+    },
+    "agents/genome.py": {
+      "filePath": "agents/genome.py",
+      "contentHash": "e55101945f4ea307e73b7c7d7804e8f300b8b79b998e9946f60641a9139733c8",
+      "functions": [
+        {
+          "name": "create_default_trait_config",
+          "params": [],
+          "returnType": "dict[str, tuple[float, float]]",
+          "exported": true,
+          "lineCount": 12
+        }
+      ],
+      "classes": [
+        {
+          "name": "Genome",
+          "methods": [
+            "__init__",
+            "random",
+            "mate",
+            "_uniform_crossover",
+            "_one_point_crossover",
+            "_blend_crossover",
+            "_mutate_weights",
+            "_crossover_traits",
+            "copy",
+            "__repr__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 256
+        }
+      ],
+      "imports": [
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional"
+          ]
+        }
+      ],
+      "exports": [
+        "Genome",
+        "create_default_trait_config"
+      ],
+      "totalLines": 287,
+      "hasStructuralAnalysis": true
+    },
+    "agents/learning.py": {
+      "filePath": "agents/learning.py",
+      "contentHash": "152073f95e41eaa82d990a4d82703834029b75a26e0d86a88ac418d5137a0c38",
+      "functions": [],
+      "classes": [
+        {
+          "name": "AgentLearner",
+          "methods": [
+            "__init__",
+            "_resolve_compute_backend",
+            "_torch_device_usable",
+            "store_experience",
+            "learn",
+            "_forward_batch_numpy",
+            "_learn_vectorized_numpy",
+            "_forward_batch_torch",
+            "_learn_vectorized_torch",
+            "_sync_genome_weights"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 488
+        }
+      ],
+      "imports": [
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Tuple",
+            "TYPE_CHECKING"
+          ]
+        },
+        {
+          "source": "utils.agents",
+          "specifiers": [
+            "Experience",
+            "ReplayBuffer",
+            "RewardShaper"
+          ]
+        }
+      ],
+      "exports": [
+        "AgentLearner"
+      ],
+      "totalLines": 528,
+      "hasStructuralAnalysis": true
+    },
+    "agents/observation.py": {
+      "filePath": "agents/observation.py",
+      "contentHash": "2939431ca14befdd9e619cafb424f7dfb9460caf002a777c74df7c9bf7154589",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "utils.agents.perception",
+          "specifiers": [
+            "build_observation",
+            "get_observation_size"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 18,
+      "hasStructuralAnalysis": true
+    },
+    "analyze_observation_sensitivity.py": {
+      "filePath": "analyze_observation_sensitivity.py",
+      "contentHash": "abd9911f473e2f38239bc8b02426683a406bea1356ee519eaad939c6d914d0d6",
+      "functions": [
+        {
+          "name": "_feature_names",
+          "params": [],
+          "returnType": "list[str]",
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "_create_probe_world",
+          "params": [
+            "seed"
+          ],
+          "returnType": "tuple[World, Agent]",
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "_measure",
+          "params": [
+            "brain",
+            "obs",
+            "h",
+            "action_mask",
+            "epsilon"
+          ],
+          "returnType": "list[tuple[int, float, float, float, float]]",
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "_print_top",
+          "params": [
+            "title",
+            "rows",
+            "names",
+            "top_n"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "main",
+          "params": [],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 39
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Brain",
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action"
+          ]
+        },
+        {
+          "source": "utils.agents",
+          "specifiers": [
+            "build_observation"
+          ]
+        },
+        {
+          "source": "world.object_registry",
+          "specifiers": [
+            "ObjectRegistry",
+            "register_builtin_objects"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        }
+      ],
+      "exports": [
+        "_feature_names",
+        "_create_probe_world",
+        "_measure",
+        "_print_top",
+        "main"
+      ],
+      "totalLines": 193,
+      "hasStructuralAnalysis": true
+    },
+    "analyze_v3_1.py": {
+      "filePath": "analyze_v3_1.py",
+      "contentHash": "27755aceb788ec29b42a5b4fbfbcd953a587ad96831e89cb07cc5a5a1db1c5d2",
+      "functions": [
+        {
+          "name": "_pick_latest_log",
+          "params": [
+            "log_dir"
+          ],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_coerce_bool_success",
+          "params": [
+            "df"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_ensure_interaction_fields",
+          "params": [
+            "df"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 63
+        },
+        {
+          "name": "_derive_position_columns",
+          "params": [
+            "df"
+          ],
+          "returnType": "tuple[str, str] | tuple[None, None]",
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "_compute_loop_metrics",
+          "params": [
+            "df"
+          ],
+          "returnType": "dict[str, float | int]",
+          "exported": true,
+          "lineCount": 137
+        },
+        {
+          "name": "_compute_energy_metrics",
+          "params": [
+            "df"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "_compute_population_dynamics",
+          "params": [
+            "df"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 27
+        },
+        {
+          "name": "_compute_lifespan_metrics",
+          "params": [
+            "df"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "_compute_spatial_metrics",
+          "params": [
+            "df"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 39
+        },
+        {
+          "name": "_compute_temporal_phases",
+          "params": [
+            "df",
+            "n_phases"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "_compute_farming_metrics",
+          "params": [
+            "df"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "_compute_behavioral_diversity",
+          "params": [
+            "df"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "_compute_efficiency_metrics",
+          "params": [
+            "df"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 37
+        },
+        {
+          "name": "_compute_action_sequences",
+          "params": [
+            "df",
+            "top_n"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 18
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "glob",
+          "specifiers": [
+            "glob"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "pandas",
+          "specifiers": [
+            "pd"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        }
+      ],
+      "exports": [
+        "_pick_latest_log",
+        "_coerce_bool_success",
+        "_ensure_interaction_fields",
+        "_derive_position_columns",
+        "_compute_loop_metrics",
+        "_compute_energy_metrics",
+        "_compute_population_dynamics",
+        "_compute_lifespan_metrics",
+        "_compute_spatial_metrics",
+        "_compute_temporal_phases",
+        "_compute_farming_metrics",
+        "_compute_behavioral_diversity",
+        "_compute_efficiency_metrics",
+        "_compute_action_sequences"
+      ],
+      "totalLines": 961,
+      "hasStructuralAnalysis": true
+    },
+    "main.py": {
+      "filePath": "main.py",
+      "contentHash": "efa5d301c77d3e94436b2ea6e938dcf0b95ea8bbe9e76608d29b91702614ba21",
+      "functions": [
+        {
+          "name": "load_config",
+          "params": [
+            "config_path"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 24
+        },
+        {
+          "name": "main",
+          "params": [],
+          "exported": true,
+          "lineCount": 779
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "argparse",
+          "specifiers": [
+            "argparse"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "yaml",
+          "specifiers": [
+            "yaml"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "SeedComponent",
+            "PlantComponent"
+          ]
+        },
+        {
+          "source": "world.tiles",
+          "specifiers": [
+            "TerrainType"
+          ]
+        },
+        {
+          "source": "world.object_registry",
+          "specifiers": [
+            "ObjectRegistry",
+            "register_builtin_objects"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Genome",
+            "Brain",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "utils.render",
+          "specifiers": [
+            "ConsoleRenderer"
+          ]
+        },
+        {
+          "source": "utils.ui.pygame_renderer",
+          "specifiers": [
+            "PygameRenderer"
+          ]
+        }
+      ],
+      "exports": [
+        "load_config",
+        "main"
+      ],
+      "totalLines": 834,
+      "hasStructuralAnalysis": true
+    },
+    "simulation/__init__.py": {
+      "filePath": "simulation/__init__.py",
+      "contentHash": "5fa798f049c7a0b2f8660042e7778525d72b3a631ec7ef425675b3b0f28fc47d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 11,
+      "hasStructuralAnalysis": true
+    },
+    "tests/__init__.py": {
+      "filePath": "tests/__init__.py",
+      "contentHash": "77e5c57fa0d7a1be159b52fd4d593cb4ced14d1a48ce34cad9aa26d134bbb8c9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 6,
+      "hasStructuralAnalysis": true
+    },
+    "tests/conftest.py": {
+      "filePath": "tests/conftest.py",
+      "contentHash": "149a5ba9dc2e65a4ad5048058878880f92c707337768f17555120cc989c849d3",
+      "functions": [
+        {
+          "name": "clean_world",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        }
+      ],
+      "exports": [
+        "clean_world"
+      ],
+      "totalLines": 18,
+      "hasStructuralAnalysis": true
+    },
+    "tests/scenarios/test_baseline_easy_config.py": {
+      "filePath": "tests/scenarios/test_baseline_easy_config.py",
+      "contentHash": "7820e7fced8c78e82949bb7ee40574b8fdfad35f2023d5d0294e34d2383855d2",
+      "functions": [
+        {
+          "name": "load_config",
+          "params": [],
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "populate_world_with_resources",
+          "params": [
+            "world",
+            "config"
+          ],
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "test_baseline_easy_config",
+          "params": [
+            "tmp_path"
+          ],
+          "exported": true,
+          "lineCount": 73
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "yaml",
+          "specifiers": [
+            "yaml"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "SeedComponent",
+            "PlantComponent"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Brain",
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "utils.data.agent_logger",
+          "specifiers": [
+            "AgentLogger"
+          ]
+        }
+      ],
+      "exports": [
+        "load_config",
+        "populate_world_with_resources",
+        "test_baseline_easy_config"
+      ],
+      "totalLines": 169,
+      "hasStructuralAnalysis": true
+    },
+    "tests/scenarios/test_baseline_verification.py": {
+      "filePath": "tests/scenarios/test_baseline_verification.py",
+      "contentHash": "eb73626d33be6a828797de9d660e3467a1fb6ad63ad25c0fd5aab58e4e254279",
+      "functions": [
+        {
+          "name": "populate_world_with_resources",
+          "params": [
+            "world",
+            "berry_count",
+            "plant_count",
+            "seed_count"
+          ],
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "test_baseline_verification",
+          "params": [
+            "tmp_path"
+          ],
+          "exported": true,
+          "lineCount": 68
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "SeedComponent",
+            "PlantComponent"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Brain",
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "utils.data.agent_logger",
+          "specifiers": [
+            "AgentLogger"
+          ]
+        }
+      ],
+      "exports": [
+        "populate_world_with_resources",
+        "test_baseline_verification"
+      ],
+      "totalLines": 116,
+      "hasStructuralAnalysis": true
+    },
+    "tests/scenarios/test_exploration_bonus.py": {
+      "filePath": "tests/scenarios/test_exploration_bonus.py",
+      "contentHash": "c5e36523cb43232ccd94e32058f316afe4ac7a79bfe5194cb25d9de49910a176",
+      "functions": [
+        {
+          "name": "populate_world_with_resources",
+          "params": [
+            "world",
+            "berry_count",
+            "plant_count",
+            "seed_count"
+          ],
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "test_exploration_bonus",
+          "params": [
+            "tmp_path"
+          ],
+          "exported": true,
+          "lineCount": 54
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "SeedComponent",
+            "PlantComponent"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Brain",
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "utils.data.agent_logger",
+          "specifiers": [
+            "AgentLogger"
+          ]
+        }
+      ],
+      "exports": [
+        "populate_world_with_resources",
+        "test_exploration_bonus"
+      ],
+      "totalLines": 99,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_action_energy_shaping.py": {
+      "filePath": "tests/test_action_energy_shaping.py",
+      "contentHash": "40557b225d5f7ce9391edefe7158f2bfabafdbb511822c71f21e7e0ffbbf6fa3",
+      "functions": [
+        {
+          "name": "_create_agent_on_passable_tile",
+          "params": [
+            "world"
+          ],
+          "returnType": "Agent",
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "test_turn_streak_energy_cost_increases",
+          "params": [],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "test_move_after_turn_gets_energy_discount",
+          "params": [],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "test_wait_streak_energy_cost_increases",
+          "params": [],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "test_non_wait_resets_wait_streak",
+          "params": [],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "test_successful_turn_does_not_reduce_fitness",
+          "params": [],
+          "exported": true,
+          "lineCount": 10
+        },
+        {
+          "name": "test_brain_no_move_forward_bias",
+          "params": [],
+          "exported": true,
+          "lineCount": 45
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Brain",
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        }
+      ],
+      "exports": [
+        "_create_agent_on_passable_tile",
+        "test_turn_streak_energy_cost_increases",
+        "test_move_after_turn_gets_energy_discount",
+        "test_wait_streak_energy_cost_increases",
+        "test_non_wait_resets_wait_streak",
+        "test_successful_turn_does_not_reduce_fitness",
+        "test_brain_no_move_forward_bias"
+      ],
+      "totalLines": 160,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_anti_spin.py": {
+      "filePath": "tests/test_anti_spin.py",
+      "contentHash": "48470bd4bc178814867bbbc0bf87a05dda1af458703dc204a6915f6ef7d08abf",
+      "functions": [
+        {
+          "name": "test_anti_spin",
+          "params": [],
+          "exported": true,
+          "lineCount": 88
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "yaml",
+          "specifiers": [
+            "yaml"
+          ]
+        },
+        {
+          "source": "utils.agents",
+          "specifiers": [
+            "RewardShaper"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action",
+            "ActionResult"
+          ]
+        },
+        {
+          "source": "agents.genome",
+          "specifiers": [
+            "Genome"
+          ]
+        },
+        {
+          "source": "agents.agent",
+          "specifiers": [
+            "Agent"
+          ]
+        },
+        {
+          "source": "agents.brain",
+          "specifiers": [
+            "Brain"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        }
+      ],
+      "exports": [
+        "test_anti_spin"
+      ],
+      "totalLines": 106,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_async_logger.py": {
+      "filePath": "tests/test_async_logger.py",
+      "contentHash": "bc510b8ab008a1650cc87de1812db3d85aa2b3148195eb7943d25b9419af7009",
+      "functions": [
+        {
+          "name": "test_async_logger_basic",
+          "params": [
+            "tmp_path"
+          ],
+          "exported": true,
+          "lineCount": 57
+        },
+        {
+          "name": "test_async_logger_performance",
+          "params": [
+            "tmp_path"
+          ],
+          "exported": true,
+          "lineCount": 63
+        },
+        {
+          "name": "test_async_logger_batching",
+          "params": [
+            "tmp_path"
+          ],
+          "exported": true,
+          "lineCount": 57
+        },
+        {
+          "name": "test_async_logger_world_state",
+          "params": [
+            "tmp_path"
+          ],
+          "exported": true,
+          "lineCount": 34
+        },
+        {
+          "name": "test_async_logger_episode_end",
+          "params": [
+            "tmp_path"
+          ],
+          "exported": true,
+          "lineCount": 51
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "csv",
+          "specifiers": [
+            "csv"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "utils.data.async_logger",
+          "specifiers": [
+            "AsyncWorldModelLogger"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Brain",
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action",
+            "ActionResult"
+          ]
+        }
+      ],
+      "exports": [
+        "test_async_logger_basic",
+        "test_async_logger_performance",
+        "test_async_logger_batching",
+        "test_async_logger_world_state",
+        "test_async_logger_episode_end"
+      ],
+      "totalLines": 295,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_brain_v2.py": {
+      "filePath": "tests/test_brain_v2.py",
+      "contentHash": "5dc78c581e25a0968e8da07f3fd878d9446c225a9a01f069d382cd2e792b117f",
+      "functions": [],
+      "classes": [
+        {
+          "name": "TestBrainV2",
+          "methods": [
+            "test_weight_count_calculation",
+            "test_brain_initialization",
+            "test_initial_state",
+            "test_forward_pass",
+            "test_decide_action",
+            "test_action_masking",
+            "test_temperature_sampling",
+            "test_hidden_state_sequence",
+            "test_weight_packing_roundtrip"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 267
+        }
+      ],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "agents.brain",
+          "specifiers": [
+            "Brain"
+          ]
+        },
+        {
+          "source": "agents.genome",
+          "specifiers": [
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action"
+          ]
+        }
+      ],
+      "exports": [
+        "TestBrainV2"
+      ],
+      "totalLines": 292,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_calamity.py": {
+      "filePath": "tests/test_calamity.py",
+      "contentHash": "ddd02586ef9dbdeb2e3877b56520048f991c20acb5791a103c19a41748a8609c",
+      "functions": [
+        {
+          "name": "test_calamity",
+          "params": [],
+          "exported": true,
+          "lineCount": 125
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "yaml",
+          "specifiers": [
+            "yaml"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "PlantComponent",
+            "SeedComponent"
+          ]
+        }
+      ],
+      "exports": [
+        "test_calamity"
+      ],
+      "totalLines": 138,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_drop_action_mask.py": {
+      "filePath": "tests/test_drop_action_mask.py",
+      "contentHash": "2d2128d43f798e95be488d71fd047dae652fe2ce31a8d99b520b9323843b758a",
+      "functions": [
+        {
+          "name": "_create_agent_on_passable_tile",
+          "params": [
+            "world"
+          ],
+          "returnType": "Agent",
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_add_dummy_object",
+          "params": [
+            "world",
+            "x",
+            "y"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "_give_agent_inventory_item",
+          "params": [
+            "world",
+            "agent"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "test_drop_mask_off_when_no_space_strict_mode",
+          "params": [],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "test_drop_mask_on_when_neighbor_empty_strict_mode",
+          "params": [],
+          "exported": true,
+          "lineCount": 14
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Brain",
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent"
+          ]
+        }
+      ],
+      "exports": [
+        "_create_agent_on_passable_tile",
+        "_add_dummy_object",
+        "_give_agent_inventory_item",
+        "test_drop_mask_off_when_no_space_strict_mode",
+        "test_drop_mask_on_when_neighbor_empty_strict_mode"
+      ],
+      "totalLines": 72,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_energy_sustainability.py": {
+      "filePath": "tests/test_energy_sustainability.py",
+      "contentHash": "aa62f774ee6e919ff512b4f1c8676f32953ce9394b4e5b2641b3ac0a2e1daa39",
+      "functions": [
+        {
+          "name": "test_energy_sustainability",
+          "params": [],
+          "exported": true,
+          "lineCount": 134
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "yaml",
+          "specifiers": [
+            "yaml"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "agents.agent",
+          "specifiers": [
+            "Agent"
+          ]
+        },
+        {
+          "source": "agents.brain",
+          "specifiers": [
+            "Brain"
+          ]
+        },
+        {
+          "source": "agents.genome",
+          "specifiers": [
+            "Genome"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "EdibleComponent",
+            "WorldObject"
+          ]
+        }
+      ],
+      "exports": [
+        "test_energy_sustainability"
+      ],
+      "totalLines": 158,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_evolution.py": {
+      "filePath": "tests/test_evolution.py",
+      "contentHash": "240e5bbfbf2ea30bc17f08576b8dd5348c832de85863dfa0b5ac075e4b8bb807",
+      "functions": [
+        {
+          "name": "load_config",
+          "params": [
+            "config_path"
+          ],
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "populate_world_with_resources",
+          "params": [
+            "world",
+            "config"
+          ],
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "create_initial_population",
+          "params": [
+            "config",
+            "population_size"
+          ],
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "run_generation",
+          "params": [
+            "population",
+            "config",
+            "max_ticks"
+          ],
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "main",
+          "params": [],
+          "exported": true,
+          "lineCount": 91
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "yaml",
+          "specifiers": [
+            "yaml"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "SeedComponent",
+            "PlantComponent"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Brain",
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "agents.evolution",
+          "specifiers": [
+            "EvolutionConfig",
+            "next_generation"
+          ]
+        },
+        {
+          "source": "utils.agents",
+          "specifiers": [
+            "calculate_fitness",
+            "EvolutionStats"
+          ]
+        }
+      ],
+      "exports": [
+        "load_config",
+        "populate_world_with_resources",
+        "create_initial_population",
+        "run_generation",
+        "main"
+      ],
+      "totalLines": 232,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_exploration_sweep.py": {
+      "filePath": "tests/test_exploration_sweep.py",
+      "contentHash": "bc36c57a081c741b23e4ff95d666a1b984afde2f04916f83b17016440129e06f",
+      "functions": [
+        {
+          "name": "populate_world_with_resources",
+          "params": [
+            "world",
+            "berry_count",
+            "plant_count",
+            "seed_count"
+          ],
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "set_exploration_bonus",
+          "params": [
+            "bonus_value"
+          ],
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "run_test",
+          "params": [
+            "bonus_value",
+            "max_ticks"
+          ],
+          "exported": true,
+          "lineCount": 93
+        },
+        {
+          "name": "main",
+          "params": [],
+          "exported": true,
+          "lineCount": 78
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "pandas",
+          "specifiers": [
+            "pd"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "SeedComponent",
+            "PlantComponent"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Brain",
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "utils.data.agent_logger",
+          "specifiers": [
+            "AgentLogger"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        }
+      ],
+      "exports": [
+        "populate_world_with_resources",
+        "set_exploration_bonus",
+        "run_test",
+        "main"
+      ],
+      "totalLines": 257,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_genome.py": {
+      "filePath": "tests/test_genome.py",
+      "contentHash": "6f7610211136dd3cc5653dd1b6a6ae16f628eec2367fe84e15980dd1c84494f6",
+      "functions": [],
+      "classes": [
+        {
+          "name": "TestGenome",
+          "methods": [
+            "test_random_genome_creation",
+            "test_genome_from_weights",
+            "test_genome_copy",
+            "test_crossover_uniform",
+            "test_crossover_one_point",
+            "test_crossover_blend",
+            "test_mutation_via_mate",
+            "test_lineage_tracking",
+            "test_weight_statistics",
+            "test_trait_inheritance"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 209
+        }
+      ],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "agents.genome",
+          "specifiers": [
+            "Genome",
+            "create_default_trait_config"
+          ]
+        }
+      ],
+      "exports": [
+        "TestGenome"
+      ],
+      "totalLines": 232,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_improved_rewards.py": {
+      "filePath": "tests/test_improved_rewards.py",
+      "contentHash": "0e6ab428845703f06b3992293c2948d0c4ffc09aa2723815c98d291de708fe28",
+      "functions": [
+        {
+          "name": "test_improved_rewards",
+          "params": [],
+          "exported": true,
+          "lineCount": 39
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "subprocess",
+          "specifiers": [
+            "subprocess"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        }
+      ],
+      "exports": [
+        "test_improved_rewards"
+      ],
+      "totalLines": 54,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_logging.py": {
+      "filePath": "tests/test_logging.py",
+      "contentHash": "6f2441888a789bdd2067ace12f85fd4e8b5e57f56569ffa3901cf59ac4cadef1",
+      "functions": [
+        {
+          "name": "test_agent_logging",
+          "params": [
+            "tmp_path"
+          ],
+          "exported": true,
+          "lineCount": 53
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "agents.agent",
+          "specifiers": [
+            "Agent"
+          ]
+        },
+        {
+          "source": "agents.brain",
+          "specifiers": [
+            "Brain"
+          ]
+        },
+        {
+          "source": "agents.genome",
+          "specifiers": [
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "utils.data.agent_logger",
+          "specifiers": [
+            "AgentLogger"
+          ]
+        }
+      ],
+      "exports": [
+        "test_agent_logging"
+      ],
+      "totalLines": 67,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_loop_reward_shaping.py": {
+      "filePath": "tests/test_loop_reward_shaping.py",
+      "contentHash": "b6d59799016d623f6497ccfc636997b994abecc5ce6d2d0c635d600b09fb9282",
+      "functions": [
+        {
+          "name": "_make_agent",
+          "params": [
+            "x",
+            "y"
+          ],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "test_proactive_turn_reward_after_straight_run",
+          "params": [],
+          "exported": true,
+          "lineCount": 40
+        },
+        {
+          "name": "test_backtrack_is_penalized_more_than_forward_progress",
+          "params": [],
+          "exported": true,
+          "lineCount": 50
+        }
+      ],
+      "classes": [
+        {
+          "name": "DummyWorld",
+          "methods": [
+            "__init__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 7
+        }
+      ],
+      "imports": [
+        {
+          "source": "types",
+          "specifiers": [
+            "SimpleNamespace"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action",
+            "ActionResult"
+          ]
+        },
+        {
+          "source": "utils.agents",
+          "specifiers": [
+            "RewardShaper"
+          ]
+        }
+      ],
+      "exports": [
+        "DummyWorld",
+        "_make_agent",
+        "test_proactive_turn_reward_after_straight_run",
+        "test_backtrack_is_penalized_more_than_forward_progress"
+      ],
+      "totalLines": 126,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_max_population.py": {
+      "filePath": "tests/test_max_population.py",
+      "contentHash": "b678f7a11e7eaf3a14dafabde419a614f66e579b0c7caf00ab919ad271886d82",
+      "functions": [
+        {
+          "name": "test_max_population",
+          "params": [],
+          "exported": true,
+          "lineCount": 24
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "yaml",
+          "specifiers": [
+            "yaml"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        }
+      ],
+      "exports": [
+        "test_max_population"
+      ],
+      "totalLines": 36,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_object_registry.py": {
+      "filePath": "tests/test_object_registry.py",
+      "contentHash": "ccba2e355125b317a8f70a78ef23bd7771a768dd7d4cd8cc190d99f3d2d35261",
+      "functions": [
+        {
+          "name": "clean_registry",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "builtins",
+          "params": [],
+          "exported": true,
+          "lineCount": 4
+        }
+      ],
+      "classes": [
+        {
+          "name": "TestSpecs",
+          "methods": [
+            "test_edible_spec_defaults",
+            "test_edible_spec_custom",
+            "test_seed_spec_defaults",
+            "test_plant_spec_defaults",
+            "test_fertilizer_spec_defaults",
+            "test_tool_spec_defaults",
+            "test_physics_spec_defaults",
+            "test_observation_spec_defaults"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 50
+        },
+        {
+          "name": "TestObjectDefinition",
+          "methods": [
+            "test_basic_definition",
+            "test_multi_component_definition",
+            "test_from_dict_minimal",
+            "test_from_dict_full",
+            "test_from_dict_seed_type",
+            "test_to_dict_roundtrip",
+            "test_from_dict_defaults_when_missing"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 110
+        },
+        {
+          "name": "TestRegistryCRUD",
+          "methods": [
+            "test_register_and_get",
+            "test_get_unknown_returns_none",
+            "test_clear",
+            "test_type_ids",
+            "test_replace_definition",
+            "test_all_definitions_returns_copy"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 44
+        },
+        {
+          "name": "TestRegistryCreate",
+          "methods": [
+            "test_create_berry",
+            "test_create_berry_seed",
+            "test_create_berry_plant",
+            "test_create_fertilizer",
+            "test_create_with_overrides",
+            "test_create_seed_with_overrides",
+            "test_create_plant_with_overrides",
+            "test_create_unknown_type_raises",
+            "test_create_assigns_unique_ids",
+            "test_create_sets_type_id_on_object"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 71
+        },
+        {
+          "name": "TestBuiltinDefinitions",
+          "methods": [
+            "test_register_builtin_objects_populates_registry",
+            "test_berry_definition_properties",
+            "test_berry_seed_definition_properties",
+            "test_berry_plant_definition_properties",
+            "test_fertilizer_definition_properties",
+            "test_lifecycle_chain_references"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 60
+        },
+        {
+          "name": "TestCategoryLookup",
+          "methods": [
+            "test_category_via_type_id",
+            "test_category_via_type_id_seed",
+            "test_category_via_type_id_plant",
+            "test_category_via_type_id_fertilizer",
+            "test_category_fallback_no_type_id",
+            "test_category_fallback_seed_component",
+            "test_category_fallback_plant_component",
+            "test_category_fallback_fertilizer_component",
+            "test_category_fallback_tool_component",
+            "test_category_fallback_empty_object"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 48
+        },
+        {
+          "name": "TestObservationEncoding",
+          "methods": [
+            "test_observation_encoding_berry",
+            "test_observation_encoding_seed",
+            "test_observation_encoding_plant",
+            "test_observation_encoding_fertilizer",
+            "test_observation_encoding_no_type_id"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "TestPhysicsSpec",
+          "methods": [
+            "test_physics_berry",
+            "test_physics_plant",
+            "test_physics_no_type_id"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 20
+        },
+        {
+          "name": "TestConfigLoading",
+          "methods": [
+            "test_load_single_type",
+            "test_load_multiple_types",
+            "test_load_and_create",
+            "test_load_overwrites_builtins",
+            "test_load_empty_config"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 82
+        },
+        {
+          "name": "TestToolDefinition",
+          "methods": [
+            "test_create_tool_object",
+            "test_tool_override"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 31
+        },
+        {
+          "name": "TestCustomObjectTypes",
+          "methods": [
+            "test_define_mushroom_lifecycle",
+            "test_define_healing_herb",
+            "test_define_object_with_multiple_components"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 118
+        },
+        {
+          "name": "TestBackwardCompatibility",
+          "methods": [
+            "test_old_style_object_has_empty_type_id",
+            "test_get_category_old_style",
+            "test_get_physics_old_style_returns_none",
+            "test_get_observation_encoding_old_style_returns_none",
+            "test_world_object_repr_with_type_id",
+            "test_world_object_repr_without_type_id"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 37
+        },
+        {
+          "name": "TestEdgeCases",
+          "methods": [
+            "test_register_builtin_twice_is_safe",
+            "test_create_at_zero_zero",
+            "test_create_at_large_coords",
+            "test_definition_with_no_components",
+            "test_overrides_ignored_for_absent_components"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 38
+        }
+      ],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "SeedComponent",
+            "PlantComponent",
+            "FertilizerComponent",
+            "ToolComponent"
+          ]
+        },
+        {
+          "source": "world.object_registry",
+          "specifiers": [
+            "EdibleSpec",
+            "SeedSpec",
+            "PlantSpec",
+            "FertilizerSpec",
+            "ToolSpec",
+            "PhysicsSpec",
+            "ObservationSpec",
+            "ObjectDefinition",
+            "ObjectRegistry",
+            "register_builtin_objects"
+          ]
+        }
+      ],
+      "exports": [
+        "clean_registry",
+        "builtins",
+        "TestSpecs",
+        "TestObjectDefinition",
+        "TestRegistryCRUD",
+        "TestRegistryCreate",
+        "TestBuiltinDefinitions",
+        "TestCategoryLookup",
+        "TestObservationEncoding",
+        "TestPhysicsSpec",
+        "TestConfigLoading",
+        "TestToolDefinition",
+        "TestCustomObjectTypes",
+        "TestBackwardCompatibility",
+        "TestEdgeCases"
+      ],
+      "totalLines": 882,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_observation_sanity.py": {
+      "filePath": "tests/test_observation_sanity.py",
+      "contentHash": "e9c262dd90b91261bb7b0c96ca7e9bf7bd17477a30e49a10fec667716245a9d4",
+      "functions": [
+        {
+          "name": "_make_world_and_agent",
+          "params": [
+            "seed"
+          ],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "_stimulus",
+          "params": [
+            "obs"
+          ],
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_berry_cells",
+          "params": [
+            "obs"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "test_stimulus_food_signals_change_with_facing_and_position",
+          "params": [],
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "test_vision_grid_is_egocentric_rotating_with_agent_direction",
+          "params": [],
+          "exported": true,
+          "lineCount": 16
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Brain",
+            "Genome",
+            "create_default_trait_config"
+          ]
+        },
+        {
+          "source": "utils.agents",
+          "specifiers": [
+            "build_observation"
+          ]
+        },
+        {
+          "source": "world.object_registry",
+          "specifiers": [
+            "ObjectRegistry",
+            "register_builtin_objects"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        }
+      ],
+      "exports": [
+        "_make_world_and_agent",
+        "_stimulus",
+        "_berry_cells",
+        "test_stimulus_food_signals_change_with_facing_and_position",
+        "test_vision_grid_is_egocentric_rotating_with_agent_direction"
+      ],
+      "totalLines": 83,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_parallel.py": {
+      "filePath": "tests/test_parallel.py",
+      "contentHash": "43f90639f173774fd7589a6353eae3d300704a1eb8b8c7a7f991d3bdc8e83d78",
+      "functions": [
+        {
+          "name": "_make_world",
+          "params": [
+            "parallel"
+          ],
+          "returnType": "World",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "_spawn_agents",
+          "params": [
+            "world",
+            "n",
+            "learning"
+          ],
+          "returnType": "list",
+          "exported": true,
+          "lineCount": 28
+        }
+      ],
+      "classes": [
+        {
+          "name": "TestParallelUpdate",
+          "methods": [
+            "test_parallel_flag_stored",
+            "test_serial_flag_stored",
+            "test_parallel_update_runs",
+            "test_serial_update_runs",
+            "test_parallel_with_learning",
+            "test_parallel_and_serial_same_tick_count",
+            "test_pool_shutdown"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 63
+        },
+        {
+          "name": "TestParallelWorldSystems",
+          "methods": [
+            "test_soil_dynamics_parallel_rows",
+            "test_plant_decay_stage_runs_in_parallel_mode",
+            "test_parallel_serial_soil_consistency",
+            "test_logging_offloaded",
+            "test_logging_snapshot_safe_against_agent_dict_mutation"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 129
+        }
+      ],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.object_registry",
+          "specifiers": [
+            "ObjectRegistry",
+            "register_builtin_objects"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Genome",
+            "Brain"
+          ]
+        }
+      ],
+      "exports": [
+        "_make_world",
+        "_spawn_agents",
+        "TestParallelUpdate",
+        "TestParallelWorldSystems"
+      ],
+      "totalLines": 251,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_reproduction_config.py": {
+      "filePath": "tests/test_reproduction_config.py",
+      "contentHash": "0028f6b59601e81b12c2752311d9abb1a89b8ae18c97ffcb1e31b8fab1b5dd2f",
+      "functions": [
+        {
+          "name": "test_reproduction_config_loading",
+          "params": [],
+          "exported": true,
+          "lineCount": 148
+        },
+        {
+          "name": "test_without_config",
+          "params": [],
+          "exported": true,
+          "lineCount": 63
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "yaml",
+          "specifiers": [
+            "yaml"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Genome",
+            "Brain",
+            "create_default_trait_config"
+          ]
+        }
+      ],
+      "exports": [
+        "test_reproduction_config_loading",
+        "test_without_config"
+      ],
+      "totalLines": 236,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_reproduction.py": {
+      "filePath": "tests/test_reproduction.py",
+      "contentHash": "f6e76559889e8b5d6603748ff3907979e1cda93dd18f85e5be7fea89757e3242",
+      "functions": [
+        {
+          "name": "load_config",
+          "params": [
+            "config_path"
+          ],
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "populate_world_with_abundant_resources",
+          "params": [
+            "world",
+            "config"
+          ],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "test_reproduction",
+          "params": [],
+          "exported": true,
+          "lineCount": 154
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "yaml",
+          "specifiers": [
+            "yaml"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "SeedComponent",
+            "PlantComponent"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Brain",
+            "Genome",
+            "create_default_trait_config"
+          ]
+        }
+      ],
+      "exports": [
+        "load_config",
+        "populate_world_with_abundant_resources",
+        "test_reproduction"
+      ],
+      "totalLines": 219,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_resource_spawn_stacking.py": {
+      "filePath": "tests/test_resource_spawn_stacking.py",
+      "contentHash": "89c71b2e74a480be3ebc93d5f938687bfb5576550ca0fdd0dbfc14f11f72e044",
+      "functions": [
+        {
+          "name": "test_resource_spawn_respects_no_stacking",
+          "params": [],
+          "exported": true,
+          "lineCount": 80
+        },
+        {
+          "name": "test_calamity_respawn_rate",
+          "params": [],
+          "exported": true,
+          "lineCount": 81
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "PlantComponent",
+            "EdibleComponent"
+          ]
+        }
+      ],
+      "exports": [
+        "test_resource_spawn_respects_no_stacking",
+        "test_calamity_respawn_rate"
+      ],
+      "totalLines": 174,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_stacking_config.py": {
+      "filePath": "tests/test_stacking_config.py",
+      "contentHash": "5d3bd6f55bb0e25e3db92a4dfd640e90aafd7864ea48bfb9446f328d31215e73",
+      "functions": [
+        {
+          "name": "test_strict_mode",
+          "params": [],
+          "exported": true,
+          "lineCount": 64
+        },
+        {
+          "name": "test_legacy_mode",
+          "params": [],
+          "exported": true,
+          "lineCount": 42
+        },
+        {
+          "name": "test_agent_drop_action",
+          "params": [],
+          "exported": true,
+          "lineCount": 77
+        },
+        {
+          "name": "main",
+          "params": [],
+          "exported": true,
+          "lineCount": 32
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "SeedComponent"
+          ]
+        },
+        {
+          "source": "agents",
+          "specifiers": [
+            "Agent",
+            "Genome",
+            "Brain",
+            "create_default_trait_config"
+          ]
+        }
+      ],
+      "exports": [
+        "test_strict_mode",
+        "test_legacy_mode",
+        "test_agent_drop_action",
+        "main"
+      ],
+      "totalLines": 247,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_systems.py": {
+      "filePath": "tests/test_systems.py",
+      "contentHash": "c84ea0fa1340e0806cb4b49c9e583c99f3a29d994db0b1dfeb4a0bfb1da9d146",
+      "functions": [],
+      "classes": [
+        {
+          "name": "TestPlantGrowthSystem",
+          "methods": [
+            "test_plant_ages_each_tick",
+            "test_old_plants_die",
+            "test_multiple_plants"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 66
+        },
+        {
+          "name": "TestSeedGerminationSystem",
+          "methods": [
+            "test_seed_germinates_on_suitable_soil",
+            "test_seed_needs_time_in_soil"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 71
+        },
+        {
+          "name": "TestDecaySystem",
+          "methods": [
+            "test_freshness_decreases",
+            "test_spoiled_objects_removed",
+            "test_spoiled_berries_drop_seeds"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 86
+        },
+        {
+          "name": "TestFertilizerSystem",
+          "methods": [
+            "test_fertilizer_boosts_nearby_tiles",
+            "test_fertilizer_expires"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "TestResourceSpawnSystem",
+          "methods": [
+            "test_mature_plants_spawn_berries",
+            "test_safety_spawn_when_depleted"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 63
+        },
+        {
+          "name": "TestWorldSystemManager",
+          "methods": [
+            "test_world_update_runs_all_systems",
+            "test_systems_run_in_order"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 66
+        }
+      ],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "PlantComponent",
+            "SeedComponent",
+            "EdibleComponent",
+            "FertilizerComponent"
+          ]
+        },
+        {
+          "source": "world.systems",
+          "specifiers": [
+            "PlantGrowthSystem",
+            "SeedGerminationSystem",
+            "DecaySystem",
+            "FertilizerSystem",
+            "ResourceSpawnSystem",
+            "WorldSystemManager"
+          ]
+        }
+      ],
+      "exports": [
+        "TestPlantGrowthSystem",
+        "TestSeedGerminationSystem",
+        "TestDecaySystem",
+        "TestFertilizerSystem",
+        "TestResourceSpawnSystem",
+        "TestWorldSystemManager"
+      ],
+      "totalLines": 441,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_tile_effects.py": {
+      "filePath": "tests/test_tile_effects.py",
+      "contentHash": "6870ad1b52d9544d346417d2e7712059e2325588466e9e0da1559471f63a6505",
+      "functions": [
+        {
+          "name": "_reset_registry",
+          "params": [],
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "small_world",
+          "params": [],
+          "exported": true,
+          "lineCount": 13
+        }
+      ],
+      "classes": [
+        {
+          "name": "TestInteractionSpec",
+          "methods": [
+            "test_default_is_pickable",
+            "test_plant_not_pickable",
+            "test_berry_is_pickable",
+            "test_seed_is_pickable",
+            "test_sand_not_pickable",
+            "test_sand_does_not_block_growth",
+            "test_is_pickable_helper",
+            "test_get_interaction_fallback"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 46
+        },
+        {
+          "name": "TestTileEffectSpec",
+          "methods": [
+            "test_sand_germination_multiplier",
+            "test_sand_growth_multiplier",
+            "test_sand_spawn_rate_multiplier",
+            "test_sand_spread_type_id",
+            "test_sand_spread_blocked_by_plant",
+            "test_sand_converts_terrain",
+            "test_sand_fertility_override",
+            "test_sand_moisture_override"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "TestTileEffectHelpers",
+          "methods": [
+            "test_growth_multiplier_no_effects",
+            "test_growth_multiplier_with_sand",
+            "test_germination_multiplier_with_sand",
+            "test_spawn_rate_multiplier_with_sand",
+            "test_blocks_growth_with_sand",
+            "test_blocks_growth_empty_tile",
+            "test_blocks_growth_normal_object",
+            "test_multipliers_stack_multiplicatively"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 60
+        },
+        {
+          "name": "TestPlantGrowthWithTileEffects",
+          "methods": [
+            "test_plant_grows_normally_without_sand",
+            "test_plant_grows_slower_on_sand"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 29
+        },
+        {
+          "name": "TestSeedGerminationWithTileEffects",
+          "methods": [
+            "test_germination_severely_hindered_on_sand"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "TestTileEffectSystem",
+          "methods": [
+            "test_fertility_clamping",
+            "test_moisture_clamping",
+            "test_no_spread_before_interval",
+            "test_spread_after_interval_with_no_blockers",
+            "test_spread_blocked_by_plant",
+            "test_exposure_resets_when_blocker_appears",
+            "test_spread_spawns_sand_object",
+            "test_does_not_spread_to_non_soil",
+            "test_does_not_spread_to_already_sand_tile",
+            "test_stale_exposure_keys_pruned"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 193
+        },
+        {
+          "name": "TestSandTerrainType",
+          "methods": [
+            "test_sand_in_terrain_enum",
+            "test_sand_is_plantable",
+            "test_sand_is_passable"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "TestReclamation",
+          "methods": [
+            "_make_sand_tile",
+            "_make_plant",
+            "test_reclaim_after_interval",
+            "test_reclaim_removes_sand_object",
+            "test_reclaim_fertility_restored",
+            "test_reclaim_counter_resets_when_blocker_removed",
+            "test_reclaim_disabled_when_empty_terrain",
+            "test_reclaim_disabled_when_interval_zero",
+            "test_stale_reclaim_keys_pruned"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 186
+        }
+      ],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.tiles",
+          "specifiers": [
+            "TerrainType"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "PlantComponent",
+            "SeedComponent",
+            "EdibleComponent"
+          ]
+        },
+        {
+          "source": "world.object_registry",
+          "specifiers": [
+            "ObjectRegistry",
+            "ObjectDefinition",
+            "InteractionSpec",
+            "TileEffectSpec",
+            "register_builtin_objects"
+          ]
+        },
+        {
+          "source": "world.systems",
+          "specifiers": [
+            "PlantGrowthSystem",
+            "SeedGerminationSystem",
+            "ResourceSpawnSystem",
+            "TileEffectSystem",
+            "_get_tile_growth_multiplier",
+            "_get_tile_germination_multiplier",
+            "_get_tile_spawn_rate_multiplier",
+            "_tile_blocks_growth"
+          ]
+        }
+      ],
+      "exports": [
+        "_reset_registry",
+        "small_world",
+        "TestInteractionSpec",
+        "TestTileEffectSpec",
+        "TestTileEffectHelpers",
+        "TestPlantGrowthWithTileEffects",
+        "TestSeedGerminationWithTileEffects",
+        "TestTileEffectSystem",
+        "TestSandTerrainType",
+        "TestReclamation"
+      ],
+      "totalLines": 726,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_turn_balance.py": {
+      "filePath": "tests/test_turn_balance.py",
+      "contentHash": "c4fdf1c06ffa8642ab58804509935e33aa4b8e8bc2f8f14ff047e31ba42857d7",
+      "functions": [
+        {
+          "name": "_make_agent",
+          "params": [
+            "x",
+            "y"
+          ],
+          "returnType": "Agent",
+          "exported": true,
+          "lineCount": 4
+        },
+        {
+          "name": "test_initial_directions_are_diverse",
+          "params": [],
+          "exported": true,
+          "lineCount": 8
+        },
+        {
+          "name": "test_initial_direction_is_roughly_uniform",
+          "params": [],
+          "exported": true,
+          "lineCount": 14
+        },
+        {
+          "name": "_build_obs_food_left",
+          "params": [],
+          "returnType": "np.ndarray",
+          "exported": true,
+          "lineCount": 20
+        },
+        {
+          "name": "_build_obs_food_right",
+          "params": [],
+          "returnType": "np.ndarray",
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "test_instinct_favors_left_when_food_is_left",
+          "params": [],
+          "exported": true,
+          "lineCount": 26
+        },
+        {
+          "name": "test_instinct_favors_right_when_food_is_right",
+          "params": [],
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "test_turn_balance_penalty_for_dominant_left",
+          "params": [],
+          "exported": true,
+          "lineCount": 48
+        }
+      ],
+      "classes": [
+        {
+          "name": "_SimpleWorld",
+          "methods": [
+            "__init__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 7
+        }
+      ],
+      "imports": [
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action",
+            "ActionResult"
+          ]
+        },
+        {
+          "source": "agents.agent",
+          "specifiers": [
+            "Agent"
+          ]
+        },
+        {
+          "source": "agents.brain",
+          "specifiers": [
+            "Brain"
+          ]
+        },
+        {
+          "source": "agents.genome",
+          "specifiers": [
+            "Genome"
+          ]
+        },
+        {
+          "source": "utils.agents",
+          "specifiers": [
+            "RewardShaper"
+          ]
+        }
+      ],
+      "exports": [
+        "_make_agent",
+        "_SimpleWorld",
+        "test_initial_directions_are_diverse",
+        "test_initial_direction_is_roughly_uniform",
+        "_build_obs_food_left",
+        "_build_obs_food_right",
+        "test_instinct_favors_left_when_food_is_left",
+        "test_instinct_favors_right_when_food_is_right",
+        "test_turn_balance_penalty_for_dominant_left"
+      ],
+      "totalLines": 215,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_world_model_logger.py": {
+      "filePath": "tests/test_world_model_logger.py",
+      "contentHash": "5bfb402cb9ab7a9b3fb63a09457db5ece7882f91f0a94064a33058680b788b80",
+      "functions": [
+        {
+          "name": "test_world_model_logger",
+          "params": [
+            "tmp_path"
+          ],
+          "exported": true,
+          "lineCount": 103
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "csv",
+          "specifiers": [
+            "csv"
+          ]
+        },
+        {
+          "source": "pathlib",
+          "specifiers": [
+            "Path"
+          ]
+        },
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "utils.data.agent_logger",
+          "specifiers": [
+            "WorldModelLogger"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "agents.agent",
+          "specifiers": [
+            "Agent"
+          ]
+        },
+        {
+          "source": "agents.brain",
+          "specifiers": [
+            "Brain"
+          ]
+        },
+        {
+          "source": "agents.genome",
+          "specifiers": [
+            "Genome"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action"
+          ]
+        }
+      ],
+      "exports": [
+        "test_world_model_logger"
+      ],
+      "totalLines": 123,
+      "hasStructuralAnalysis": true
+    },
+    "tests/test_world.py": {
+      "filePath": "tests/test_world.py",
+      "contentHash": "ac9c7152eab1609c222340feb123120add6955fc3aad0ff4d47b7dce9878d649",
+      "functions": [],
+      "classes": [
+        {
+          "name": "TestTile",
+          "methods": [
+            "test_tile_creation",
+            "test_tile_fertility_validation",
+            "test_tile_passable",
+            "test_tile_plantable",
+            "test_tile_object_management"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 59
+        },
+        {
+          "name": "TestWorldObject",
+          "methods": [
+            "test_object_creation",
+            "test_add_components",
+            "test_multiple_components",
+            "test_remove_component"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 42
+        },
+        {
+          "name": "TestWorld",
+          "methods": [
+            "test_world_creation",
+            "test_world_invalid_dimensions",
+            "test_get_tile",
+            "test_is_valid_position",
+            "test_add_object",
+            "test_add_object_invalid_position",
+            "test_remove_object",
+            "test_move_object",
+            "test_get_objects_at",
+            "test_get_neighbors",
+            "test_world_update",
+            "test_terrain_generation_reproducible"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 158
+        }
+      ],
+      "imports": [
+        {
+          "source": "pytest",
+          "specifiers": [
+            "pytest"
+          ]
+        },
+        {
+          "source": "world.tiles",
+          "specifiers": [
+            "Tile",
+            "TerrainType"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "SeedComponent",
+            "PlantComponent"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        }
+      ],
+      "exports": [
+        "TestTile",
+        "TestWorldObject",
+        "TestWorld"
+      ],
+      "totalLines": 278,
+      "hasStructuralAnalysis": true
+    },
+    "utils/__init__.py": {
+      "filePath": "utils/__init__.py",
+      "contentHash": "6ab898fef9002ff46fc40cbf2babf4e8c16e30bf45fede283c150d17272b83da",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 11,
+      "hasStructuralAnalysis": true
+    },
+    "utils/agents/__init__.py": {
+      "filePath": "utils/agents/__init__.py",
+      "contentHash": "e07e1a06b2517d8c232a77d903892a6cbeb3efa13251be3351de971ad2f12f26",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "utils.agents.perception",
+          "specifiers": [
+            "build_observation",
+            "get_observation_size"
+          ]
+        },
+        {
+          "source": "utils.agents.learning_utils",
+          "specifiers": [
+            "Experience",
+            "ReplayBuffer",
+            "RewardShaper",
+            "BestAgentTracker"
+          ]
+        },
+        {
+          "source": "utils.agents.evolution_utils",
+          "specifiers": [
+            "EvolutionStats",
+            "calculate_fitness",
+            "adaptive_mutation_std"
+          ]
+        },
+        {
+          "source": "utils.agents",
+          "specifiers": [
+            "brain_utils",
+            "agent_utils"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 44,
+      "hasStructuralAnalysis": true
+    },
+    "utils/agents/agent_utils.py": {
+      "filePath": "utils/agents/agent_utils.py",
+      "contentHash": "ea38bef31ab09226c010118d4451bfed9b547574f31e270abe0eae583eb0e912",
+      "functions": [
+        {
+          "name": "_get_object_type",
+          "params": [
+            "obj"
+          ],
+          "returnType": "str",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "get_action_mask",
+          "params": [
+            "agent",
+            "world"
+          ],
+          "returnType": "np.ndarray",
+          "exported": true,
+          "lineCount": 141
+        },
+        {
+          "name": "execute_move_forward",
+          "params": [
+            "agent",
+            "world"
+          ],
+          "returnType": "ActionResult",
+          "exported": true,
+          "lineCount": 18
+        },
+        {
+          "name": "execute_turn_left",
+          "params": [
+            "agent"
+          ],
+          "returnType": "ActionResult",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "execute_turn_right",
+          "params": [
+            "agent"
+          ],
+          "returnType": "ActionResult",
+          "exported": true,
+          "lineCount": 5
+        },
+        {
+          "name": "execute_pick_up",
+          "params": [
+            "agent",
+            "world"
+          ],
+          "returnType": "ActionResult",
+          "exported": true,
+          "lineCount": 66
+        },
+        {
+          "name": "execute_drop",
+          "params": [
+            "agent",
+            "world"
+          ],
+          "returnType": "ActionResult",
+          "exported": true,
+          "lineCount": 63
+        },
+        {
+          "name": "execute_eat",
+          "params": [
+            "agent",
+            "world"
+          ],
+          "returnType": "ActionResult",
+          "exported": true,
+          "lineCount": 38
+        },
+        {
+          "name": "execute_use",
+          "params": [
+            "agent",
+            "world"
+          ],
+          "returnType": "ActionResult",
+          "exported": true,
+          "lineCount": 130
+        },
+        {
+          "name": "execute_wait",
+          "params": [
+            "agent"
+          ],
+          "returnType": "ActionResult",
+          "exported": true,
+          "lineCount": 3
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "TYPE_CHECKING"
+          ]
+        },
+        {
+          "source": "agents.actions",
+          "specifiers": [
+            "Action",
+            "ActionResult"
+          ]
+        }
+      ],
+      "exports": [
+        "_get_object_type",
+        "get_action_mask",
+        "execute_move_forward",
+        "execute_turn_left",
+        "execute_turn_right",
+        "execute_pick_up",
+        "execute_drop",
+        "execute_eat",
+        "execute_use",
+        "execute_wait"
+      ],
+      "totalLines": 514,
+      "hasStructuralAnalysis": true
+    },
+    "utils/agents/brain_utils.py": {
+      "filePath": "utils/agents/brain_utils.py",
+      "contentHash": "319b72afaf103a3d8c0ebf17733adc53c28ff11ce5937cbad79937f9164c8b9a",
+      "functions": [
+        {
+          "name": "sigmoid",
+          "params": [
+            "x"
+          ],
+          "returnType": "np.ndarray",
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "softmax",
+          "params": [
+            "x"
+          ],
+          "returnType": "np.ndarray",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "calculate_weight_count",
+          "params": [
+            "input_size",
+            "encoder_layers",
+            "gru_hidden_size",
+            "output_size"
+          ],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 52
+        },
+        {
+          "name": "unpack_weights",
+          "params": [
+            "flat_weights",
+            "input_size",
+            "encoder_layers",
+            "gru_hidden_size",
+            "output_size"
+          ],
+          "returnType": "dict",
+          "exported": true,
+          "lineCount": 113
+        },
+        {
+          "name": "gru_step",
+          "params": [
+            "x",
+            "h",
+            "gru_params"
+          ],
+          "returnType": "np.ndarray",
+          "exported": true,
+          "lineCount": 39
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        }
+      ],
+      "exports": [
+        "sigmoid",
+        "softmax",
+        "calculate_weight_count",
+        "unpack_weights",
+        "gru_step"
+      ],
+      "totalLines": 250,
+      "hasStructuralAnalysis": true
+    },
+    "utils/agents/evolution_utils.py": {
+      "filePath": "utils/agents/evolution_utils.py",
+      "contentHash": "5f034514c0ba07d2ef8d9cc6c502c93c97d5f916b66d4b4c8cf8fe857c188414",
+      "functions": [
+        {
+          "name": "calculate_fitness",
+          "params": [
+            "agent"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 22
+        },
+        {
+          "name": "adaptive_mutation_std",
+          "params": [
+            "stats",
+            "base_std",
+            "min_std",
+            "max_std"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 42
+        }
+      ],
+      "classes": [
+        {
+          "name": "EvolutionStats",
+          "methods": [
+            "__init__",
+            "calculate_diversity",
+            "record_generation",
+            "print_summary"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 95
+        }
+      ],
+      "imports": [
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "TYPE_CHECKING"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        }
+      ],
+      "exports": [
+        "calculate_fitness",
+        "adaptive_mutation_std",
+        "EvolutionStats"
+      ],
+      "totalLines": 180,
+      "hasStructuralAnalysis": true
+    },
+    "utils/agents/learning_utils.py": {
+      "filePath": "utils/agents/learning_utils.py",
+      "contentHash": "9cfd207e6f6b5290c74003a03e6dab9c5af95190908703f0403a5884a0d31330",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Experience",
+          "methods": [
+            "__init__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 25
+        },
+        {
+          "name": "ReplayBuffer",
+          "methods": [
+            "__init__",
+            "add",
+            "sample",
+            "clear",
+            "__len__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 34
+        },
+        {
+          "name": "RewardShaper",
+          "methods": [
+            "__init__",
+            "calculate_reward",
+            "_find_nearest_food_distance",
+            "_compute_food_dir_match",
+            "reset"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 556
+        },
+        {
+          "name": "BestAgentTracker",
+          "methods": [
+            "__init__",
+            "update",
+            "_calculate_fitness",
+            "_add_agent",
+            "save_best_weights",
+            "load_best_weights",
+            "initialize_agent_from_weights"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 187
+        }
+      ],
+      "imports": [
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "List",
+            "Optional",
+            "TYPE_CHECKING"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "deque"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "json",
+          "specifiers": [
+            "json"
+          ]
+        }
+      ],
+      "exports": [
+        "Experience",
+        "ReplayBuffer",
+        "RewardShaper",
+        "BestAgentTracker"
+      ],
+      "totalLines": 834,
+      "hasStructuralAnalysis": true
+    },
+    "utils/agents/perception.py": {
+      "filePath": "utils/agents/perception.py",
+      "contentHash": "d5c6e725c5d780784c09c52d5a319a1763dc7a350fcd5e926bf7f8738cdd8130",
+      "functions": [
+        {
+          "name": "build_observation",
+          "params": [
+            "agent",
+            "world"
+          ],
+          "returnType": "np.ndarray",
+          "exported": true,
+          "lineCount": 34
+        },
+        {
+          "name": "get_observation_size",
+          "params": [],
+          "returnType": "int",
+          "exported": true,
+          "lineCount": 3
+        },
+        {
+          "name": "_encode_agent_state",
+          "params": [
+            "agent"
+          ],
+          "returnType": "list[float]",
+          "exported": true,
+          "lineCount": 28
+        },
+        {
+          "name": "_encode_vision",
+          "params": [
+            "agent",
+            "world"
+          ],
+          "returnType": "list[float]",
+          "exported": true,
+          "lineCount": 36
+        },
+        {
+          "name": "_encode_tile",
+          "params": [
+            "tile",
+            "world"
+          ],
+          "returnType": "tuple[float, float]",
+          "exported": true,
+          "lineCount": 73
+        },
+        {
+          "name": "_compute_observation_value",
+          "params": [
+            "obj",
+            "value_source"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 27
+        },
+        {
+          "name": "_encode_stimulus",
+          "params": [
+            "agent",
+            "world"
+          ],
+          "returnType": "list[float]",
+          "exported": true,
+          "lineCount": 117
+        },
+        {
+          "name": "_encode_inventory",
+          "params": [
+            "agent",
+            "world"
+          ],
+          "returnType": "list[float]",
+          "exported": true,
+          "lineCount": 47
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "math",
+          "specifiers": [
+            "math"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "TYPE_CHECKING"
+          ]
+        },
+        {
+          "source": "world.tiles",
+          "specifiers": [
+            "TerrainType"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "EdibleComponent",
+            "PlantComponent",
+            "SeedComponent"
+          ]
+        }
+      ],
+      "exports": [
+        "build_observation",
+        "get_observation_size",
+        "_encode_agent_state",
+        "_encode_vision",
+        "_encode_tile",
+        "_compute_observation_value",
+        "_encode_stimulus",
+        "_encode_inventory"
+      ],
+      "totalLines": 438,
+      "hasStructuralAnalysis": true
+    },
+    "utils/data/__init__.py": {
+      "filePath": "utils/data/__init__.py",
+      "contentHash": "612a07d477b1b8e3235c2cc127df67e8f0cf15b1c06c8e33db6075687976d3bd",
+      "functions": [],
+      "classes": [],
+      "imports": [
+        {
+          "source": "utils.data.agent_logger",
+          "specifiers": [
+            "AgentLogger",
+            "WorldModelLogger"
+          ]
+        },
+        {
+          "source": "utils.data.async_logger",
+          "specifiers": [
+            "AsyncWorldModelLogger"
+          ]
+        }
+      ],
+      "exports": [],
+      "totalLines": 11,
+      "hasStructuralAnalysis": true
+    },
+    "utils/data/async_logger.py": {
+      "filePath": "utils/data/async_logger.py",
+      "contentHash": "7171d0d35f5a05b69bd6b814992ef9a8676685fb76b010a5b43678a988392a48",
+      "functions": [],
+      "classes": [
+        {
+          "name": "AsyncWorldModelLogger",
+          "methods": [
+            "__init__",
+            "_init_files",
+            "_writer_loop",
+            "_flush_buffers",
+            "log_transition",
+            "_queue_episode_end",
+            "log_world_state",
+            "get_stats",
+            "close"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 442
+        }
+      ],
+      "imports": [
+        {
+          "source": "csv",
+          "specifiers": [
+            "csv"
+          ]
+        },
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "queue",
+          "specifiers": [
+            "queue"
+          ]
+        },
+        {
+          "source": "threading",
+          "specifiers": [
+            "threading"
+          ]
+        },
+        {
+          "source": "time",
+          "specifiers": [
+            "time"
+          ]
+        },
+        {
+          "source": "collections",
+          "specifiers": [
+            "deque"
+          ]
+        },
+        {
+          "source": "datetime",
+          "specifiers": [
+            "datetime"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "List",
+            "Dict",
+            "Any",
+            "TYPE_CHECKING"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        }
+      ],
+      "exports": [
+        "AsyncWorldModelLogger"
+      ],
+      "totalLines": 472,
+      "hasStructuralAnalysis": true
+    },
+    "utils/parallel.py": {
+      "filePath": "utils/parallel.py",
+      "contentHash": "5b35d40e6279bd4963f46c4d356b8fa38b22aa7c16ead14946027fd7f0e6f9ec",
+      "functions": [
+        {
+          "name": "get_pool",
+          "params": [],
+          "returnType": "ThreadPoolExecutor",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "get_io_pool",
+          "params": [],
+          "returnType": "ThreadPoolExecutor",
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "shutdown_pool",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 9
+        },
+        {
+          "name": "_observe_and_decide",
+          "params": [
+            "agent",
+            "world"
+          ],
+          "returnType": "Optional[tuple]",
+          "exported": true,
+          "lineCount": 59
+        },
+        {
+          "name": "_execute_and_log",
+          "params": [
+            "agent",
+            "action",
+            "obs_before",
+            "energy_before",
+            "world"
+          ],
+          "returnType": "Optional[tuple]",
+          "exported": true,
+          "lineCount": 54
+        },
+        {
+          "name": "_learn_step",
+          "params": [
+            "agent",
+            "action",
+            "reward",
+            "obs_after",
+            "world"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 35
+        },
+        {
+          "name": "_handle_death",
+          "params": [
+            "agent",
+            "energy_before",
+            "death_reason",
+            "world"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 59
+        },
+        {
+          "name": "update_agents_parallel",
+          "params": [
+            "world"
+          ],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 78
+        }
+      ],
+      "classes": [],
+      "imports": [
+        {
+          "source": "os",
+          "specifiers": [
+            "os"
+          ]
+        },
+        {
+          "source": "concurrent.futures",
+          "specifiers": [
+            "ThreadPoolExecutor",
+            "Future"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "TYPE_CHECKING",
+            "List",
+            "Tuple",
+            "Optional"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        }
+      ],
+      "exports": [
+        "get_pool",
+        "get_io_pool",
+        "shutdown_pool",
+        "_observe_and_decide",
+        "_execute_and_log",
+        "_learn_step",
+        "_handle_death",
+        "update_agents_parallel"
+      ],
+      "totalLines": 413,
+      "hasStructuralAnalysis": true
+    },
+    "utils/render.py": {
+      "filePath": "utils/render.py",
+      "contentHash": "33681cb4985302299ddd5c23a4d0ae6fbb45cc0a5d5314dcf5ef322295459b4f",
+      "functions": [
+        {
+          "name": "create_sample_world",
+          "params": [],
+          "returnType": "World",
+          "exported": true,
+          "lineCount": 36
+        }
+      ],
+      "classes": [
+        {
+          "name": "ConsoleRenderer",
+          "methods": [
+            "__init__",
+            "render",
+            "_get_char_at",
+            "print",
+            "render_tile_info"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 156
+        }
+      ],
+      "imports": [
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.tiles",
+          "specifiers": [
+            "TerrainType"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "PlantComponent",
+            "EdibleComponent",
+            "SeedComponent"
+          ]
+        }
+      ],
+      "exports": [
+        "ConsoleRenderer",
+        "create_sample_world"
+      ],
+      "totalLines": 223,
+      "hasStructuralAnalysis": true
+    },
+    "utils/ui/__init__.py": {
+      "filePath": "utils/ui/__init__.py",
+      "contentHash": "b8413dfba8de10f13e2c62c6d0ffd4d5d2d2e962f90d5e37b5fa4eeb33384df9",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 6,
+      "hasStructuralAnalysis": true
+    },
+    "utils/ui/gpu_renderer.py": {
+      "filePath": "utils/ui/gpu_renderer.py",
+      "contentHash": "7d009432af11b9ff98620742c2b3af7f6c4c9bacc04eb9e22c6cb5a7d7db880f",
+      "functions": [],
+      "classes": [
+        {
+          "name": "IsometricRenderer",
+          "methods": [
+            "__init__",
+            "_build_tile_geometry",
+            "_build_sprite_geometry",
+            "_build_overlay_geometry",
+            "world_to_screen",
+            "screen_to_world",
+            "_get_visible_range",
+            "_build_tile_instances",
+            "_build_object_instances",
+            "_build_agent_instances",
+            "_set_uniforms",
+            "_render_tiles",
+            "_render_objects",
+            "_render_agents",
+            "_render_ui_overlay",
+            "_paint_hud",
+            "_paint_tooltip",
+            "_lookup_item_color",
+            "_text",
+            "handle_events",
+            "update",
+            "render",
+            "run"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 965
+        }
+      ],
+      "imports": [
+        {
+          "source": "math",
+          "specifiers": [
+            "math"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "Tuple",
+            "List",
+            "Dict",
+            "Any"
+          ]
+        },
+        {
+          "source": "numpy",
+          "specifiers": [
+            "np"
+          ]
+        },
+        {
+          "source": "pygame",
+          "specifiers": [
+            "pygame"
+          ]
+        },
+        {
+          "source": "moderngl",
+          "specifiers": [
+            "moderngl"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.tiles",
+          "specifiers": [
+            "TerrainType"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "PlantComponent",
+            "SeedComponent",
+            "FertilizerComponent",
+            "ToolComponent"
+          ]
+        },
+        {
+          "source": "world.object_registry",
+          "specifiers": [
+            "ObjectRegistry"
+          ]
+        }
+      ],
+      "exports": [
+        "IsometricRenderer"
+      ],
+      "totalLines": 1237,
+      "hasStructuralAnalysis": true
+    },
+    "utils/ui/pygame_renderer.py": {
+      "filePath": "utils/ui/pygame_renderer.py",
+      "contentHash": "b2ef07798e06ec1fa908237e9c14af54c96b45421ef4e7943bb8156d6c05767f",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Camera",
+          "methods": [
+            "__init__",
+            "move",
+            "zoom_in",
+            "zoom_out",
+            "world_to_screen",
+            "screen_to_world"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 93
+        },
+        {
+          "name": "PygameRenderer",
+          "methods": [
+            "__init__",
+            "handle_events",
+            "render_world",
+            "render_hud",
+            "render_tile_info",
+            "render",
+            "update",
+            "run"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 801
+        }
+      ],
+      "imports": [
+        {
+          "source": "pygame",
+          "specifiers": [
+            "pygame"
+          ]
+        },
+        {
+          "source": "sys",
+          "specifiers": [
+            "sys"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Optional",
+            "Tuple",
+            "Dict"
+          ]
+        },
+        {
+          "source": "world.world",
+          "specifiers": [
+            "World"
+          ]
+        },
+        {
+          "source": "world.tiles",
+          "specifiers": [
+            "TerrainType"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "PlantComponent",
+            "EdibleComponent",
+            "SeedComponent",
+            "FertilizerComponent",
+            "ToolComponent"
+          ]
+        }
+      ],
+      "exports": [
+        "Camera",
+        "PygameRenderer"
+      ],
+      "totalLines": 963,
+      "hasStructuralAnalysis": true
+    },
+    "world/__init__.py": {
+      "filePath": "world/__init__.py",
+      "contentHash": "55f60de584a22e821efcea459624139dfdd7272bb24a843ee3089dcbe87492ab",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 12,
+      "hasStructuralAnalysis": true
+    },
+    "world/object_registry.py": {
+      "filePath": "world/object_registry.py",
+      "contentHash": "4334af4d93e7ac3f86e3d526f51c5e5ead262863cfde0ffe5915e44bda8f8c6e",
+      "functions": [
+        {
+          "name": "register_builtin_objects",
+          "params": [],
+          "returnType": "None",
+          "exported": true,
+          "lineCount": 187
+        }
+      ],
+      "classes": [
+        {
+          "name": "EdibleSpec",
+          "methods": [],
+          "properties": [
+            "calories",
+            "toxicity",
+            "freshness"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "SeedSpec",
+          "methods": [],
+          "properties": [
+            "grows_into",
+            "grow_time",
+            "required_fertility",
+            "required_moisture",
+            "max_age"
+          ],
+          "exported": true,
+          "lineCount": 17
+        },
+        {
+          "name": "PlantSpec",
+          "methods": [],
+          "properties": [
+            "mature_age",
+            "max_age",
+            "produces",
+            "spawn_rate"
+          ],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "FertilizerSpec",
+          "methods": [],
+          "properties": [
+            "fertility_boost",
+            "duration",
+            "radius"
+          ],
+          "exported": true,
+          "lineCount": 13
+        },
+        {
+          "name": "ToolSpec",
+          "methods": [],
+          "properties": [
+            "effect_type",
+            "efficiency"
+          ],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "PhysicsSpec",
+          "methods": [],
+          "properties": [
+            "decay_rate",
+            "decompose_into",
+            "decompose_chance",
+            "nutrient_return"
+          ],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "InteractionSpec",
+          "methods": [],
+          "properties": [
+            "pickable",
+            "usable",
+            "passable",
+            "blocks_growth"
+          ],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "TileEffectSpec",
+          "methods": [],
+          "properties": [
+            "germination_multiplier",
+            "growth_multiplier",
+            "spawn_rate_multiplier",
+            "spread_type_id",
+            "spread_radius",
+            "spread_interval",
+            "spread_blocked_by",
+            "spread_chance",
+            "converts_terrain",
+            "fertility_override",
+            "moisture_override",
+            "reclaim_terrain",
+            "reclaim_interval"
+          ],
+          "exported": true,
+          "lineCount": 51
+        },
+        {
+          "name": "RenderSpec",
+          "methods": [],
+          "properties": [
+            "char",
+            "color"
+          ],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "ObservationSpec",
+          "methods": [],
+          "properties": [
+            "vision_encoding",
+            "value_source"
+          ],
+          "exported": true,
+          "lineCount": 16
+        },
+        {
+          "name": "SpawnSpec",
+          "methods": [],
+          "properties": [
+            "initial_count",
+            "terrain"
+          ],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "ObjectDefinition",
+          "methods": [
+            "from_dict",
+            "to_dict"
+          ],
+          "properties": [
+            "type_id",
+            "display_name",
+            "category",
+            "edible",
+            "seed",
+            "plant",
+            "fertilizer",
+            "tool",
+            "physics",
+            "interaction",
+            "tile_effect",
+            "observation",
+            "render",
+            "spawn"
+          ],
+          "exported": true,
+          "lineCount": 187
+        },
+        {
+          "name": "ObjectRegistry",
+          "methods": [
+            "register",
+            "get",
+            "all_definitions",
+            "clear",
+            "type_ids",
+            "create",
+            "get_category",
+            "get_observation_encoding",
+            "get_physics",
+            "is_pickable",
+            "is_terrain_layer",
+            "get_tile_effect",
+            "get_interaction",
+            "load_from_config"
+          ],
+          "properties": [
+            "_definitions"
+          ],
+          "exported": true,
+          "lineCount": 347
+        }
+      ],
+      "imports": [
+        {
+          "source": "dataclasses",
+          "specifiers": [
+            "dataclass",
+            "field"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Optional",
+            "Any",
+            "List"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "EdibleComponent",
+            "SeedComponent",
+            "PlantComponent",
+            "FertilizerComponent",
+            "ToolComponent"
+          ]
+        }
+      ],
+      "exports": [
+        "EdibleSpec",
+        "SeedSpec",
+        "PlantSpec",
+        "FertilizerSpec",
+        "ToolSpec",
+        "PhysicsSpec",
+        "InteractionSpec",
+        "TileEffectSpec",
+        "RenderSpec",
+        "ObservationSpec",
+        "SpawnSpec",
+        "ObjectDefinition",
+        "ObjectRegistry",
+        "register_builtin_objects"
+      ],
+      "totalLines": 1018,
+      "hasStructuralAnalysis": true
+    },
+    "world/objects.py": {
+      "filePath": "world/objects.py",
+      "contentHash": "12ade1fa8bb7e1d3836ebfd68390116688e3057761ea5ec1cb7e87e4a88c4ad0",
+      "functions": [],
+      "classes": [
+        {
+          "name": "Component",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 11
+        },
+        {
+          "name": "EdibleComponent",
+          "methods": [
+            "__init__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 32
+        },
+        {
+          "name": "SeedComponent",
+          "methods": [
+            "__init__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 39
+        },
+        {
+          "name": "PlantComponent",
+          "methods": [
+            "__init__",
+            "is_mature",
+            "is_alive"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 53
+        },
+        {
+          "name": "FertilizerComponent",
+          "methods": [
+            "__init__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 27
+        },
+        {
+          "name": "ToolComponent",
+          "methods": [
+            "__init__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 23
+        },
+        {
+          "name": "WorldObject",
+          "methods": [
+            "__init__",
+            "add_component",
+            "get_component",
+            "has_component",
+            "remove_component",
+            "__repr__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 93
+        }
+      ],
+      "imports": [
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "Any",
+            "Optional"
+          ]
+        }
+      ],
+      "exports": [
+        "Component",
+        "EdibleComponent",
+        "SeedComponent",
+        "PlantComponent",
+        "FertilizerComponent",
+        "ToolComponent",
+        "WorldObject"
+      ],
+      "totalLines": 304,
+      "hasStructuralAnalysis": true
+    },
+    "world/systems.py": {
+      "filePath": "world/systems.py",
+      "contentHash": "8f1c4cc1ef62ab6bae1c5c525f9d0ab9f99a76ced70f256263b3fb20d30dcbdc",
+      "functions": [
+        {
+          "name": "_get_tile_effect_objects",
+          "params": [
+            "world",
+            "x",
+            "y"
+          ],
+          "exported": true,
+          "lineCount": 12
+        },
+        {
+          "name": "_get_tile_growth_multiplier",
+          "params": [
+            "world",
+            "x",
+            "y"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_get_tile_germination_multiplier",
+          "params": [
+            "world",
+            "x",
+            "y"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_get_tile_spawn_rate_multiplier",
+          "params": [
+            "world",
+            "x",
+            "y"
+          ],
+          "returnType": "float",
+          "exported": true,
+          "lineCount": 6
+        },
+        {
+          "name": "_tile_blocks_growth",
+          "params": [
+            "world",
+            "x",
+            "y"
+          ],
+          "returnType": "bool",
+          "exported": true,
+          "lineCount": 13
+        }
+      ],
+      "classes": [
+        {
+          "name": "PlantGrowthSystem",
+          "methods": [
+            "__init__",
+            "update"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 58
+        },
+        {
+          "name": "SeedGerminationSystem",
+          "methods": [
+            "__init__",
+            "update"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 125
+        },
+        {
+          "name": "DecaySystem",
+          "methods": [
+            "__init__",
+            "update"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 123
+        },
+        {
+          "name": "FertilizerSystem",
+          "methods": [
+            "update"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 67
+        },
+        {
+          "name": "SoilDynamicsSystem",
+          "methods": [
+            "__init__",
+            "update",
+            "_update_tile_rows",
+            "return_nutrients_to_soil"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 127
+        },
+        {
+          "name": "ResourceSpawnSystem",
+          "methods": [
+            "__init__",
+            "update",
+            "_spawn_resource_near"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 159
+        },
+        {
+          "name": "WorldSystemManager",
+          "methods": [
+            "__init__",
+            "update"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 107
+        },
+        {
+          "name": "TileEffectSystem",
+          "methods": [
+            "__init__",
+            "update",
+            "_tile_has_blocker"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 227
+        }
+      ],
+      "imports": [
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "List",
+            "Set",
+            "TYPE_CHECKING"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject",
+            "PlantComponent",
+            "SeedComponent",
+            "EdibleComponent",
+            "FertilizerComponent"
+          ]
+        },
+        {
+          "source": "world.object_registry",
+          "specifiers": [
+            "ObjectRegistry"
+          ]
+        }
+      ],
+      "exports": [
+        "PlantGrowthSystem",
+        "SeedGerminationSystem",
+        "DecaySystem",
+        "FertilizerSystem",
+        "SoilDynamicsSystem",
+        "ResourceSpawnSystem",
+        "WorldSystemManager",
+        "_get_tile_effect_objects",
+        "_get_tile_growth_multiplier",
+        "_get_tile_germination_multiplier",
+        "_get_tile_spawn_rate_multiplier",
+        "_tile_blocks_growth",
+        "TileEffectSystem"
+      ],
+      "totalLines": 1100,
+      "hasStructuralAnalysis": true
+    },
+    "world/tiles.py": {
+      "filePath": "world/tiles.py",
+      "contentHash": "16f23a790c615fbe731aed074c4048eef807d130dd36b9f542df33beeff3da7e",
+      "functions": [],
+      "classes": [
+        {
+          "name": "TerrainType",
+          "methods": [],
+          "properties": [],
+          "exported": true,
+          "lineCount": 15
+        },
+        {
+          "name": "Tile",
+          "methods": [
+            "__init__",
+            "add_object",
+            "remove_object",
+            "is_passable",
+            "is_plantable",
+            "can_support_plant",
+            "__repr__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 113
+        }
+      ],
+      "imports": [
+        {
+          "source": "enum",
+          "specifiers": [
+            "Enum"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Set"
+          ]
+        }
+      ],
+      "exports": [
+        "TerrainType",
+        "Tile"
+      ],
+      "totalLines": 144,
+      "hasStructuralAnalysis": true
+    },
+    "world/world.py": {
+      "filePath": "world/world.py",
+      "contentHash": "a41390a0769d40720b8401a56ee357c7d119454600db66b60f7b9d68de33bbf5",
+      "functions": [],
+      "classes": [
+        {
+          "name": "World",
+          "methods": [
+            "__init__",
+            "_generate_terrain",
+            "get_tile",
+            "is_valid_position",
+            "add_object",
+            "remove_object",
+            "tile_effect_object_ids",
+            "move_object",
+            "get_objects_at",
+            "get_neighbors",
+            "update",
+            "get_cached_object_counts",
+            "get_cached_soil_stats",
+            "try_acquire_learning_slot",
+            "adapt_learning_budget",
+            "_update_agents",
+            "_update_agents_serial",
+            "_cleanup_dead_agents",
+            "_check_calamity",
+            "_trigger_calamity",
+            "add_agent",
+            "remove_agent",
+            "__repr__"
+          ],
+          "properties": [],
+          "exported": true,
+          "lineCount": 787
+        }
+      ],
+      "imports": [
+        {
+          "source": "random",
+          "specifiers": [
+            "random"
+          ]
+        },
+        {
+          "source": "typing",
+          "specifiers": [
+            "Dict",
+            "List",
+            "Optional",
+            "Tuple",
+            "TYPE_CHECKING"
+          ]
+        },
+        {
+          "source": "world.tiles",
+          "specifiers": [
+            "Tile",
+            "TerrainType"
+          ]
+        },
+        {
+          "source": "world.objects",
+          "specifiers": [
+            "WorldObject"
+          ]
+        },
+        {
+          "source": "world.systems",
+          "specifiers": [
+            "WorldSystemManager"
+          ]
+        }
+      ],
+      "exports": [
+        "World"
+      ],
+      "totalLines": 808,
+      "hasStructuralAnalysis": true
+    }
+  }
+}

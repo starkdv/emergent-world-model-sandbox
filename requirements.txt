@@ -22,6 +22,9 @@ pyyaml>=6.0
 tqdm>=4.60.0
 colorama>=0.4.4
 
+# Live streaming (optional: enables `python main.py --stream` WebSocket server)
+websockets>=12.0
+
 # Testing
 pytest>=7.0.0
 pytest-cov>=3.0.0

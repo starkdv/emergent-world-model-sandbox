@@ -57,7 +57,7 @@ python main.py
   ```bash
   python main.py --seed 42
   ```
-- **Set Number of Generations**:
+- **Set Number of Genegit remove branch locallyrations**:
   ```bash
   python main.py --generations 100
   ```

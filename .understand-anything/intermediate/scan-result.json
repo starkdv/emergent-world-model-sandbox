@@ -1,0 +1,786 @@
+{
+  "name": "emergent-world-model-sandbox",
+  "description": "A 2D grid-world artificial-life simulation where evolving neural agents (GRU Actor-Critic) learn survival strategies and exhibit emergent behaviors such as farming and cooperation, via dual-mode evolution (online RL with Lamarckian inheritance, or pure neuroevolution).",
+  "languages": [
+    "json",
+    "markdown",
+    "python",
+    "txt",
+    "yaml"
+  ],
+  "frameworks": [
+    "PyTorch",
+    "Pygame",
+    "ModernGL",
+    "NumPy",
+    "pandas",
+    "pytest"
+  ],
+  "files": [
+    {
+      "path": ".flake8",
+      "language": "unknown",
+      "sizeLines": 41,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "language": "yaml",
+      "sizeLines": 108,
+      "fileCategory": "infra"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "language": "yaml",
+      "sizeLines": 49,
+      "fileCategory": "infra"
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "sizeLines": 34,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/config.json",
+      "language": "json",
+      "sizeLines": 3,
+      "fileCategory": "config"
+    },
+    {
+      "path": "agents/__init__.py",
+      "language": "python",
+      "sizeLines": 34,
+      "fileCategory": "code"
+    },
+    {
+      "path": "agents/actions.py",
+      "language": "python",
+      "sizeLines": 55,
+      "fileCategory": "code"
+    },
+    {
+      "path": "agents/agent.py",
+      "language": "python",
+      "sizeLines": 689,
+      "fileCategory": "code"
+    },
+    {
+      "path": "agents/brain.py",
+      "language": "python",
+      "sizeLines": 316,
+      "fileCategory": "code"
+    },
+    {
+      "path": "agents/evolution.py",
+      "language": "python",
+      "sizeLines": 215,
+      "fileCategory": "code"
+    },
+    {
+      "path": "agents/genome.py",
+      "language": "python",
+      "sizeLines": 286,
+      "fileCategory": "code"
+    },
+    {
+      "path": "agents/learning.py",
+      "language": "python",
+      "sizeLines": 527,
+      "fileCategory": "code"
+    },
+    {
+      "path": "agents/observation.py",
+      "language": "python",
+      "sizeLines": 17,
+      "fileCategory": "code"
+    },
+    {
+      "path": "analyze_observation_sensitivity.py",
+      "language": "python",
+      "sizeLines": 192,
+      "fileCategory": "code"
+    },
+    {
+      "path": "analyze_v3_1.py",
+      "language": "python",
+      "sizeLines": 960,
+      "fileCategory": "code"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "language": "markdown",
+      "sizeLines": 13,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "CLI_GUIDE.md",
+      "language": "markdown",
+      "sizeLines": 125,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "config/custom_objects.yaml",
+      "language": "yaml",
+      "sizeLines": 267,
+      "fileCategory": "config"
+    },
+    {
+      "path": "config/default.yaml",
+      "language": "yaml",
+      "sizeLines": 181,
+      "fileCategory": "config"
+    },
+    {
+      "path": "config/training_easy.yaml",
+      "language": "yaml",
+      "sizeLines": 157,
+      "fileCategory": "config"
+    },
+    {
+      "path": "ECOSYSTEM.md",
+      "language": "markdown",
+      "sizeLines": 1827,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "guideline.md",
+      "language": "markdown",
+      "sizeLines": 345,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "main.py",
+      "language": "python",
+      "sizeLines": 833,
+      "fileCategory": "code"
+    },
+    {
+      "path": "README.md",
+      "language": "markdown",
+      "sizeLines": 318,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "requirements.txt",
+      "language": "txt",
+      "sizeLines": 42,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "simulation/__init__.py",
+      "language": "python",
+      "sizeLines": 10,
+      "fileCategory": "code"
+    },
+    {
+      "path": "SUGGESTIONS.md",
+      "language": "markdown",
+      "sizeLines": 554,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "tests/__init__.py",
+      "language": "python",
+      "sizeLines": 5,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/conftest.py",
+      "language": "python",
+      "sizeLines": 17,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/scenarios/test_baseline_easy_config.py",
+      "language": "python",
+      "sizeLines": 168,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/scenarios/test_baseline_verification.py",
+      "language": "python",
+      "sizeLines": 115,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/scenarios/test_exploration_bonus.py",
+      "language": "python",
+      "sizeLines": 98,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_action_energy_shaping.py",
+      "language": "python",
+      "sizeLines": 159,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_anti_spin.py",
+      "language": "python",
+      "sizeLines": 105,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_async_logger.py",
+      "language": "python",
+      "sizeLines": 294,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_brain_v2.py",
+      "language": "python",
+      "sizeLines": 291,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_calamity.py",
+      "language": "python",
+      "sizeLines": 137,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_drop_action_mask.py",
+      "language": "python",
+      "sizeLines": 71,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_energy_sustainability.py",
+      "language": "python",
+      "sizeLines": 157,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_evolution.py",
+      "language": "python",
+      "sizeLines": 231,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_exploration_sweep.py",
+      "language": "python",
+      "sizeLines": 256,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_genome.py",
+      "language": "python",
+      "sizeLines": 231,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_improved_rewards.py",
+      "language": "python",
+      "sizeLines": 53,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_logging.py",
+      "language": "python",
+      "sizeLines": 66,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_loop_reward_shaping.py",
+      "language": "python",
+      "sizeLines": 125,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_max_population.py",
+      "language": "python",
+      "sizeLines": 35,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_object_registry.py",
+      "language": "python",
+      "sizeLines": 881,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_observation_sanity.py",
+      "language": "python",
+      "sizeLines": 82,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_parallel.py",
+      "language": "python",
+      "sizeLines": 250,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_reproduction_config.py",
+      "language": "python",
+      "sizeLines": 235,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_reproduction.py",
+      "language": "python",
+      "sizeLines": 218,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_resource_spawn_stacking.py",
+      "language": "python",
+      "sizeLines": 173,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_stacking_config.py",
+      "language": "python",
+      "sizeLines": 246,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_systems.py",
+      "language": "python",
+      "sizeLines": 440,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_tile_effects.py",
+      "language": "python",
+      "sizeLines": 725,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_turn_balance.py",
+      "language": "python",
+      "sizeLines": 214,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_world_model_logger.py",
+      "language": "python",
+      "sizeLines": 122,
+      "fileCategory": "code"
+    },
+    {
+      "path": "tests/test_world.py",
+      "language": "python",
+      "sizeLines": 277,
+      "fileCategory": "code"
+    },
+    {
+      "path": "todo.md",
+      "language": "markdown",
+      "sizeLines": 642,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "utils/__init__.py",
+      "language": "python",
+      "sizeLines": 10,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/agents/__init__.py",
+      "language": "python",
+      "sizeLines": 43,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/agents/agent_utils.py",
+      "language": "python",
+      "sizeLines": 513,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/agents/brain_utils.py",
+      "language": "python",
+      "sizeLines": 249,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/agents/evolution_utils.py",
+      "language": "python",
+      "sizeLines": 179,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/agents/learning_utils.py",
+      "language": "python",
+      "sizeLines": 833,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/agents/perception.py",
+      "language": "python",
+      "sizeLines": 437,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/data/__init__.py",
+      "language": "python",
+      "sizeLines": 10,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/data/async_logger.py",
+      "language": "python",
+      "sizeLines": 471,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/parallel.py",
+      "language": "python",
+      "sizeLines": 412,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/render.py",
+      "language": "python",
+      "sizeLines": 222,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/ui/__init__.py",
+      "language": "python",
+      "sizeLines": 5,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/ui/gpu_renderer.py",
+      "language": "python",
+      "sizeLines": 1236,
+      "fileCategory": "code"
+    },
+    {
+      "path": "utils/ui/pygame_renderer.py",
+      "language": "python",
+      "sizeLines": 962,
+      "fileCategory": "code"
+    },
+    {
+      "path": "WORLD_MODEL_IMPLEMENTATION_GUIDE.md",
+      "language": "markdown",
+      "sizeLines": 1494,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "WORLD_MODEL_LOGGING_FORMAT.md",
+      "language": "markdown",
+      "sizeLines": 183,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "world/__init__.py",
+      "language": "python",
+      "sizeLines": 11,
+      "fileCategory": "code"
+    },
+    {
+      "path": "world/object_registry.py",
+      "language": "python",
+      "sizeLines": 1017,
+      "fileCategory": "code"
+    },
+    {
+      "path": "world/objects.py",
+      "language": "python",
+      "sizeLines": 303,
+      "fileCategory": "code"
+    },
+    {
+      "path": "world/systems.py",
+      "language": "python",
+      "sizeLines": 1099,
+      "fileCategory": "code"
+    },
+    {
+      "path": "world/tiles.py",
+      "language": "python",
+      "sizeLines": 143,
+      "fileCategory": "code"
+    },
+    {
+      "path": "world/world.py",
+      "language": "python",
+      "sizeLines": 807,
+      "fileCategory": "code"
+    }
+  ],
+  "totalFiles": 81,
+  "filteredByIgnore": 0,
+  "estimatedComplexity": "moderate",
+  "importMap": {
+    ".flake8": [],
+    ".github/workflows/ci.yml": [],
+    ".github/workflows/release.yml": [],
+    ".understand-anything/.understandignore": [],
+    ".understand-anything/config.json": [],
+    "agents/__init__.py": [
+      "agents/actions.py",
+      "agents/agent.py",
+      "agents/brain.py",
+      "agents/genome.py",
+      "agents/learning.py",
+      "utils/agents/__init__.py"
+    ],
+    "agents/actions.py": [],
+    "agents/agent.py": [
+      "agents/actions.py",
+      "agents/brain.py",
+      "agents/genome.py",
+      "utils/agents/agent_utils.py",
+      "world/objects.py"
+    ],
+    "agents/brain.py": [
+      "agents/actions.py",
+      "utils/agents/brain_utils.py"
+    ],
+    "agents/evolution.py": [
+      "utils/agents/__init__.py",
+      "utils/agents/evolution_utils.py"
+    ],
+    "agents/genome.py": [],
+    "agents/learning.py": [
+      "utils/agents/__init__.py"
+    ],
+    "agents/observation.py": [
+      "utils/agents/perception.py"
+    ],
+    "analyze_observation_sensitivity.py": [
+      "agents/__init__.py",
+      "agents/actions.py",
+      "utils/agents/__init__.py",
+      "world/object_registry.py",
+      "world/world.py"
+    ],
+    "analyze_v3_1.py": [],
+    "CHANGELOG.md": [],
+    "CLI_GUIDE.md": [],
+    "config/custom_objects.yaml": [],
+    "config/default.yaml": [],
+    "config/training_easy.yaml": [],
+    "ECOSYSTEM.md": [],
+    "guideline.md": [],
+    "main.py": [
+      "agents/__init__.py",
+      "utils/render.py",
+      "utils/ui/pygame_renderer.py",
+      "world/object_registry.py",
+      "world/objects.py",
+      "world/tiles.py",
+      "world/world.py"
+    ],
+    "README.md": [],
+    "requirements.txt": [],
+    "simulation/__init__.py": [],
+    "SUGGESTIONS.md": [],
+    "tests/__init__.py": [],
+    "tests/conftest.py": [],
+    "tests/scenarios/test_baseline_easy_config.py": [
+      "agents/__init__.py",
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/scenarios/test_baseline_verification.py": [
+      "agents/__init__.py",
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/scenarios/test_exploration_bonus.py": [
+      "agents/__init__.py",
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/test_action_energy_shaping.py": [
+      "agents/__init__.py",
+      "agents/actions.py",
+      "world/world.py"
+    ],
+    "tests/test_anti_spin.py": [
+      "agents/actions.py",
+      "agents/agent.py",
+      "agents/brain.py",
+      "agents/genome.py",
+      "utils/agents/__init__.py",
+      "world/world.py"
+    ],
+    "tests/test_async_logger.py": [
+      "agents/__init__.py",
+      "agents/actions.py",
+      "utils/data/async_logger.py",
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/test_brain_v2.py": [
+      "agents/actions.py",
+      "agents/brain.py",
+      "agents/genome.py"
+    ],
+    "tests/test_calamity.py": [
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/test_drop_action_mask.py": [
+      "agents/__init__.py",
+      "agents/actions.py",
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/test_energy_sustainability.py": [
+      "agents/agent.py",
+      "agents/brain.py",
+      "agents/genome.py",
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/test_evolution.py": [
+      "agents/__init__.py",
+      "agents/evolution.py",
+      "utils/agents/__init__.py",
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/test_exploration_sweep.py": [
+      "agents/__init__.py",
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/test_genome.py": [
+      "agents/genome.py"
+    ],
+    "tests/test_improved_rewards.py": [],
+    "tests/test_logging.py": [
+      "agents/agent.py",
+      "agents/brain.py",
+      "agents/genome.py",
+      "world/world.py"
+    ],
+    "tests/test_loop_reward_shaping.py": [
+      "agents/actions.py",
+      "utils/agents/__init__.py"
+    ],
+    "tests/test_max_population.py": [],
+    "tests/test_object_registry.py": [
+      "world/object_registry.py",
+      "world/objects.py"
+    ],
+    "tests/test_observation_sanity.py": [
+      "agents/__init__.py",
+      "utils/agents/__init__.py",
+      "world/object_registry.py",
+      "world/world.py"
+    ],
+    "tests/test_parallel.py": [
+      "agents/__init__.py",
+      "world/object_registry.py",
+      "world/world.py"
+    ],
+    "tests/test_reproduction_config.py": [
+      "agents/__init__.py",
+      "world/world.py"
+    ],
+    "tests/test_reproduction.py": [
+      "agents/__init__.py",
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/test_resource_spawn_stacking.py": [
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/test_stacking_config.py": [
+      "agents/__init__.py",
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/test_systems.py": [
+      "world/objects.py",
+      "world/systems.py",
+      "world/world.py"
+    ],
+    "tests/test_tile_effects.py": [
+      "world/object_registry.py",
+      "world/objects.py",
+      "world/systems.py",
+      "world/tiles.py",
+      "world/world.py"
+    ],
+    "tests/test_turn_balance.py": [
+      "agents/actions.py",
+      "agents/agent.py",
+      "agents/brain.py",
+      "agents/genome.py",
+      "utils/agents/__init__.py"
+    ],
+    "tests/test_world_model_logger.py": [
+      "agents/actions.py",
+      "agents/agent.py",
+      "agents/brain.py",
+      "agents/genome.py",
+      "world/objects.py",
+      "world/world.py"
+    ],
+    "tests/test_world.py": [
+      "world/objects.py",
+      "world/tiles.py",
+      "world/world.py"
+    ],
+    "todo.md": [],
+    "utils/__init__.py": [],
+    "utils/agents/__init__.py": [
+      "utils/agents/__init__.py",
+      "utils/agents/agent_utils.py",
+      "utils/agents/brain_utils.py",
+      "utils/agents/evolution_utils.py",
+      "utils/agents/learning_utils.py",
+      "utils/agents/perception.py"
+    ],
+    "utils/agents/agent_utils.py": [
+      "agents/actions.py"
+    ],
+    "utils/agents/brain_utils.py": [],
+    "utils/agents/evolution_utils.py": [],
+    "utils/agents/learning_utils.py": [],
+    "utils/agents/perception.py": [
+      "world/objects.py",
+      "world/tiles.py"
+    ],
+    "utils/data/__init__.py": [
+      "utils/data/async_logger.py"
+    ],
+    "utils/data/async_logger.py": [],
+    "utils/parallel.py": [],
+    "utils/render.py": [
+      "world/objects.py",
+      "world/tiles.py",
+      "world/world.py"
+    ],
+    "utils/ui/__init__.py": [],
+    "utils/ui/gpu_renderer.py": [
+      "world/object_registry.py",
+      "world/objects.py",
+      "world/tiles.py",
+      "world/world.py"
+    ],
+    "utils/ui/pygame_renderer.py": [
+      "world/objects.py",
+      "world/tiles.py",
+      "world/world.py"
+    ],
+    "WORLD_MODEL_IMPLEMENTATION_GUIDE.md": [],
+    "WORLD_MODEL_LOGGING_FORMAT.md": [],
+    "world/__init__.py": [],
+    "world/object_registry.py": [
+      "world/objects.py"
+    ],
+    "world/objects.py": [],
+    "world/systems.py": [
+      "world/object_registry.py",
+      "world/objects.py"
+    ],
+    "world/tiles.py": [],
+    "world/world.py": [
+      "world/objects.py",
+      "world/systems.py",
+      "world/tiles.py"
+    ]
+  }
+}

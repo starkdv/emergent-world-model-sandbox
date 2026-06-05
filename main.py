@@ -177,6 +177,33 @@ Examples:
         help='Evolution mode: "rl" (RL + evolution) or "neuroevolution" (pure evolution). Overrides config/--learning.',
     )
 
+    parser.add_argument(
+        "--stream",
+        action="store_true",
+        help="Stream per-tick world state over WebSocket for a browser client (headless mode)",
+    )
+
+    parser.add_argument(
+        "--stream-host",
+        type=str,
+        default="127.0.0.1",
+        help="Host/interface for the WebSocket stream server (default: 127.0.0.1)",
+    )
+
+    parser.add_argument(
+        "--stream-port",
+        type=int,
+        default=8765,
+        help="Port for the WebSocket stream server (default: 8765)",
+    )
+
+    parser.add_argument(
+        "--stream-every",
+        type=int,
+        default=1,
+        help="Emit a stream frame every N ticks (default: 1; raise to throttle)",
+    )
+
     args = parser.parse_args()
 
     try:
@@ -759,21 +786,57 @@ Examples:
             f"Planned run: {max_generations} generation(s) × {generation_length} ticks = {total_ticks} ticks"
         )
 
-        for _ in range(total_ticks):
-            world.update()
+        # ── Optional live WebSocket streaming ───────────────────────────
+        # Opt-in side-channel: serialize each (Nth) tick and broadcast to any
+        # connected browser/Three.js clients. Snapshots are built here, in the
+        # simulation thread, where world.agents/world.objects are consistent;
+        # the server thread only ever touches the finished dict.
+        stream_server = None
+        if args.stream:
+            from utils.stream import StreamServer, build_init, build_frame
 
-            if world.tick % progress_every == 0:
-                counts = world.get_cached_object_counts()
-                print(
-                    f"  Tick {world.tick}/{total_ticks} | "
-                    f"alive_agents={counts['alive_agents']} "
-                    f"food={counts['total_food']} plants={counts['total_plants']}"
+            stream_every = max(1, int(args.stream_every))
+            try:
+                stream_server = StreamServer(
+                    host=args.stream_host,
+                    port=args.stream_port,
+                    get_init=lambda: build_init(world),
                 )
+                stream_server.start()
+                print(
+                    f"\n[stream] WebSocket streaming on "
+                    f"ws://{args.stream_host}:{args.stream_port} "
+                    f"(every {stream_every} tick(s))"
+                )
+            except RuntimeError as e:
+                # Missing 'websockets' dependency — warn and continue unstreamed.
+                print(f"[stream] Disabled: {e}", file=sys.stderr)
+                stream_server = None
 
-            # Stop early if population goes extinct
-            if not world.agents:
-                print(f"Population extinct at tick {world.tick}. Ending run early.")
-                break
+        try:
+            for _ in range(total_ticks):
+                world.update()
+
+                if stream_server is not None and world.tick % stream_every == 0:
+                    stream_server.publish(build_frame(world))
+
+                if world.tick % progress_every == 0:
+                    counts = world.get_cached_object_counts()
+                    print(
+                        f"  Tick {world.tick}/{total_ticks} | "
+                        f"alive_agents={counts['alive_agents']} "
+                        f"food={counts['total_food']} plants={counts['total_plants']}"
+                    )
+
+                # Stop early if population goes extinct
+                if not world.agents:
+                    print(
+                        f"Population extinct at tick {world.tick}. Ending run early."
+                    )
+                    break
+        finally:
+            if stream_server is not None:
+                stream_server.stop()
 
         print("\nHeadless simulation complete")
         print(f"Final tick: {world.tick}")

@@ -29,3 +29,7 @@ venv/
 .venv/
 env/
 ENV/
+
+#claude + plugins
+.understand-anything
+.claude
