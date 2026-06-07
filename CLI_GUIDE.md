@@ -43,6 +43,22 @@ python main.py
   ```bash
   python main.py --gui --gpu
   ```
+- **Web UI Mode** (Three.js browser-based 3D renderer):
+  ```bash
+  python main.py --web                       # serve at http://127.0.0.1:8000/
+  python main.py --web --port 9000           # custom port
+  python main.py --web --open-browser        # auto-open the browser
+  python main.py --web --host 0.0.0.0        # expose on the local network
+  ```
+  Then open the printed URL in any modern browser. The page renders a live 3D
+  world with full simulation controls (play/pause, step, speed, reset), a
+  clickable inspector for every agent / object / tile, a spawn tool, and an
+  Object Registry panel documenting **every** registered object type. See
+  [WEB_UI_GUIDE.md](WEB_UI_GUIDE.md) for the complete reference.
+
+  > The browser loads Three.js from a CDN on first use (internet required once;
+  > cached afterwards). The server itself uses only the Python standard library
+  > — no extra `pip` dependencies.
 - **Demo Mode** (Console visualization):
   ```bash
   python main.py --demo

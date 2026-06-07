@@ -9,8 +9,10 @@ torch>=1.9.0
 scikit-learn>=1.0.0
 
 # Visualization and GUI
-pygame>=2.1.0
-moderngl>=5.8.0
+pygame>=2.1.0      # Required for the 2D (--gui) and isometric (--gpu) desktop renderers
+moderngl>=5.8.0   # Required for the GPU isometric (--gpu) renderer
+# NOTE: The Three.js web UI (--web) needs NO extra Python packages — the server
+# uses only the standard library, and Three.js is loaded in the browser via CDN.
 
 # Data processing and analysis
 pyarrow>=5.0.0  # For Parquet format

@@ -199,6 +199,16 @@ New physical systems that integrate with the existing tile/object/system archite
 
 Improvements to both the Pygame 2D renderer (`pygame_renderer.py`) and the ModernGL isometric renderer (`gpu_renderer.py`). These features directly evolve into the **browser-based spectator client** (Entertainment Track — camera following, overlays, speed control, smooth visuals) and the **training visualization dashboard** (Robotics Track — live fitness graphs, trajectory replay, heatmaps). Every render feature built here is reused in Phases G–I.
 
+> **✅ Delivered (Three.js Web UI — `python main.py --web`):** the browser-based
+> spectator client now exists (`utils/ui/web_server.py`, `utils/ui/web_serialize.py`,
+> `web/`). It already provides several items from this section and Part 9:
+> live **population/energy graph**, **generation + fitness HUD**, **agent trails**
+> (`T`), **speed control (0–20×)**, **smooth agent interpolation**, full 3D
+> rendering, click/hover inspectors, a spawn tool, and an **Object Registry panel
+> with UI for every registered object**. See [WEB_UI_GUIDE.md](WEB_UI_GUIDE.md).
+> Remaining stretch goals: WebSocket delta streaming, camera-follow events, chat,
+> and adopt-an-agent lineage tracking.
+
 ### 7.1 Information Displays (Both Renderers)
 
 - [ ] **Population graph panel** — Bottom-right panel showing a live line chart of population count over the last 500 ticks. Uses a rolling buffer of values. Renders as a simple polyline on a small surface. Toggle with `P` key.
@@ -382,7 +392,7 @@ Make it accessible to robotics researchers and hobbyists.
 
 ### 9.1 User-Controlled Agents & Spectator Mode
 
-- [ ] **Spectator mode** — Browser-based live viewer of an always-running world. Users watch AI agents evolve, farm, compete in real time. Chat overlay. Camera follows interesting events (births, deaths, calamities). Low bandwidth — server sends tile diffs, not frames.
+- [~] **Spectator mode** — Browser-based live viewer of an always-running world. Users watch AI agents evolve, farm, compete in real time. Chat overlay. Camera follows interesting events (births, deaths, calamities). Low bandwidth — server sends tile diffs, not frames. *(Base browser viewer shipped via `--web` Three.js client; chat, camera-follow events, and diff streaming still TODO.)*
 - [ ] **Adopt-an-agent** — Users claim an AI agent lineage. They can name it, track its family tree, see stats (lifespan, offspring count, fitness records). Leaderboard of longest-surviving lineages.
 - [ ] **Player avatar mode** — User controls one agent directly (WASD + action keys) in the same world as AI agents. Compete for resources, cooperate, or just explore. Player actions logged for imitation learning (AI learns from human play).
 - [ ] **Creature designer** — Web UI where users design creature appearance (cosmetic skins over the brain/genome), choose starting instinct presets, and set evolution preferences (aggressive, cooperative, explorer). Cosmetics are NFT-free — just fun customization.

@@ -19,7 +19,6 @@ from world.tiles import TerrainType
 from world.object_registry import ObjectRegistry, register_builtin_objects
 from agents import Agent, Genome, Brain, create_default_trait_config
 from utils.render import ConsoleRenderer
-from utils.ui.pygame_renderer import PygameRenderer
 
 
 def load_config(config_path: str) -> dict:
@@ -48,6 +47,416 @@ def load_config(config_path: str) -> dict:
     return config
 
 
+def build_world_and_population(config: dict, args: argparse.Namespace) -> World:
+    """
+    Build a fully-populated World from config and CLI arguments.
+
+    Performs object-registry setup, terrain generation, initial resource and
+    custom-object spawning, agent population creation (optionally with learning
+    and pre-trained weights), and attaches reproduction / calamity configs.
+
+    This is factored out of :func:`main` so it can be reused as a *world
+    factory* — most importantly by the web renderer's "Reset" control, which
+    needs to rebuild a fresh world on demand.
+
+    Args:
+        config: Parsed (and CLI-overridden) configuration dictionary.
+        args: Parsed command-line arguments.
+
+    Returns:
+        A populated World instance ready to simulate / render.
+
+    Author: Karan Vasa
+    """
+    use_learning = config.get("evolution", {}).get("mode") == "rl"
+
+    # Create world
+    print("\n" + "=" * 60)
+    print("INITIALIZING WORLD")
+    print("=" * 60)
+
+    world_cfg = config["world"]
+    terrain_cfg = config["terrain"]
+    plant_cfg = config["plants"]
+    resource_cfg = config["resources"]
+    soil_cfg = config["soil"]
+    learning_cfg = config.get("learning", {})
+
+    # Initialize object registry BEFORE world creation so sand objects
+    # can be spawned on SAND terrain tiles during terrain generation.
+    register_builtin_objects()
+
+    # Apply sand config overrides from YAML (if present)
+    sand_cfg = config.get("sand", {})
+    if sand_cfg:
+        sand_defn = ObjectRegistry.get("sand")
+        if sand_defn and sand_defn.tile_effect:
+            te = sand_defn.tile_effect
+            te.spread_interval = sand_cfg.get("spread_interval", te.spread_interval)
+            te.spread_chance = sand_cfg.get("spread_chance", te.spread_chance)
+            te.spread_radius = sand_cfg.get("spread_radius", te.spread_radius)
+            te.spread_blocked_by = sand_cfg.get(
+                "spread_blocked_by", te.spread_blocked_by
+            )
+            te.germination_multiplier = sand_cfg.get(
+                "germination_multiplier", te.germination_multiplier
+            )
+            te.growth_multiplier = sand_cfg.get(
+                "growth_multiplier", te.growth_multiplier
+            )
+            te.spawn_rate_multiplier = sand_cfg.get(
+                "spawn_rate_multiplier", te.spawn_rate_multiplier
+            )
+            te.fertility_override = sand_cfg.get(
+                "fertility_override", te.fertility_override
+            )
+            te.moisture_override = sand_cfg.get(
+                "moisture_override", te.moisture_override
+            )
+            te.reclaim_terrain = sand_cfg.get("reclaim_terrain", te.reclaim_terrain)
+            te.reclaim_interval = sand_cfg.get("reclaim_interval", te.reclaim_interval)
+            print(
+                f"Sand tuning: interval={te.spread_interval}, chance={te.spread_chance}, radius={te.spread_radius}, reclaim={te.reclaim_terrain}@{te.reclaim_interval}"
+            )
+
+    # Load custom object definitions from config if present
+    if "objects" in config:
+        loaded = ObjectRegistry.load_from_config(config["objects"])
+        print(f"Loaded {loaded} custom object definitions from config")
+
+    # Load custom objects from a separate YAML file (--objects flag)
+    if args.objects:
+        objects_path = Path(args.objects)
+        if objects_path.exists():
+            with open(objects_path, "r") as f:
+                objects_data = yaml.safe_load(f)
+            if objects_data and "objects" in objects_data:
+                loaded = ObjectRegistry.load_from_config(objects_data["objects"])
+                print(f"Loaded {loaded} custom object definitions from {args.objects}")
+        else:
+            print(f"Warning: Objects file not found: {args.objects}")
+
+    world = World(
+        width=world_cfg["width"],
+        height=world_cfg["height"],
+        seed=world_cfg["seed"],
+        soil_ratio=terrain_cfg["soil_ratio"],
+        rock_ratio=terrain_cfg["rock_ratio"],
+        water_ratio=terrain_cfg["water_ratio"],
+        sand_ratio=terrain_cfg.get("sand_ratio", 0.05),
+        fertility_range=tuple(terrain_cfg["fertility_range"]),
+        moisture_range=tuple(terrain_cfg["moisture_range"]),
+        # System configuration parameters
+        plant_mature_age=plant_cfg["mature_age"],
+        plant_max_age=plant_cfg["max_age"],
+        decay_rate=resource_cfg["berry_freshness_decay"],
+        seed_drop_chance=resource_cfg["seed_drop_chance"],
+        germination_success_rate=plant_cfg["germination_success_rate"],
+        fertility_consumption=plant_cfg["fertility_consumption_per_tick"],
+        moisture_consumption=plant_cfg["moisture_consumption_per_tick"],
+        fertility_recovery_rate=soil_cfg["fertility_recovery_rate"],
+        moisture_evaporation_rate=soil_cfg["moisture_evaporation_rate"],
+        moisture_recovery_rate=soil_cfg["moisture_recovery_rate"],
+        fertility_return_on_death=soil_cfg["fertility_return_on_death"],
+        berry_calories=resource_cfg["berry_calories"],
+        safety_spawn_rate=world_cfg["resource_spawn_rate"],
+        min_resources=resource_cfg.get("min_resources", 20),  # From config, default 20
+        seed_max_age=plant_cfg["seed_max_age"],
+        allow_stacking=world_cfg.get("allow_stacking", False),  # NEW: Get from config
+        learning_train_interval_ticks=learning_cfg.get("train_interval_ticks", 3),
+        learning_max_updates_per_tick=learning_cfg.get("max_updates_per_tick", 16),
+        learning_enable_stagger=learning_cfg.get("stagger_updates", True),
+        learning_adaptive_budget=learning_cfg.get("adaptive_budget", True),
+        learning_min_updates_per_tick=learning_cfg.get("min_updates_per_tick", 2),
+        learning_max_budget_updates_per_tick=learning_cfg.get(
+            "max_budget_updates_per_tick", 24
+        ),
+        learning_budget_adjust_step=learning_cfg.get("budget_adjust_step", 1),
+        learning_budget_high_frame_factor=learning_cfg.get(
+            "budget_high_frame_factor", 1.10
+        ),
+        learning_budget_low_frame_factor=learning_cfg.get(
+            "budget_low_frame_factor", 0.80
+        ),
+        parallel=config.get("simulation", {}).get("parallel", True),
+    )
+
+    print(f"World created: {world.width}x{world.height}")
+    print(f"Seed: {world.seed}")
+    print(
+        f"Sand tiles: {sum(1 for row in world.tiles for t in row if t.terrain_type == TerrainType.SAND)}"
+    )
+
+    # Add initial resources
+    print("\nPopulating world with resources...")
+    initial_resources = world_cfg["initial_resources"]
+
+    # Track occupied tiles to prevent multiple objects per tile
+    occupied_tiles = set()
+
+    # Add plants
+    plants_added = 0
+    attempts = 0
+    max_attempts = initial_resources * 10  # Prevent infinite loop
+
+    while plants_added < initial_resources // 2 and attempts < max_attempts:
+        attempts += 1
+        x = random.randint(0, world.width - 1)
+        y = random.randint(0, world.height - 1)
+
+        # Skip if tile already has an object
+        if (x, y) in occupied_tiles:
+            continue
+
+        tile = world.get_tile(x, y)
+        if tile and tile.is_plantable():
+            plant = ObjectRegistry.create(
+                "berry_plant",
+                x,
+                y,
+                mature_age=plant_cfg["mature_age"],
+                plant_max_age=plant_cfg["max_age"],
+                spawn_rate=plant_cfg["seed_spawn_rate"],
+            )
+            world.add_object(plant)
+            occupied_tiles.add((x, y))
+            plants_added += 1
+
+    # Add berries
+    berries_added = 0
+    attempts = 0
+
+    while berries_added < initial_resources // 4 and attempts < max_attempts:
+        attempts += 1
+        x = random.randint(0, world.width - 1)
+        y = random.randint(0, world.height - 1)
+
+        # Skip if tile already has an object
+        if (x, y) in occupied_tiles:
+            continue
+
+        if world.is_valid_position(x, y):
+            berry = ObjectRegistry.create(
+                "berry",
+                x,
+                y,
+                calories=config["resources"]["berry_calories"],
+            )
+            world.add_object(berry)
+            occupied_tiles.add((x, y))
+            berries_added += 1
+
+    # Add seeds
+    seeds_added = 0
+    attempts = 0
+
+    while seeds_added < initial_resources // 4 and attempts < max_attempts:
+        attempts += 1
+        x = random.randint(0, world.width - 1)
+        y = random.randint(0, world.height - 1)
+
+        # Skip if tile already has an object
+        if (x, y) in occupied_tiles:
+            continue
+
+        if world.is_valid_position(x, y):
+            seed = ObjectRegistry.create(
+                "berry_seed",
+                x,
+                y,
+                grow_time=config["plants"]["growth_time"],
+                seed_max_age=config["plants"]["seed_max_age"],
+            )
+            world.add_object(seed)
+            occupied_tiles.add((x, y))
+            seeds_added += 1
+
+    print(
+        f"Resources added: {len(world.objects)} objects (plants: {plants_added}, berries: {berries_added}, seeds: {seeds_added})"
+    )
+
+    # Spawn custom objects that have a spawn.initial_count > 0
+    custom_spawned = 0
+    for defn in ObjectRegistry.all_definitions().values():
+        if defn.spawn.initial_count <= 0:
+            continue
+        # Skip builtins (already spawned above)
+        if defn.type_id in (
+            "berry",
+            "berry_seed",
+            "berry_plant",
+            "fertilizer",
+            "sand",
+        ):
+            continue
+        placed = 0
+        attempts = 0
+        target = defn.spawn.initial_count
+        max_att = target * 15
+        while placed < target and attempts < max_att:
+            attempts += 1
+            cx = random.randint(0, world.width - 1)
+            cy = random.randint(0, world.height - 1)
+            if (cx, cy) in occupied_tiles:
+                continue
+            ctile = world.get_tile(cx, cy)
+            if ctile is None:
+                continue
+            # Terrain filter
+            ok = False
+            if defn.spawn.terrain == "soil":
+                ok = ctile.terrain_type == TerrainType.SOIL
+            elif defn.spawn.terrain == "sand":
+                ok = ctile.terrain_type == TerrainType.SAND
+            elif defn.spawn.terrain == "plantable":
+                ok = ctile.is_plantable()
+            elif defn.spawn.terrain == "any":
+                ok = ctile.terrain_type != TerrainType.ROCK
+            else:
+                ok = ctile.terrain_type == TerrainType.SOIL
+            if not ok:
+                continue
+            custom_obj = ObjectRegistry.create(defn.type_id, cx, cy)
+            if world.add_object(custom_obj):
+                occupied_tiles.add((cx, cy))
+                placed += 1
+        if placed > 0:
+            print(f"  Spawned {placed}x {defn.display_name} ({defn.type_id})")
+            custom_spawned += placed
+    if custom_spawned > 0:
+        print(f"Custom objects spawned: {custom_spawned}")
+
+    # Add initial agents
+    print("\nSpawning initial agent population...")
+    agent_cfg = config["agents"]
+    initial_population = agent_cfg["initial_population"]
+
+    # Get brain configuration
+    brain_cfg = config["brain"]
+    weight_count = Brain.calculate_weight_count(
+        input_size=brain_cfg["input_size"],
+        encoder_layers=brain_cfg["encoder_layers"],
+        gru_hidden_size=brain_cfg["gru_hidden_size"],
+        output_size=brain_cfg["output_size"],
+    )
+
+    # Create trait configuration
+    trait_config = create_default_trait_config()
+
+    # Load pre-trained weights if requested
+    pretrained_weights = None
+    if args.load_weights:
+        from utils.agents import BestAgentTracker
+
+        pretrained_weights = BestAgentTracker.load_best_weights(args.load_weights)
+        if pretrained_weights is not None:
+            print(f"Loaded pre-trained weights ({len(pretrained_weights)} values)")
+
+    # Spawn agents on passable tiles
+    agents_spawned = 0
+    attempts = 0
+    max_attempts = initial_population * 10
+
+    while agents_spawned < initial_population and attempts < max_attempts:
+        x = random.randint(0, world.width - 1)
+        y = random.randint(0, world.height - 1)
+        tile = world.get_tile(x, y)
+
+        if tile and tile.is_passable():
+            # Create random genome
+            genome = Genome.random(weight_count, trait_config)
+            # Create agent
+            agent = Agent(
+                x=x,
+                y=y,
+                genome=genome,
+                max_energy=agent_cfg["max_energy"],
+                max_age=agent_cfg["max_age"],
+                inventory_size=agent_cfg["inventory_size"],
+                metabolism_rate=agent_cfg["metabolism_rate"],
+            )
+
+            # Initialize with pre-trained weights if available
+            if pretrained_weights is not None:
+                from utils.agents import BestAgentTracker
+
+                BestAgentTracker.initialize_agent_from_weights(
+                    agent,
+                    pretrained_weights,
+                    mutation_rate=0.02,  # Small mutation for diversity
+                )
+
+            # Enable learning if RL mode is active
+            if use_learning:
+                agent.enable_learning(
+                    learning_rate=args.learning_rate,
+                    discount_factor=0.95,
+                    batch_size=16,
+                    buffer_capacity=1000,
+                    compute_backend=learning_cfg.get("compute_backend", "auto"),
+                    compute_device=learning_cfg.get("compute_device", "auto"),
+                )
+
+            world.add_agent(agent)
+            agents_spawned += 1
+
+        attempts += 1
+    print(f"Agents spawned: {len(world.agents)} agents")
+
+    if use_learning and world.agents:
+        sample_agent = next(iter(world.agents.values()))
+        if sample_agent.learner is not None:
+            print(
+                f"Learning backend: {sample_agent.learner.compute_backend} "
+                f"(device: {sample_agent.learner.compute_device})"
+            )
+            print(
+                "Learning scheduler: "
+                f"interval={world.learning_train_interval_ticks}, "
+                f"budget={world.learning_max_updates_per_tick}/tick, "
+                f"adaptive={'on' if world.learning_adaptive_budget else 'off'}"
+            )
+
+    if agents_spawned < initial_population:
+        print(
+            f"Warning: Only spawned {agents_spawned}/{initial_population} agents (not enough passable tiles)"
+        )
+
+    # Set up reproduction configuration from config file
+    if "reproduction" in config:
+        world.reproduction_config = config["reproduction"]
+        if config["reproduction"].get("enabled", False):
+            print("\nReproduction enabled:")
+            print(
+                f"  Energy threshold: {config['reproduction'].get('energy_threshold', 0.6)*100:.0f}% of max energy"
+            )
+            print(f"  Minimum age: {config['reproduction'].get('min_age', 100)} ticks")
+            print(
+                f"  Energy split: {config['reproduction'].get('energy_split', 0.6)*100:.0f}% (parent loses this much)"
+            )
+            print(f"  Mutation std: {config['reproduction'].get('mutation_std', 0.02)}")
+            print(
+                f"  Cooldown: {config['reproduction'].get('cooldown_ticks', 50)} ticks"
+            )
+            max_pop = config["reproduction"].get("max_population", None)
+            print(f"  Max population: {max_pop if max_pop else 'unlimited'}")
+
+    # Set up calamity configuration from config file
+    if "calamity" in config:
+        world.calamity_config = config["calamity"]
+        if config["calamity"].get("enabled", False):
+            print("\nCalamity system enabled:")
+            print(f"  Interval: {config['calamity'].get('interval', 500)} ticks")
+            print(
+                f"  Destruction rate: {config['calamity'].get('destruction_rate', 0.3)*100:.0f}%"
+            )
+            print(f"  Affects plants: {config['calamity'].get('affect_plants', True)}")
+            print(f"  Affects food: {config['calamity'].get('affect_food', True)}")
+            print(f"  Affects seeds: {config['calamity'].get('affect_seeds', False)}")
+
+    return world
+
+
 def main():
     """
     Main function to parse arguments and start the simulation.
@@ -67,6 +476,7 @@ Examples:
   python main.py --no-viz                  # Run without visualization
   python main.py --gui                     # Run with Pygame GUI
   python main.py --gui --gpu               # Run with GPU isometric renderer
+  python main.py --web                     # Run with the Three.js browser UI
   python main.py --seed 42 --demo          # Run demo with specific seed        """,
     )
 
@@ -160,6 +570,32 @@ Examples:
         "--gpu",
         action="store_true",
         help="Use GPU-accelerated isometric renderer (requires --gui, needs moderngl)",
+    )
+
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="Launch the Three.js browser UI (live 3D renderer served over HTTP)",
+    )
+
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host/bind address for the web UI (default: 127.0.0.1)",
+    )
+
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port for the web UI (default: 8000)",
+    )
+
+    parser.add_argument(
+        "--open-browser",
+        action="store_true",
+        help="Automatically open the web UI in the default browser (with --web)",
     )
 
     parser.add_argument(
@@ -259,295 +695,8 @@ Examples:
             Agent.world_model_logger = world_model_logger
             print("World Model Logging: Enabled (async mode for high performance)")
 
-        # Create world
-        print("\n" + "=" * 60)
-        print("INITIALIZING WORLD")
-        print("=" * 60)
-
-        world_cfg = config["world"]
-        terrain_cfg = config["terrain"]
-        plant_cfg = config["plants"]
-        resource_cfg = config["resources"]
-        soil_cfg = config["soil"]
-        learning_cfg = config.get("learning", {})
-
-        # Initialize object registry BEFORE world creation so sand objects
-        # can be spawned on SAND terrain tiles during terrain generation.
-        register_builtin_objects()
-
-        # Apply sand config overrides from YAML (if present)
-        sand_cfg = config.get("sand", {})
-        if sand_cfg:
-            sand_defn = ObjectRegistry.get("sand")
-            if sand_defn and sand_defn.tile_effect:
-                te = sand_defn.tile_effect
-                te.spread_interval = sand_cfg.get("spread_interval", te.spread_interval)
-                te.spread_chance = sand_cfg.get("spread_chance", te.spread_chance)
-                te.spread_radius = sand_cfg.get("spread_radius", te.spread_radius)
-                te.spread_blocked_by = sand_cfg.get(
-                    "spread_blocked_by", te.spread_blocked_by
-                )
-                te.germination_multiplier = sand_cfg.get(
-                    "germination_multiplier", te.germination_multiplier
-                )
-                te.growth_multiplier = sand_cfg.get(
-                    "growth_multiplier", te.growth_multiplier
-                )
-                te.spawn_rate_multiplier = sand_cfg.get(
-                    "spawn_rate_multiplier", te.spawn_rate_multiplier
-                )
-                te.fertility_override = sand_cfg.get(
-                    "fertility_override", te.fertility_override
-                )
-                te.moisture_override = sand_cfg.get(
-                    "moisture_override", te.moisture_override
-                )
-                te.reclaim_terrain = sand_cfg.get("reclaim_terrain", te.reclaim_terrain)
-                te.reclaim_interval = sand_cfg.get(
-                    "reclaim_interval", te.reclaim_interval
-                )
-                print(
-                    f"Sand tuning: interval={te.spread_interval}, chance={te.spread_chance}, radius={te.spread_radius}, reclaim={te.reclaim_terrain}@{te.reclaim_interval}"
-                )
-
-        # Load custom object definitions from config if present
-        if "objects" in config:
-            loaded = ObjectRegistry.load_from_config(config["objects"])
-            print(f"Loaded {loaded} custom object definitions from config")
-
-        # Load custom objects from a separate YAML file (--objects flag)
-        if args.objects:
-            objects_path = Path(args.objects)
-            if objects_path.exists():
-                with open(objects_path, "r") as f:
-                    objects_data = yaml.safe_load(f)
-                if objects_data and "objects" in objects_data:
-                    loaded = ObjectRegistry.load_from_config(objects_data["objects"])
-                    print(
-                        f"Loaded {loaded} custom object definitions from {args.objects}"
-                    )
-            else:
-                print(f"Warning: Objects file not found: {args.objects}")
-
-        world = World(
-            width=world_cfg["width"],
-            height=world_cfg["height"],
-            seed=world_cfg["seed"],
-            soil_ratio=terrain_cfg["soil_ratio"],
-            rock_ratio=terrain_cfg["rock_ratio"],
-            water_ratio=terrain_cfg["water_ratio"],
-            sand_ratio=terrain_cfg.get("sand_ratio", 0.05),
-            fertility_range=tuple(terrain_cfg["fertility_range"]),
-            moisture_range=tuple(terrain_cfg["moisture_range"]),
-            # System configuration parameters
-            plant_mature_age=plant_cfg["mature_age"],
-            plant_max_age=plant_cfg["max_age"],
-            decay_rate=resource_cfg["berry_freshness_decay"],
-            seed_drop_chance=resource_cfg["seed_drop_chance"],
-            germination_success_rate=plant_cfg["germination_success_rate"],
-            fertility_consumption=plant_cfg["fertility_consumption_per_tick"],
-            moisture_consumption=plant_cfg["moisture_consumption_per_tick"],
-            fertility_recovery_rate=soil_cfg["fertility_recovery_rate"],
-            moisture_evaporation_rate=soil_cfg["moisture_evaporation_rate"],
-            moisture_recovery_rate=soil_cfg["moisture_recovery_rate"],
-            fertility_return_on_death=soil_cfg["fertility_return_on_death"],
-            berry_calories=resource_cfg["berry_calories"],
-            safety_spawn_rate=world_cfg["resource_spawn_rate"],
-            min_resources=resource_cfg.get(
-                "min_resources", 20
-            ),  # From config, default 20
-            seed_max_age=plant_cfg["seed_max_age"],
-            allow_stacking=world_cfg.get(
-                "allow_stacking", False
-            ),  # NEW: Get from config
-            learning_train_interval_ticks=learning_cfg.get("train_interval_ticks", 3),
-            learning_max_updates_per_tick=learning_cfg.get("max_updates_per_tick", 16),
-            learning_enable_stagger=learning_cfg.get("stagger_updates", True),
-            learning_adaptive_budget=learning_cfg.get("adaptive_budget", True),
-            learning_min_updates_per_tick=learning_cfg.get("min_updates_per_tick", 2),
-            learning_max_budget_updates_per_tick=learning_cfg.get(
-                "max_budget_updates_per_tick", 24
-            ),
-            learning_budget_adjust_step=learning_cfg.get("budget_adjust_step", 1),
-            learning_budget_high_frame_factor=learning_cfg.get(
-                "budget_high_frame_factor", 1.10
-            ),
-            learning_budget_low_frame_factor=learning_cfg.get(
-                "budget_low_frame_factor", 0.80
-            ),
-            parallel=config.get("simulation", {}).get("parallel", True),
-        )
-
-        print(f"World created: {world.width}x{world.height}")
-        print(f"Seed: {world.seed}")
-        print(
-            f"Sand tiles: {sum(1 for row in world.tiles for t in row if t.terrain_type == TerrainType.SAND)}"
-        )
-
-        # Add initial resources
-        print("\nPopulating world with resources...")
-        initial_resources = world_cfg["initial_resources"]
-
-        # Track occupied tiles to prevent multiple objects per tile
-        occupied_tiles = set()
-
-        # Add plants
-        plants_added = 0
-        attempts = 0
-        max_attempts = initial_resources * 10  # Prevent infinite loop
-
-        while plants_added < initial_resources // 2 and attempts < max_attempts:
-            attempts += 1
-            x = random.randint(0, world.width - 1)
-            y = random.randint(0, world.height - 1)
-
-            # Skip if tile already has an object
-            if (x, y) in occupied_tiles:
-                continue
-
-            tile = world.get_tile(x, y)
-            if tile and tile.is_plantable():
-                plant = ObjectRegistry.create(
-                    "berry_plant",
-                    x,
-                    y,
-                    mature_age=plant_cfg["mature_age"],
-                    plant_max_age=plant_cfg["max_age"],
-                    spawn_rate=plant_cfg["seed_spawn_rate"],
-                )
-                world.add_object(plant)
-                occupied_tiles.add((x, y))
-                plants_added += 1
-
-        # Add berries
-        berries_added = 0
-        attempts = 0
-
-        while berries_added < initial_resources // 4 and attempts < max_attempts:
-            attempts += 1
-            x = random.randint(0, world.width - 1)
-            y = random.randint(0, world.height - 1)
-
-            # Skip if tile already has an object
-            if (x, y) in occupied_tiles:
-                continue
-
-            if world.is_valid_position(x, y):
-                berry = ObjectRegistry.create(
-                    "berry",
-                    x,
-                    y,
-                    calories=config["resources"]["berry_calories"],
-                )
-                world.add_object(berry)
-                occupied_tiles.add((x, y))
-                berries_added += 1
-
-        # Add seeds
-        seeds_added = 0
-        attempts = 0
-
-        while seeds_added < initial_resources // 4 and attempts < max_attempts:
-            attempts += 1
-            x = random.randint(0, world.width - 1)
-            y = random.randint(0, world.height - 1)
-
-            # Skip if tile already has an object
-            if (x, y) in occupied_tiles:
-                continue
-
-            if world.is_valid_position(x, y):
-                seed = ObjectRegistry.create(
-                    "berry_seed",
-                    x,
-                    y,
-                    grow_time=config["plants"]["growth_time"],
-                    seed_max_age=config["plants"]["seed_max_age"],
-                )
-                world.add_object(seed)
-                occupied_tiles.add((x, y))
-                seeds_added += 1
-
-        print(
-            f"Resources added: {len(world.objects)} objects (plants: {plants_added}, berries: {berries_added}, seeds: {seeds_added})"
-        )
-
-        # Spawn custom objects that have a spawn.initial_count > 0
-        custom_spawned = 0
-        for defn in ObjectRegistry.all_definitions().values():
-            if defn.spawn.initial_count <= 0:
-                continue
-            # Skip builtins (already spawned above)
-            if defn.type_id in (
-                "berry",
-                "berry_seed",
-                "berry_plant",
-                "fertilizer",
-                "sand",
-            ):
-                continue
-            placed = 0
-            attempts = 0
-            target = defn.spawn.initial_count
-            max_att = target * 15
-            while placed < target and attempts < max_att:
-                attempts += 1
-                cx = random.randint(0, world.width - 1)
-                cy = random.randint(0, world.height - 1)
-                if (cx, cy) in occupied_tiles:
-                    continue
-                ctile = world.get_tile(cx, cy)
-                if ctile is None:
-                    continue
-                # Terrain filter
-                ok = False
-                if defn.spawn.terrain == "soil":
-                    ok = ctile.terrain_type == TerrainType.SOIL
-                elif defn.spawn.terrain == "sand":
-                    ok = ctile.terrain_type == TerrainType.SAND
-                elif defn.spawn.terrain == "plantable":
-                    ok = ctile.is_plantable()
-                elif defn.spawn.terrain == "any":
-                    ok = ctile.terrain_type != TerrainType.ROCK
-                else:
-                    ok = ctile.terrain_type == TerrainType.SOIL
-                if not ok:
-                    continue
-                custom_obj = ObjectRegistry.create(defn.type_id, cx, cy)
-                if world.add_object(custom_obj):
-                    occupied_tiles.add((cx, cy))
-                    placed += 1
-            if placed > 0:
-                print(f"  Spawned {placed}x {defn.display_name} ({defn.type_id})")
-                custom_spawned += placed
-        if custom_spawned > 0:
-            print(f"Custom objects spawned: {custom_spawned}")
-
-        # Add initial agents
-        print("\nSpawning initial agent population...")
-        agent_cfg = config["agents"]
-        initial_population = agent_cfg["initial_population"]
-
-        # Get brain configuration
-        brain_cfg = config["brain"]
-        weight_count = Brain.calculate_weight_count(
-            input_size=brain_cfg["input_size"],
-            encoder_layers=brain_cfg["encoder_layers"],
-            gru_hidden_size=brain_cfg["gru_hidden_size"],
-            output_size=brain_cfg["output_size"],
-        )
-
-        # Create trait configuration
-        trait_config = create_default_trait_config()
-
-        # Load pre-trained weights if requested
-        pretrained_weights = None
-        if args.load_weights:
-            from utils.agents import BestAgentTracker
-
-            pretrained_weights = BestAgentTracker.load_best_weights(args.load_weights)
-            if pretrained_weights is not None:
-                print(f"Loaded pre-trained weights ({len(pretrained_weights)} values)")
+        # Build the world + population (reusable factory for web "Reset").
+        world = build_world_and_population(config, args)
 
         # Initialize best agent tracker if saving weights
         best_agent_tracker = None
@@ -555,114 +704,6 @@ Examples:
             from utils.agents import BestAgentTracker
 
             best_agent_tracker = BestAgentTracker()
-
-        # Spawn agents on passable tiles
-        agents_spawned = 0
-        attempts = 0
-        max_attempts = initial_population * 10
-
-        while agents_spawned < initial_population and attempts < max_attempts:
-            x = random.randint(0, world.width - 1)
-            y = random.randint(0, world.height - 1)
-            tile = world.get_tile(x, y)
-
-            if tile and tile.is_passable():
-                # Create random genome
-                genome = Genome.random(weight_count, trait_config)
-                # Create agent
-                agent = Agent(
-                    x=x,
-                    y=y,
-                    genome=genome,
-                    max_energy=agent_cfg["max_energy"],
-                    max_age=agent_cfg["max_age"],
-                    inventory_size=agent_cfg["inventory_size"],
-                    metabolism_rate=agent_cfg["metabolism_rate"],
-                )
-
-                # Initialize with pre-trained weights if available
-                if pretrained_weights is not None:
-                    from utils.agents import BestAgentTracker
-
-                    BestAgentTracker.initialize_agent_from_weights(
-                        agent,
-                        pretrained_weights,
-                        mutation_rate=0.02,  # Small mutation for diversity
-                    )
-
-                # Enable learning if RL mode is active
-                if use_learning:
-                    agent.enable_learning(
-                        learning_rate=args.learning_rate,
-                        discount_factor=0.95,
-                        batch_size=16,
-                        buffer_capacity=1000,
-                        compute_backend=learning_cfg.get("compute_backend", "auto"),
-                        compute_device=learning_cfg.get("compute_device", "auto"),
-                    )
-
-                world.add_agent(agent)
-                agents_spawned += 1
-
-            attempts += 1
-        print(f"Agents spawned: {len(world.agents)} agents")
-
-        if use_learning and world.agents:
-            sample_agent = next(iter(world.agents.values()))
-            if sample_agent.learner is not None:
-                print(
-                    f"Learning backend: {sample_agent.learner.compute_backend} "
-                    f"(device: {sample_agent.learner.compute_device})"
-                )
-                print(
-                    "Learning scheduler: "
-                    f"interval={world.learning_train_interval_ticks}, "
-                    f"budget={world.learning_max_updates_per_tick}/tick, "
-                    f"adaptive={'on' if world.learning_adaptive_budget else 'off'}"
-                )
-
-        if agents_spawned < initial_population:
-            print(
-                f"Warning: Only spawned {agents_spawned}/{initial_population} agents (not enough passable tiles)"
-            )  # Set up reproduction configuration from config file
-        if "reproduction" in config:
-            world.reproduction_config = config["reproduction"]
-            if config["reproduction"].get("enabled", False):
-                print("\nReproduction enabled:")
-                print(
-                    f"  Energy threshold: {config['reproduction'].get('energy_threshold', 0.6)*100:.0f}% of max energy"
-                )
-                print(
-                    f"  Minimum age: {config['reproduction'].get('min_age', 100)} ticks"
-                )
-                print(
-                    f"  Energy split: {config['reproduction'].get('energy_split', 0.6)*100:.0f}% (parent loses this much)"
-                )
-                print(
-                    f"  Mutation std: {config['reproduction'].get('mutation_std', 0.02)}"
-                )
-                print(
-                    f"  Cooldown: {config['reproduction'].get('cooldown_ticks', 50)} ticks"
-                )
-                max_pop = config["reproduction"].get("max_population", None)
-                print(f"  Max population: {max_pop if max_pop else 'unlimited'}")
-
-        # Set up calamity configuration from config file
-        if "calamity" in config:
-            world.calamity_config = config["calamity"]
-            if config["calamity"].get("enabled", False):
-                print("\nCalamity system enabled:")
-                print(f"  Interval: {config['calamity'].get('interval', 500)} ticks")
-                print(
-                    f"  Destruction rate: {config['calamity'].get('destruction_rate', 0.3)*100:.0f}%"
-                )
-                print(
-                    f"  Affects plants: {config['calamity'].get('affect_plants', True)}"
-                )
-                print(f"  Affects food: {config['calamity'].get('affect_food', True)}")
-                print(
-                    f"  Affects seeds: {config['calamity'].get('affect_seeds', False)}"
-                )
 
         # Run demo if requested
         if args.demo:
@@ -684,11 +725,52 @@ Examples:
 
             return 0
 
+        # Run the Three.js browser UI if requested
+        if args.web:
+            print("\n" + "=" * 60)
+            print("STARTING WEB UI (Three.js)")
+            print("=" * 60 + "\n")
+
+            from utils.ui.web_server import WebSimulationServer
+
+            tps = config.get("simulation", {}).get("ticks_per_second", 10)
+
+            # World factory enables the in-browser "Reset" control to rebuild a
+            # fresh world using the same config + CLI arguments.
+            def world_factory() -> World:
+                return build_world_and_population(config, args)
+
+            server = WebSimulationServer(
+                world=world,
+                config=config,
+                host=args.host,
+                port=args.port,
+                ticks_per_second=tps,
+                world_factory=world_factory,
+                open_browser=args.open_browser,
+            )
+            server.run()
+
+            # Save best agent weights if requested
+            if best_agent_tracker is not None:
+                print("\nSaving best agent weights...")
+                for agent in server.world.agents.values():
+                    if agent.alive:
+                        best_agent_tracker.update(agent, server.world)
+                best_agent_tracker.save_best_weights()
+
+            if agent_logger:
+                agent_logger.close()
+
+            return 0
+
         # Run GUI if requested
         if args.gui:
             print("\n" + "=" * 60)
             print("STARTING GUI VISUALIZATION")
             print("=" * 60 + "\n")
+
+            from utils.ui.pygame_renderer import PygameRenderer
 
             viz_cfg = config["visualization"]
 

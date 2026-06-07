@@ -23,7 +23,8 @@ This project implements a **2D grid world** where:
 - 🤝 **Cooperation**: Group behaviors emerge without explicit programming
 - 🧠 **Neural Evolution + Online Learning**: Agents use evolved GRU Actor-Critic networks with optional real-time RL
 - 🔀 **Dual Evolution Mode**: RL mode (gradient learning + Lamarckian inheritance) or pure neuroevolution — selectable via `--mode rl` / `--mode neuroevolution`
-- 🎮 **Dual Renderer**: Pygame 2D GUI **or** a GPU-accelerated isometric 2.5D renderer via ModernGL
+- 🎮 **Triple Renderer**: Pygame 2D GUI, a GPU-accelerated isometric 2.5D renderer via ModernGL, **or** a full **Three.js browser UI** (live 3D, dependency-free server)
+- 🌐 **Web UI (Three.js)**: Real-time 3D spectator client with orbit camera, smooth agent motion, sim controls, click/hover inspectors, a spawn tool, a live population graph, and an Object Registry panel with **UI for every object**
 - 🎯 **Contextual Instincts**: Survival-bootstrapping biases (PICK_UP, EAT, USE, turn-toward-food) that fade as learned weights strengthen
 - 🔬 **Scientific Analysis**: Comprehensive action-distribution and survival-metric analysis tools
 - ⚡ **Optimised Engine**: Per-tick caching, set-based tile indexing, persistent log file handles
@@ -57,6 +58,9 @@ python main.py --gui --seed 42
 # GPU isometric 2.5D renderer (requires OpenGL 3.3+)
 python main.py --gpu --seed 42
 
+# Three.js browser UI (live 3D, open the printed URL)
+python main.py --web --open-browser
+
 # Pure neuroevolution mode (no gradient learning)
 python main.py --gui --mode neuroevolution
 
@@ -89,7 +93,15 @@ python main.py --no-viz --generations 1000 --log
 
 > 💡 Pause with **SPACE** then hover for easier tile inspection.
 
-See [CLI_GUIDE.md](CLI_GUIDE.md) for the full command-line reference.
+### Web UI Controls (Three.js renderer)
+
+- **Left-drag**: Orbit camera · **Right-drag**: Pan · **Scroll**: Zoom
+- **Hover**: Tooltip · **Click**: Inspect agent / object / tile
+- **SPACE**: Play/Pause · **S**: Step · **R**: Reset · **G**: Grid · **T**: Trails
+- On-screen panels: speed slider, Object Registry (UI for every object), Spawn tool, live population graph
+
+See [WEB_UI_GUIDE.md](WEB_UI_GUIDE.md) for the full web-renderer reference and
+[CLI_GUIDE.md](CLI_GUIDE.md) for the complete command-line reference.
 
 ## Architecture
 
@@ -101,7 +113,8 @@ emergent-world-model/
 ├── utils/
 │   ├── agents/      # Perception (72-dim obs), action execution, reward shaping
 │   ├── data/        # AgentLogger, WorldModelLogger (async + persistent handles)
-│   └── ui/          # Pygame renderer, GPU isometric renderer (ModernGL)
+│   └── ui/          # Pygame renderer, GPU isometric renderer, Web server + serializer
+├── web/             # Three.js browser UI (index.html, static/js, static/css)
 ├── config/          # YAML configs + custom object definitions
 ├── tests/           # 219 unit tests
 └── data/            # Logs, exported data, saved weights
@@ -271,6 +284,11 @@ Key optimisations applied to maintain high FPS:
 
 - **Pygame renderer** — real-time 2D orthographic view with HUD and tile inspector
 - **GPU isometric renderer** (`--gpu`) — ModernGL 2.5D isometric view, GLSL shaders, frustum culling
+- **Web UI** (`--web`) — Three.js live 3D renderer in the browser: orbit camera,
+  smooth agent interpolation, sim controls (play/pause/step/speed/reset), spawn
+  tool, click/hover inspectors, live population graph, and an Object Registry
+  panel with UI for every registered object. Server is pure-stdlib; see
+  [WEB_UI_GUIDE.md](WEB_UI_GUIDE.md).
 - **Data analysis** — action-distribution script with target comparison
 
 ## Research Applications
@@ -297,6 +315,7 @@ This sandbox is designed for studying:
 - **Environmental Dynamics**: Day/night cycles, seasons, temperature, and weather
 - **Speciation (NEAT-style)**: Species-level diversity protection
 - **World Models**: Dreamer-style imagination and model-based planning
+- **Web UI streaming & multiplayer spectating**: WebSocket delta streaming, camera-follow events, and a shareable always-on world (builds on the new `--web` Three.js client)
 
 See [SUGGESTIONS.md](SUGGESTIONS.md) for the full 80+ item roadmap.
 

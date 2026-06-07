@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🌍 Emergent World-Model Sandbox — 3D</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <!--
+    Three.js is loaded from a CDN via an import map (standard ES-module
+    approach).  An internet connection is required the first time; the
+    browser caches the modules afterwards.
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <!-- 3D viewport -->
+  <canvas id="viewport"></canvas>
+
+  <!-- Loading splash -->
+  <div id="loading">
+    <div class="spinner"></div>
+    <div class="loading-text">Connecting to simulation…</div>
+  </div>
+
+  <!-- Top bar: title + live stats -->
+  <header id="topbar">
+    <div class="brand">🌍 Emergent World <span class="brand-sub">3D</span></div>
+    <div id="stats" class="stats"></div>
+  </header>
+
+  <!-- Simulation transport controls -->
+  <div id="controls" class="panel">
+    <div class="panel-title">Simulation</div>
+    <div class="control-row">
+      <button id="btn-play" class="btn btn-primary" title="Play / Pause (Space)">▶ Play</button>
+      <button id="btn-step" class="btn" title="Step one tick (S)">⏭ Step</button>
+      <button id="btn-reset" class="btn btn-danger" title="Reset world (R)">⟲ Reset</button>
+    </div>
+    <div class="control-row">
+      <label class="slider-label">Speed <span id="speed-val">1.0×</span></label>
+      <input id="speed" type="range" min="0" max="20" step="0.5" value="1" />
+    </div>
+    <div class="control-row toggles">
+      <label><input type="checkbox" id="tg-grid" /> Grid</label>
+      <label><input type="checkbox" id="tg-trails" /> Trails</label>
+      <label><input type="checkbox" id="tg-height" checked /> 3D terrain</label>
+    </div>
+  </div>
+
+  <!-- Left rail: object registry + spawn tool -->
+  <aside id="rail" class="panel">
+    <div class="tabs">
+      <button class="tab active" data-tab="registry">Objects</button>
+      <button class="tab" data-tab="spawn">Spawn</button>
+      <button class="tab" data-tab="legend">Legend</button>
+    </div>
+    <div class="tab-body">
+      <div id="tab-registry" class="tab-pane active"></div>
+      <div id="tab-spawn" class="tab-pane"></div>
+      <div id="tab-legend" class="tab-pane"></div>
+    </div>
+  </aside>
+
+  <!-- Right inspector panel (entity / tile detail) -->
+  <aside id="inspector" class="panel hidden">
+    <div class="panel-title">
+      <span id="inspector-title">Inspector</span>
+      <button id="inspector-close" class="x">×</button>
+    </div>
+    <div id="inspector-body"></div>
+  </aside>
+
+  <!-- Bottom-left: live population graph -->
+  <div id="graph-panel" class="panel">
+    <div class="panel-title">Population &amp; Energy</div>
+    <canvas id="graph" width="260" height="90"></canvas>
+  </div>
+
+  <!-- Hover tooltip -->
+  <div id="tooltip" class="tooltip hidden"></div>
+
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
