@@ -3,7 +3,7 @@ Main entry point for the Emergent World-Model Sandbox.
 
 This script initializes and runs the simulation with the specified configuration.
 
-Author: Karan Vasa 
+Author: Karan Vasa
 Co-Author: Vinchenzo98
 """
 
@@ -450,7 +450,7 @@ Examples:
         # Add berries
         berries_added = 0
         attempts = 0
-        
+
         while berries_added < initial_resources // 4 and attempts < max_attempts:
             attempts += 1
             x = random.randint(0, world.width - 1)
@@ -821,7 +821,7 @@ Examples:
                 if stream_server is not None and world.tick % stream_every == 0:
                     stream_server.publish(build_frame(world))
                     print("built frame")
-                
+
                 if world.tick % progress_every == 0:
                     print(f"streaming world tick: {world.tick}")
                     counts = world.get_cached_object_counts()
@@ -833,9 +833,7 @@ Examples:
 
                 # Stop early if population goes extinct
                 if not world.agents:
-                    print(
-                        f"Population extinct at tick {world.tick}. Ending run early."
-                    )
+                    print(f"Population extinct at tick {world.tick}. Ending run early.")
                     break
         finally:
             if stream_server is not None:

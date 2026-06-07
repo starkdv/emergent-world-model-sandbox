@@ -104,9 +104,7 @@ class StreamServer:
         # Wait for the listener to bind (or give up after 5s).
         bound = self._started.wait(timeout=5)
         if self._start_error is not None:
-            raise RuntimeError(
-                f"Stream server failed to start: {self._start_error!r}"
-            )
+            raise RuntimeError(f"Stream server failed to start: {self._start_error!r}")
         if not bound:
             raise RuntimeError("Stream server failed to start within 5s")
 
