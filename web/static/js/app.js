@@ -87,6 +87,12 @@ async function init() {
   const terrain = await Net.terrain();
   world3d.buildTerrain(terrain);
 
+  // Load real glTF model assets (agents + any object models from the
+  // manifest). Failures fall back to sprite icons; never blocks startup.
+  const loadingText = document.querySelector(".loading-text");
+  if (loadingText) loadingText.textContent = "Loading 3D assets…";
+  await world3d.loadAssets();
+
   // Invisible ground plane for tile picking.
   const planeGeo = new THREE.PlaneGeometry(W, H);
   const planeMat = new THREE.MeshBasicMaterial({ visible: false });

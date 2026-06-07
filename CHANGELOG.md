@@ -12,13 +12,18 @@
   - `web/`: the front-end — `index.html`, `static/css/style.css`, and ES modules
     `app.js` (orchestration), `world3d.js` (Three.js scene), `ui.js` (DOM panels),
     `net.js` (API client).
-  - Live 3D terrain (height + colour by type); objects and agents rendered as
-    **real textured image sprites** loaded from shipped SVG art assets
-    (`web/static/assets/`) rather than primitive geometry — berries, seeds,
-    plants, fertilizer, an agent creature (energy-tinted) with a flat facing
-    arrow. The same icons are reused across the registry cards, spawn list,
-    inspector, tooltips, and inventory chips. Custom YAML objects fall back to a
-    category icon tinted by their registry colour.
+  - Real game-asset pipeline: a `GLTFLoader`-based model system driven by
+    `web/static/assets/manifest.json`. **Agents** load a real CC0 animated glTF
+    model (three.js `RobotExpressive`) from the same CDN as the three.js runtime,
+    rotated to facing with an energy-tinted ground disc. **Objects** load real
+    `.glb` models when mapped in the manifest (drop CC0 packs — Kenney /
+    Quaternius — into `web/static/assets/models/`). Everything falls back
+    automatically to shipped **SVG sprite** art if a model is absent or the CDN
+    is unreachable, so the world always renders. Added
+    `web/static/assets/{manifest.json,CREDITS.md,models/README.md}`.
+  - Sprite fallback art (`web/static/assets/*.svg`) doubles as the icons reused
+    across the registry cards, spawn list, inspector, tooltips, and inventory
+    chips. Custom YAML objects get a category icon/model tinted by their colour.
   - Smooth agent interpolation, optional trails and grid, orbit camera, hover
     tooltips, click inspectors, a spawn tool, a rolling population/energy graph,
     and an **Object Registry panel with UI for every registered object type**

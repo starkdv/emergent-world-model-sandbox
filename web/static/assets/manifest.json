@@ -1,0 +1,15 @@
+{
+  "_comment": "Asset manifest for the 3D web renderer. Maps agents and object types/categories to real glTF (.glb) models. Entries with a model that fails to load fall back automatically to the shipped SVG sprite icons. Absolute http(s) URLs load as-is; relative paths resolve under /static/assets/ (e.g. 'models/plant.glb').",
+  "agent": {
+    "model": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/models/gltf/RobotExpressive/RobotExpressive.glb",
+    "scale": 0.42,
+    "yOffset": 0.0,
+    "skinned": true,
+    "animation": "Walking",
+    "license": "CC0 1.0 — Tomás Laulhé, modified by Don McCurdy (ships with three.js)"
+  },
+  "objects": {
+    "by_type": {},
+    "by_category": {}
+  }
+}

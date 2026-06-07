@@ -90,28 +90,43 @@ Because the cards are data-driven, adding a new object via
 entry, a legend icon, and correct 3D rendering — **no client changes
 required.**
 
-### Visual encoding — real image sprites
+### Real game assets — glTF models with sprite fallback
 
-Objects and agents are drawn as **textured image sprites** loaded from real SVG
-art assets in `web/static/assets/` (not primitive geometry). Each is a
-camera-facing billboard, so it stays readable from any orbit angle. The **same
-icons** appear in the registry cards, spawn list, inspector, tooltips, and
-inventory chips, giving every object one consistent visual identity.
+The renderer uses a real game-development asset pipeline driven by
+[`web/static/assets/manifest.json`](web/static/assets/manifest.json):
 
-| Type / category | Art asset | Notes |
-|-----------------|-----------|-------|
-| `berry` / food | `berry.svg` / `food.svg` | sprite scales subtly with freshness |
-| `berry_seed` / seed | `seed.svg` | germinated, agent-planted seeds switch to `seed_planted.svg` (golden sprout) |
-| `berry_plant` / plant | `plant.svg` | scales with maturity; mature plants switch to `plant_mature.svg` (with ripe berries) |
-| fertilizer | `fertilizer.svg` | — |
-| tool | `tool.svg` | — |
-| any custom type | category fallback icon | tinted by the object's registry colour so it stays distinct |
-| terrain (sand) | the ground tile itself | terrain palette |
-| **agent** | `agent.svg` creature | body tinted by energy (green → amber → red); a flat `arrow.svg` decal on the ground shows facing |
+* **Agents** load a real **glTF model** — by default three.js's CC0
+  **`RobotExpressive`** (animated), fetched from the same CDN as the three.js
+  runtime. Each agent is an independent animated instance, rotated to its facing
+  direction, with a ground disc tinted by energy (green → amber → red).
+* **Objects** load real `.glb` **models** when the manifest maps their
+  `type_id` or `category` to one (drop files into
+  [`web/static/assets/models/`](web/static/assets/models/)). Plants scale up as
+  they mature.
+* **Automatic fallback:** any entity without a model — or whose model fails to
+  load — falls back to a shipped **SVG sprite** (`web/static/assets/*.svg`), so
+  the world always renders. Custom YAML objects get their category sprite tinted
+  by `render.color`.
 
-Built-in object types ship bespoke art; **custom YAML objects** automatically
-get the icon for their `category`, tinted by their `render.color`, so no client
-changes are needed to add new objects.
+The **same icons** also appear in the registry cards, spawn list, inspector,
+tooltips, and inventory chips, giving every object one consistent identity.
+
+#### Adding real models for objects
+
+The sandbox can't bundle third-party packs, but adding them is a drop-in:
+
+1. Download a CC0 pack — **Kenney** (kenney.nl), **Quaternius** (quaternius.com),
+   or **Poly Pizza** (poly.pizza, CC0 filter) — these are what real game devs use.
+2. Put the `.glb` files in `web/static/assets/models/`.
+3. Map them in `manifest.json` (`objects.by_type` / `objects.by_category`).
+
+See [`web/static/assets/models/README.md`](web/static/assets/models/README.md)
+for the manifest format and [`web/static/assets/CREDITS.md`](web/static/assets/CREDITS.md)
+for licensing. No code changes required.
+
+> **Sprite-only fallback:** if the model CDN is unreachable, the whole world
+> renders with the shipped SVG sprites instead (berries, plants, an energy-tinted
+> agent creature with a facing arrow) — nothing breaks.
 
 ---
 
@@ -169,10 +184,13 @@ web/static/js/app.js    ─── GET /api/* ─▶   WebSimulationServer
 | `utils/ui/web_serialize.py` | Pure world → JSON serialisation (meta / state / terrain / inspection). Unit-testable, no browser needed. |
 | `web/index.html` | Page shell + Three.js import map. |
 | `web/static/css/style.css` | Dark-theme UI styling. |
-| `web/static/assets/*.svg` | Real art assets (object icons, agent creature, facing arrow). |
-| `web/static/js/icons.js` | Shared icon resolver (type_id / category → asset) used by the 3D scene **and** the DOM panels. |
+| `web/static/assets/manifest.json` | Maps agents + object types/categories to real glTF models (with sprite fallback). |
+| `web/static/assets/models/` | Drop-in folder for CC0 `.glb` model packs (see its README). |
+| `web/static/assets/*.svg` | Fallback sprite art + the icons shown in the DOM panels. |
+| `web/static/assets/CREDITS.md` | Asset licensing / sources. |
+| `web/static/js/icons.js` | Shared icon resolver (type_id / category → sprite) used by the 3D scene **and** the DOM panels. |
 | `web/static/js/net.js` | `fetch` wrapper for the JSON API. |
-| `web/static/js/world3d.js` | Three.js scene: terrain ground, image-sprite objects & agents, trails, picking. |
+| `web/static/js/world3d.js` | Three.js scene: terrain, glTF-model/sprite objects & agents (GLTFLoader), trails, picking. |
 | `web/static/js/ui.js` | DOM panels: HUD, object registry, spawn, legend, inspector, graph. |
 | `web/static/js/app.js` | Orchestration: scene/camera/lights, render loop, polling, input. |
 

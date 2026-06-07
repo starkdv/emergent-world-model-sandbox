@@ -24,7 +24,7 @@ This project implements a **2D grid world** where:
 - 🧠 **Neural Evolution + Online Learning**: Agents use evolved GRU Actor-Critic networks with optional real-time RL
 - 🔀 **Dual Evolution Mode**: RL mode (gradient learning + Lamarckian inheritance) or pure neuroevolution — selectable via `--mode rl` / `--mode neuroevolution`
 - 🎮 **Triple Renderer**: Pygame 2D GUI, a GPU-accelerated isometric 2.5D renderer via ModernGL, **or** a full **Three.js browser UI** (live 3D, dependency-free server)
-- 🌐 **Web UI (Three.js)**: Real-time 3D spectator client where objects and agents are drawn as **real image sprites** (shipped SVG art, not primitive shapes) — orbit camera, smooth agent motion, sim controls, click/hover inspectors, a spawn tool, a live population graph, and an Object Registry panel with **UI for every object**
+- 🌐 **Web UI (Three.js)**: Real-time 3D spectator client with a real game-asset pipeline — agents are **animated glTF models** (CC0 `RobotExpressive`) and objects load real `.glb` models via a manifest (CC0 Kenney/Quaternius packs drop straight in), with automatic SVG-sprite fallback. Orbit camera, smooth agent motion, sim controls, click/hover inspectors, a spawn tool, a live population graph, and an Object Registry panel with **UI for every object**
 - 🎯 **Contextual Instincts**: Survival-bootstrapping biases (PICK_UP, EAT, USE, turn-toward-food) that fade as learned weights strengthen
 - 🔬 **Scientific Analysis**: Comprehensive action-distribution and survival-metric analysis tools
 - ⚡ **Optimised Engine**: Per-tick caching, set-based tile indexing, persistent log file handles
@@ -284,13 +284,15 @@ Key optimisations applied to maintain high FPS:
 
 - **Pygame renderer** — real-time 2D orthographic view with HUD and tile inspector
 - **GPU isometric renderer** (`--gpu`) — ModernGL 2.5D isometric view, GLSL shaders, frustum culling
-- **Web UI** (`--web`) — Three.js live 3D renderer in the browser. Objects and
-  agents are drawn as **real textured image sprites** (shipped SVG art assets),
-  not primitive geometry, and the same icons appear across the registry cards,
-  spawn list, and inspector. Orbit camera, smooth agent interpolation, sim
-  controls (play/pause/step/speed/reset), spawn tool, click/hover inspectors,
-  live population graph, and an Object Registry panel with UI for every
-  registered object. Server is pure-stdlib; see [WEB_UI_GUIDE.md](WEB_UI_GUIDE.md).
+- **Web UI** (`--web`) — Three.js live 3D renderer in the browser with a real
+  game-asset pipeline: agents are **animated glTF models** (CC0 `RobotExpressive`)
+  and objects load real `.glb` models via `web/static/assets/manifest.json`
+  (drop in CC0 Kenney/Quaternius packs), with automatic SVG-sprite fallback so
+  it always renders. The same icons appear across the registry cards, spawn list,
+  and inspector. Orbit camera, smooth agent interpolation, sim controls
+  (play/pause/step/speed/reset), spawn tool, click/hover inspectors, live
+  population graph, and an Object Registry panel with UI for every registered
+  object. Server is pure-stdlib; see [WEB_UI_GUIDE.md](WEB_UI_GUIDE.md).
 - **Data analysis** — action-distribution script with target comparison
 
 ## Research Applications
