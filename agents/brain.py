@@ -222,8 +222,12 @@ class Brain:
         probs = brain_utils.softmax(logits)
 
         # 4. Value head: Estimate state value
+        # The value head produces a length-1 array; use ``.item()`` to extract
+        # the scalar (numpy 2.x rejects float() on non-0-d arrays).
         value = float(
-            h_next @ self.params["value_head"]["W"] + self.params["value_head"]["b"]
+            (
+                h_next @ self.params["value_head"]["W"] + self.params["value_head"]["b"]
+            ).item()
         )
 
         return probs, value, h_next
