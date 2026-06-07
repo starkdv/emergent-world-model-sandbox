@@ -12,11 +12,19 @@
   - `web/`: the front-end — `index.html`, `static/css/style.css`, and ES modules
     `app.js` (orchestration), `world3d.js` (Three.js scene), `ui.js` (DOM panels),
     `net.js` (API client).
-  - Live 3D terrain (height + colour by type), per-type object meshes, agents as
-    energy-coloured oriented cones with smooth interpolation, optional trails and
-    grid, orbit camera, hover tooltips, click inspectors, a spawn tool, a rolling
-    population/energy graph, and an **Object Registry panel with UI for every
-    registered object type** (built-in and custom YAML objects alike).
+  - Live 3D terrain (height + colour by type); objects and agents rendered as
+    **real textured image sprites** loaded from shipped SVG art assets
+    (`web/static/assets/`) rather than primitive geometry — berries, seeds,
+    plants, fertilizer, an agent creature (energy-tinted) with a flat facing
+    arrow. The same icons are reused across the registry cards, spawn list,
+    inspector, tooltips, and inventory chips. Custom YAML objects fall back to a
+    category icon tinted by their registry colour.
+  - Smooth agent interpolation, optional trails and grid, orbit camera, hover
+    tooltips, click inspectors, a spawn tool, a rolling population/energy graph,
+    and an **Object Registry panel with UI for every registered object type**
+    (built-in and custom YAML objects alike).
+  - `web/static/js/icons.js`: shared icon resolver used by both the 3D scene and
+    the DOM panels.
   - `WEB_UI_GUIDE.md`: complete reference for the web renderer.
 - `main.py`: new `--web`, `--host`, `--port`, and `--open-browser` flags.
 - `agents/agent.py`: Improved agent lifecycle and GRU hidden-state integration.

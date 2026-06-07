@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!--
+    Agent creature. The body is a near-white gradient so the renderer can
+    multiply it by the agent's energy colour (green/amber/red) at runtime.
+    Eyes and outline stay dark regardless of tint.
+  -->
+  <defs>
+    <radialGradient id="body" cx="42%" cy="32%" r="75%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#cfd6da"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="64" cy="116" rx="26" ry="7" fill="#000" opacity="0.2"/>
+  <!-- antenna -->
+  <path d="M64 34 C62 24 58 18 50 16" stroke="#2a2f33" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <circle cx="48" cy="14" r="6" fill="#2a2f33"/>
+  <!-- body (rounded creature) -->
+  <path d="M64 30 C36 30 26 54 26 78 C26 104 44 116 64 116 C84 116 102 104 102 78 C102 54 92 30 64 30 Z"
+        fill="url(#body)" stroke="#2a2f33" stroke-width="4"/>
+  <!-- little feet -->
+  <ellipse cx="48" cy="114" rx="10" ry="7" fill="url(#body)" stroke="#2a2f33" stroke-width="3"/>
+  <ellipse cx="80" cy="114" rx="10" ry="7" fill="url(#body)" stroke="#2a2f33" stroke-width="3"/>
+  <!-- eyes -->
+  <circle cx="52" cy="70" r="9" fill="#fff" stroke="#2a2f33" stroke-width="3"/>
+  <circle cx="80" cy="70" r="9" fill="#fff" stroke="#2a2f33" stroke-width="3"/>
+  <circle cx="54" cy="72" r="4" fill="#2a2f33"/>
+  <circle cx="82" cy="72" r="4" fill="#2a2f33"/>
+  <!-- smile -->
+  <path d="M52 88 Q64 98 76 88" stroke="#2a2f33" stroke-width="4" fill="none" stroke-linecap="round"/>
+</svg>

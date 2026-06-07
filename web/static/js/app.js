@@ -16,6 +16,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Net } from "./net.js";
 import { World3D } from "./world3d.js";
 import { UI } from "./ui.js";
+import { iconForType, AGENT_ICON } from "./icons.js";
 
 let scene, camera, renderer, controls, world3d, ui;
 let meta = null;
@@ -226,15 +227,18 @@ function updateHover() {
       const a = (latestState?.agents || []).find((x) => x.id === entity.id);
       if (a) {
         ui.showTooltip(
-          `<div class="t-title">Agent #${a.id}</div>
+          `<div class="t-title"><img src="${AGENT_ICON}" width="16" height="16" style="vertical-align:middle">
+             Agent #${a.id}</div>
            <div class="muted">Energy ${a.e}/${a.me} · gen ${a.gen}</div>`,
           mouseClientX, mouseClientY
         );
       }
     } else {
       const def = meta.object_types[entity.typeId];
+      const url = iconForType(entity.typeId, entity.cat).url;
       ui.showTooltip(
-        `<div class="t-title">${def ? def.display_name : entity.typeId}</div>
+        `<div class="t-title"><img src="${url}" width="16" height="16" style="vertical-align:middle">
+           ${def ? def.display_name : entity.typeId}</div>
          <div class="muted">${entity.cat}</div>`,
         mouseClientX, mouseClientY
       );

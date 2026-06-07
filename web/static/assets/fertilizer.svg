@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="fbag" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#b9905a"/>
+      <stop offset="100%" stop-color="#7a5a34"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="64" cy="114" rx="34" ry="8" fill="#000" opacity="0.18"/>
+  <!-- sack -->
+  <path d="M40 44 C40 36 88 36 88 44 L94 100 C94 110 34 110 34 100 Z" fill="url(#fbag)"/>
+  <!-- tied top -->
+  <path d="M40 44 C52 34 76 34 88 44 C80 50 48 50 40 44 Z" fill="#8f6a3e"/>
+  <rect x="58" y="30" width="12" height="14" rx="4" fill="#6b4a2a"/>
+  <!-- label + nutrient mark -->
+  <circle cx="64" cy="78" r="20" fill="#e9dcc4"/>
+  <path d="M64 66 L64 90 M52 78 L76 78" stroke="#3f7d2a" stroke-width="7" stroke-linecap="round"/>
+  <!-- spilled grains -->
+  <circle cx="34" cy="104" r="3" fill="#caa46c"/>
+  <circle cx="44" cy="108" r="2.6" fill="#caa46c"/>
+  <circle cx="92" cy="104" r="3" fill="#caa46c"/>
+</svg>

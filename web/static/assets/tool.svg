@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="mtl" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#dfe6ee"/>
+      <stop offset="100%" stop-color="#9aa6b2"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="64" cy="114" rx="30" ry="8" fill="#000" opacity="0.18"/>
+  <!-- wrench -->
+  <g transform="rotate(40 64 64)">
+    <rect x="56" y="40" width="16" height="56" rx="7" fill="url(#mtl)"/>
+    <path d="M48 38 a18 18 0 1 1 32 0 l-9 6 -5 -9 -9 9 Z" fill="url(#mtl)"/>
+    <rect x="58" y="86" width="12" height="14" rx="6" fill="#7a5a34"/>
+  </g>
+</svg>

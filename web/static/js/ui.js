@@ -9,8 +9,20 @@
  * Author: Karan Vasa
  */
 
+import { iconForType } from "./icons.js";
+
 const $ = (id) => document.getElementById(id);
 const rgb = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
+
+/**
+ * Build an <img> tag for an object's real icon (shared art assets). Category
+ * fallback icons get a coloured ring so custom types stay distinguishable.
+ */
+function iconImg(typeId, category, color, size = 22) {
+  const { url, specific } = iconForType(typeId, category);
+  const ring = !specific && color ? `box-shadow:0 0 0 2px ${rgb(color)} inset;` : "";
+  return `<img class="obj-icon" src="${url}" width="${size}" height="${size}" style="${ring}" alt="" draggable="false">`;
+}
 
 export class UI {
   constructor(meta, callbacks) {
@@ -139,7 +151,7 @@ export class UI {
         return `
           <div class="obj-card" data-type="${d.type_id}">
             <div class="obj-head">
-              <span class="swatch" style="background:${rgb(d.color)}"></span>
+              ${iconImg(d.type_id, d.category, d.color)}
               <span class="obj-name">${d.display_name}</span>
               <span class="obj-cat">${d.category}</span>
             </div>
@@ -168,7 +180,7 @@ export class UI {
       .map(
         (d) => `
         <div class="spawn-item" data-type="${d.type_id}">
-          <span class="swatch" style="background:${rgb(d.color)}"></span>
+          ${iconImg(d.type_id, d.category, d.color)}
           <span class="obj-name">${d.display_name}</span>
           <span class="obj-cat">${d.category}</span>
         </div>`
@@ -220,11 +232,12 @@ export class UI {
         <div class="legend-item"><span class="swatch" style="background:rgb(255,100,0)"></span>Low</div>
         <div class="legend-item"><span class="swatch" style="background:rgb(255,50,50)"></span>Critical</div>
       </div>
-      <div class="sect"><div class="sect-title">Shapes</div>
-        <div class="legend-item">● Sphere — food</div>
-        <div class="legend-item">◆ Diamond — seed</div>
-        <div class="legend-item">▲ Cone — plant / agent</div>
-        <div class="legend-item">■ Box — fertilizer / tool</div>
+      <div class="sect"><div class="sect-title">Object icons</div>
+        <div class="legend-item">${iconImg("", "food", null, 18)} food</div>
+        <div class="legend-item">${iconImg("", "seed", null, 18)} seed</div>
+        <div class="legend-item">${iconImg("", "plant", null, 18)} plant</div>
+        <div class="legend-item">${iconImg("", "fertilizer", null, 18)} fertilizer</div>
+        <div class="legend-item">${iconImg("", "tool", null, 18)} tool</div>
       </div>`;
   }
 
@@ -239,7 +252,7 @@ export class UI {
       ? d.inventory
           .map(
             (it) =>
-              `<span class="inv-chip"><span class="swatch" style="background:${rgb(it.color)}"></span>${it.name}</span>`
+              `<span class="inv-chip">${iconImg(it.type_id, it.category, it.color, 16)}${it.name}</span>`
           )
           .join("")
       : `<span class="muted">empty</span>`;
@@ -276,7 +289,7 @@ export class UI {
       .join("");
     $("inspector-title").textContent = d.name;
     $("inspector-body").innerHTML = `
-      <div class="kv"><span class="k">Type</span><span class="v"><span class="swatch" style="background:${rgb(d.color)};display:inline-block;vertical-align:middle"></span> ${d.type_id}</span></div>
+      <div class="kv"><span class="k">Type</span><span class="v">${iconImg(d.type_id, d.category, d.color, 18)} ${d.type_id}</span></div>
       ${this._kv("Category", d.category)}
       ${this._kv("Position", `(${d.x}, ${d.y})`)}
       ${comps || '<div class="muted">No components.</div>'}
@@ -286,7 +299,7 @@ export class UI {
 
   showTile(d) {
     const objs = d.objects.length
-      ? d.objects.map((o) => `<div class="legend-item"><span class="swatch" style="background:${rgb(o.color)}"></span>${o.name} <span class="obj-cat">${o.category}</span></div>`).join("")
+      ? d.objects.map((o) => `<div class="legend-item">${iconImg(o.type_id, o.category, o.color, 18)}${o.name} <span class="obj-cat">${o.category}</span></div>`).join("")
       : '<div class="muted">none</div>';
     const agents = d.agents.length
       ? d.agents.map((a) => this._kv(`Agent #${a.id}`, `E ${a.energy} · gen ${a.generation}`)).join("")

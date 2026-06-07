@@ -148,6 +148,11 @@ input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
 }
 .obj-head:hover { background: rgba(255,255,255,0.05); }
 .swatch { width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.25); flex-shrink: 0; }
+.obj-icon {
+  flex-shrink: 0; border-radius: 5px; object-fit: contain;
+  vertical-align: middle; background: rgba(255,255,255,0.04);
+  image-rendering: auto;
+}
 .obj-name { font-weight: 600; flex: 1; }
 .obj-cat {
   font-size: 10px; color: var(--text-dim);

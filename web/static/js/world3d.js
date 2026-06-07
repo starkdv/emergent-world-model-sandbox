@@ -1,22 +1,26 @@
 /*
  * 3D world renderer (Three.js) for the Emergent World-Model Sandbox.
  *
- * Responsible for building and updating the scene:
- *   - terrain  : an InstancedMesh of tile boxes coloured + raised by type
- *   - objects  : per-object meshes keyed by id (berry, seed, plant, …)
- *   - agents   : oriented cones, colour-coded by energy, smoothly interpolated
- *   - trails   : optional fading dots tracing recent agent positions
+ * Objects and agents are rendered as TEXTURED IMAGE SPRITES loaded from real
+ * SVG art assets (web/static/assets/) — not primitive geometry. Every
+ * registered object type maps to a bespoke icon (or a category fallback,
+ * tinted by its registry colour for custom YAML types), so the world reads as
+ * a real simulation: berries look like berries, plants like plants, agents
+ * like little creatures.
  *
- * Every registered object type is rendered with a distinct mesh derived from
- * its category and registry colour, so custom YAML objects appear correctly
- * without any client changes.
+ * Responsibilities:
+ *   - terrain : an InstancedMesh of tile boxes (the ground) coloured by type
+ *   - objects : camera-facing image sprites keyed by object id
+ *   - agents  : image-sprite creatures (energy-tinted) + a flat facing arrow
+ *   - trails  : optional fading dots tracing recent agent positions
  *
  * Author: Karan Vasa
  */
 
 import * as THREE from "three";
+import { iconForType, VARIANT, AGENT_ICON, ARROW_ICON } from "./icons.js";
 
-// Terrain visual profile per type: [heightScale, yColorTint].
+// Terrain visual profile per type.
 const TERRAIN_HEIGHT = { soil: 0.4, rock: 1.4, water: 0.18, sand: 0.5 };
 const TERRAIN_Y = { soil: 0.0, rock: 0.0, water: -0.18, sand: 0.0 };
 
@@ -25,7 +29,27 @@ const _m4 = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _v = new THREE.Vector3();
 const _scale = new THREE.Vector3();
-const UP = new THREE.Vector3(0, 1, 0);
+
+/** Caches textures by URL so each SVG asset is loaded only once. */
+class TextureCache {
+  constructor() {
+    this.loader = new THREE.TextureLoader();
+    this.cache = new Map();
+  }
+  get(url) {
+    let tex = this.cache.get(url);
+    if (!tex) {
+      tex = this.loader.load(url);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.magFilter = THREE.LinearFilter;
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.generateMipmaps = true;
+      tex.anisotropy = 4;
+      this.cache.set(url, tex);
+    }
+    return tex;
+  }
+}
 
 export class World3D {
   /**
@@ -42,35 +66,30 @@ export class World3D {
 
     this.objectTypes = meta.object_types || {};
     this.terrainPalette = meta.terrain_palette || {};
-    this.terrainCodeName = {}; // code → name
+    this.terrainCodeName = {};
     for (const [name, code] of Object.entries(meta.terrain_codes || {})) {
       this.terrainCodeName[code] = name;
     }
 
-    // Live mesh registries.
-    this.objectMeshes = new Map(); // id → THREE.Mesh
-    this.agentMeshes = new Map(); // id → { mesh, target:Vec3, targetRot:number }
-    this.pickables = []; // meshes raycastable for selection
+    this.tex = new TextureCache();
 
-    // Shared geometries (created once, reused per mesh).
-    this._geo = {
-      food: new THREE.SphereGeometry(0.32, 14, 12),
-      seed: new THREE.OctahedronGeometry(0.28),
-      plant: new THREE.ConeGeometry(0.32, 0.9, 8),
-      fertilizer: new THREE.BoxGeometry(0.45, 0.4, 0.45),
-      tool: new THREE.BoxGeometry(0.4, 0.5, 0.4),
-      generic: new THREE.IcosahedronGeometry(0.32, 0),
-      agent: new THREE.ConeGeometry(0.36, 0.95, 5),
-    };
+    // Live registries.
+    this.objectMeshes = new Map(); // id → THREE.Sprite
+    this.agentMeshes = new Map(); // id → { group, sprite, arrow, target, targetRot }
+    this.pickables = []; // agent groups raycastable for selection
+
+    // Shared geometry for the flat facing arrow under each agent.
+    this._arrowGeo = new THREE.PlaneGeometry(0.7, 0.7);
 
     this.terrainMesh = null;
     this.terrainVersion = -1;
+    this.tileTopY = null; // per-tile ground-surface Y (row-major)
     this.gridHelper = null;
     this.trailsEnabled = false;
     this.heightEnabled = true;
     this._trailGroup = new THREE.Group();
     this.scene.add(this._trailGroup);
-    this._agentHistory = new Map(); // id → [Vec3,…]
+    this._agentHistory = new Map();
   }
 
   /** Convert world (x, y) to scene coordinates (X, Z), centred on origin. */
@@ -78,18 +97,20 @@ export class World3D {
     return [x - this.offX + 0.5, y - this.offZ + 0.5];
   }
 
+  /** Ground-surface Y for a world tile (top of its terrain box). */
+  topYAt(x, y) {
+    if (!this.tileTopY) return 0;
+    const i = y * this.width + x;
+    return this.tileTopY[i] ?? 0;
+  }
+
   // ------------------------------------------------------------------
-  // Terrain
+  // Terrain (the ground — kept as instanced boxes)
   // ------------------------------------------------------------------
 
-  /**
-   * Build (or rebuild) the terrain InstancedMesh from a terrain payload.
-   * @param {Object} terrain - payload from /api/terrain
-   */
   buildTerrain(terrain) {
     if (this.terrainMesh) {
       this.scene.remove(this.terrainMesh);
-      this.terrainMesh.dispose?.();
       this.terrainMesh.geometry.dispose();
       this.terrainMesh.material.dispose();
     }
@@ -102,9 +123,9 @@ export class World3D {
       flatShading: true,
     });
     const mesh = new THREE.InstancedMesh(geo, mat, count);
-    mesh.castShadow = false;
     mesh.receiveShadow = true;
 
+    this.tileTopY = new Float32Array(count);
     const types = terrain.types;
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
@@ -118,10 +139,10 @@ export class World3D {
         _v.set(sx, yBase + h / 2 - 0.5, sz);
         _m4.compose(_v, _q, _scale);
         mesh.setMatrixAt(i, _m4);
+        this.tileTopY[i] = yBase + h - 0.5; // top surface
 
         const rgb = this.terrainPalette[name] || [100, 100, 100];
         _color.setRGB(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
-        // Subtle per-tile variation for visual richness.
         const jitter = 0.9 + ((x * 13 + y * 7) % 7) * 0.03;
         _color.multiplyScalar(jitter);
         mesh.setColorAt(i, _color);
@@ -135,7 +156,6 @@ export class World3D {
     this.scene.add(mesh);
   }
 
-  /** Toggle the wireframe grid overlay. */
   setGrid(on) {
     if (on && !this.gridHelper) {
       const size = Math.max(this.width, this.height);
@@ -150,108 +170,91 @@ export class World3D {
     }
   }
 
-  /** Toggle 3D terrain heights (forces a terrain rebuild on next sync). */
   setHeight(on) {
     this.heightEnabled = on;
-    this.terrainVersion = -1; // force rebuild
+    this.terrainVersion = -1; // force rebuild on next sync
   }
 
   // ------------------------------------------------------------------
-  // Objects
+  // Objects — image sprites
   // ------------------------------------------------------------------
 
-  _objColor(typeId) {
+  _registryColor(typeId) {
     const def = this.objectTypes[typeId];
     const rgb = def ? def.color : [200, 200, 200];
     return new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
   }
 
-  _makeObjectMesh(rec) {
-    const cat = rec.cat;
-    let geo = this._geo.generic;
-    if (cat === "food") geo = this._geo.food;
-    else if (cat === "seed") geo = this._geo.seed;
-    else if (cat === "plant") geo = this._geo.plant;
-    else if (cat === "fertilizer") geo = this._geo.fertilizer;
-    else if (cat === "tool") geo = this._geo.tool;
-
-    const col = this._objColor(rec.t);
-    const mat = new THREE.MeshStandardMaterial({
-      color: col,
-      roughness: 0.6,
-      metalness: 0.1,
-      emissive: col.clone().multiplyScalar(0.0),
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.userData = { kind: "object", id: rec.id, typeId: rec.t, cat };
-    mesh.castShadow = true;
-    return mesh;
+  /** Pick the icon URL for an object record, honouring growth-state variants. */
+  _objectIcon(rec) {
+    if (rec.cat === "seed" && rec.planted) {
+      return { url: VARIANT.seed_planted, specific: true };
+    }
+    if (rec.cat === "plant" && rec.mature) {
+      return { url: VARIANT.plant_mature, specific: true };
+    }
+    return iconForType(rec.t, rec.cat);
   }
 
-  /**
-   * Reconcile object meshes against the latest state snapshot.
-   * @param {Array} records - state.objects
-   */
+  _makeSprite(url, tintColor) {
+    const mat = new THREE.SpriteMaterial({
+      map: this.tex.get(url),
+      transparent: true,
+      alphaTest: 0.25,
+      depthWrite: true,
+    });
+    if (tintColor) mat.color.copy(tintColor);
+    const sprite = new THREE.Sprite(mat);
+    sprite.center.set(0.5, 0.0); // anchor bottom to the ground
+    return sprite;
+  }
+
   syncObjects(records) {
     const seen = new Set();
     for (const rec of records) {
-      // Terrain-layer objects (sand) are represented by the terrain colour.
-      if (rec.cat === "terrain") continue;
+      if (rec.cat === "terrain") continue; // sand shown by the ground tile
       seen.add(rec.id);
 
-      let mesh = this.objectMeshes.get(rec.id);
-      if (!mesh) {
-        mesh = this._makeObjectMesh(rec);
-        this.objectMeshes.set(rec.id, mesh);
-        this.scene.add(mesh);
+      const icon = this._objectIcon(rec);
+      const tint = icon.specific ? null : this._registryColor(rec.t);
+
+      let sprite = this.objectMeshes.get(rec.id);
+      if (!sprite) {
+        sprite = this._makeSprite(icon.url, tint);
+        sprite.userData = { kind: "object", id: rec.id, typeId: rec.t, cat: rec.cat };
+        sprite.userData.curUrl = icon.url;
+        this.objectMeshes.set(rec.id, sprite);
+        this.scene.add(sprite);
+      } else if (sprite.userData.curUrl !== icon.url) {
+        // Growth-state changed (e.g. seed germinated, plant matured).
+        sprite.material.map = this.tex.get(icon.url);
+        sprite.material.color.copy(tint || new THREE.Color(0xffffff));
+        sprite.material.needsUpdate = true;
+        sprite.userData.curUrl = icon.url;
       }
+
+      // Size: plants grow with maturity; food pulses subtly with freshness.
+      let s = 0.95;
+      if (rec.cat === "plant") s = 0.7 + 0.7 * Math.min(1, rec.growth ?? 1);
+      else if (rec.cat === "seed") s = 0.7;
+      else if (rec.cat === "food") s = 0.8 + 0.15 * (rec.fresh ?? 1);
+      sprite.scale.set(s, s, 1);
 
       const [sx, sz] = this.worldToScene(rec.x, rec.y);
-      let yPos = 0.4;
-      const cat = rec.cat;
-
-      if (cat === "plant") {
-        const g = rec.growth ?? 1;
-        const s = 0.5 + 0.7 * Math.min(1, g);
-        mesh.scale.set(s, s, s);
-        yPos = 0.4 + (0.45 * s);
-        mesh.material.emissive.copy(this._objColor(rec.t)).multiplyScalar(rec.mature ? 0.35 : 0.05);
-      } else if (cat === "seed") {
-        const g = rec.growth ?? 0;
-        // Natural tan → sprouting green; agent-planted seeds glow gold.
-        const base = this._objColor(rec.t);
-        if (rec.planted) {
-          mesh.material.color.setRGB(1.0, 0.78, 0.0).lerp(new THREE.Color(0.47, 0.78, 0.31), g);
-          mesh.material.emissive.setRGB(1.0, 0.85, 0.2).multiplyScalar(0.5);
-        } else {
-          mesh.material.color.copy(base).lerp(new THREE.Color(0.47, 0.78, 0.31), g);
-          mesh.material.emissive.setScalar(0.0);
-        }
-        yPos = 0.55;
-        mesh.rotation.y += 0.02;
-      } else if (cat === "food") {
-        const fresh = rec.fresh ?? 1;
-        mesh.material.emissive.copy(this._objColor(rec.t)).multiplyScalar(0.15 * fresh);
-        yPos = 0.55;
-      } else if (cat === "fertilizer") {
-        yPos = 0.5;
-      }
-
-      mesh.position.set(sx, yPos, sz);
+      sprite.position.set(sx, this.topYAt(rec.x, rec.y) + 0.02, sz);
     }
 
-    // Remove meshes for objects no longer present.
-    for (const [id, mesh] of this.objectMeshes) {
+    for (const [id, sprite] of this.objectMeshes) {
       if (!seen.has(id)) {
-        this.scene.remove(mesh);
-        mesh.material.dispose();
+        this.scene.remove(sprite);
+        sprite.material.dispose();
         this.objectMeshes.delete(id);
       }
     }
   }
 
   // ------------------------------------------------------------------
-  // Agents
+  // Agents — creature sprite (energy-tinted) + flat facing arrow
   // ------------------------------------------------------------------
 
   _energyColor(ratio) {
@@ -261,62 +264,67 @@ export class World3D {
     return new THREE.Color(1.0, 0.2, 0.2);
   }
 
+  // Heading so the flat arrow (image points +Y, laid flat → -Z) aims along
+  // the agent's facing vector (dx, dy) in the scene XZ plane.
   _dirToRot(dx, dy) {
-    // Cone points +Y by default; we tilt it forward and rotate about Y so the
-    // tip indicates the facing direction on the ground plane (X, Z=y).
-    return Math.atan2(dx, dy);
+    return Math.atan2(dx, dy) + Math.PI;
   }
 
-  /**
-   * Reconcile agent meshes against the latest state snapshot.
-   * @param {Array} agents - state.agents
-   */
   syncAgents(agents) {
     const seen = new Set();
     for (const a of agents) {
       seen.add(a.id);
-      let entry = this.agentMeshes.get(a.id);
       const [sx, sz] = this.worldToScene(a.x, a.y);
+      const topY = this.topYAt(a.x, a.y);
+      const ratio = a.e / Math.max(1e-6, a.me);
 
+      let entry = this.agentMeshes.get(a.id);
       if (!entry) {
-        const mat = new THREE.MeshStandardMaterial({
-          color: 0x50dc64,
-          roughness: 0.4,
-          metalness: 0.2,
-          emissive: new THREE.Color(0x103010),
-        });
-        const mesh = new THREE.Mesh(this._geo.agent, mat);
-        // Lay the cone on its side so the tip points along +Z; the parent group's
-        // Y-rotation then aims that tip in the agent's facing direction.
-        mesh.rotation.x = Math.PI / 2;
-        mesh.castShadow = true;
         const group = new THREE.Group();
-        group.add(mesh);
-        group.position.set(sx, 0.7, sz);
+
+        const sprite = this._makeSprite(AGENT_ICON, this._energyColor(ratio));
+        sprite.scale.set(1.1, 1.1, 1);
+        group.add(sprite);
+
+        const arrow = new THREE.Mesh(
+          this._arrowGeo,
+          new THREE.MeshBasicMaterial({
+            map: this.tex.get(ARROW_ICON),
+            transparent: true,
+            alphaTest: 0.3,
+            depthWrite: false,
+          })
+        );
+        arrow.rotation.x = -Math.PI / 2; // lay flat on the ground
+        arrow.position.y = 0.03;
+        arrow.renderOrder = 1;
+        group.add(arrow);
+
+        group.position.set(sx, topY + 0.02, sz);
         group.userData = { kind: "agent", id: a.id };
         this.scene.add(group);
         this.pickables.push(group);
+
         entry = {
           group,
-          mesh,
-          target: new THREE.Vector3(sx, 0.7, sz),
+          sprite,
+          arrow,
+          target: new THREE.Vector3(sx, topY + 0.02, sz),
           targetRot: this._dirToRot(a.dx, a.dy),
         };
         this.agentMeshes.set(a.id, entry);
       }
 
-      entry.target.set(sx, 0.7, sz);
+      entry.target.set(sx, topY + 0.02, sz);
       entry.targetRot = this._dirToRot(a.dx, a.dy);
-      const ratio = a.e / Math.max(1e-6, a.me);
-      entry.mesh.material.color.copy(this._energyColor(ratio));
-      entry.mesh.material.emissive.copy(this._energyColor(ratio)).multiplyScalar(0.2);
+      entry.sprite.material.color.copy(this._energyColor(ratio));
     }
 
-    // Remove meshes for agents that died.
     for (const [id, entry] of this.agentMeshes) {
       if (!seen.has(id)) {
         this.scene.remove(entry.group);
-        entry.mesh.material.dispose();
+        entry.sprite.material.dispose();
+        entry.arrow.material.dispose();
         this.agentMeshes.delete(id);
         const idx = this.pickables.indexOf(entry.group);
         if (idx >= 0) this.pickables.splice(idx, 1);
@@ -325,20 +333,17 @@ export class World3D {
     }
   }
 
-  /**
-   * Per-frame interpolation toward target positions for smooth movement.
-   * @param {number} dt - frame delta seconds
-   */
+  /** Per-frame interpolation toward target positions for smooth movement. */
   interpolate(dt) {
     const k = Math.min(1, dt * 8.0);
     for (const entry of this.agentMeshes.values()) {
       entry.group.position.lerp(entry.target, k);
-      // Shortest-arc rotation toward target heading.
-      let cur = entry.group.rotation.y;
+      // Rotate only the flat arrow toward the heading (sprite is a billboard).
+      let cur = entry.arrow.rotation.z;
       let diff = entry.targetRot - cur;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
-      entry.group.rotation.y = cur + diff * k;
+      entry.arrow.rotation.z = cur + diff * k;
     }
   }
 
@@ -354,7 +359,6 @@ export class World3D {
     }
   }
 
-  /** Record current agent positions and draw fading trail dots. */
   updateTrails() {
     if (!this.trailsEnabled) return;
     this._trailGroup.clear();
@@ -382,10 +386,10 @@ export class World3D {
   }
 
   // ------------------------------------------------------------------
-  // Picking + highlight
+  // Picking
   // ------------------------------------------------------------------
 
-  /** Return the list of pickable meshes (agents + objects). */
+  /** Return the list of pickable objects (agent groups + object sprites). */
   getPickables() {
     return [...this.pickables, ...this.objectMeshes.values()];
   }

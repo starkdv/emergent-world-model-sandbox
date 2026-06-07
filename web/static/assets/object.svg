@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="cube" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#9fb4d6"/>
+      <stop offset="100%" stop-color="#5d7299"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="64" cy="112" rx="30" ry="8" fill="#000" opacity="0.18"/>
+  <!-- isometric cube -->
+  <path d="M64 28 L100 48 L64 68 L28 48 Z" fill="#bcd0ee"/>
+  <path d="M28 48 L64 68 L64 108 L28 88 Z" fill="#5d7299"/>
+  <path d="M100 48 L64 68 L64 108 L100 88 Z" fill="url(#cube)"/>
+</svg>

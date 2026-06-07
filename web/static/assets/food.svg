@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <radialGradient id="fg" cx="38%" cy="32%" r="72%">
+      <stop offset="0%" stop-color="#ffe08a"/>
+      <stop offset="55%" stop-color="#ff9d2e"/>
+      <stop offset="100%" stop-color="#d8631a"/>
+    </radialGradient>
+  </defs>
+  <path d="M64 24 C66 34 66 38 64 46" stroke="#5a3a1a" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M66 30 C80 22 92 26 96 36 C82 42 70 40 66 30 Z" fill="#54c23a"/>
+  <!-- rounded fruit body -->
+  <path d="M64 44 C40 44 26 62 26 84 C26 106 44 116 64 116 C84 116 102 106 102 84 C102 62 88 44 64 44 Z" fill="url(#fg)"/>
+  <ellipse cx="48" cy="68" rx="9" ry="13" fill="#fff2c8" opacity="0.7"/>
+</svg>

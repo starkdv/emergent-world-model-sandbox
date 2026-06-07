@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- White facing chevron pointing toward +Y (up). Tinted at runtime. -->
+  <path d="M64 16 L104 72 L80 72 L80 112 L48 112 L48 72 L24 72 Z"
+        fill="#ffffff" stroke="#0c0c12" stroke-width="5" stroke-linejoin="round"/>
+</svg>
