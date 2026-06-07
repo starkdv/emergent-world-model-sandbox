@@ -16,7 +16,7 @@ those dictionaries. Hand the returned dict to ``StreamServer.publish`` -- never
 let the server thread walk the live world dictionaries (see world.py:541 for the
 same snapshot-then-handoff discipline used by the logger).
 
-Author: streaming integration
+Author: Vinchenzo98
 """
 
 from typing import TYPE_CHECKING, Dict, List

@@ -3,7 +3,8 @@ Main entry point for the Emergent World-Model Sandbox.
 
 This script initializes and runs the simulation with the specified configuration.
 
-Author: Karan Vasa
+Author: Karan Vasa 
+Co-Author: Vinchenzo98
 """
 
 import argparse
@@ -449,7 +450,7 @@ Examples:
         # Add berries
         berries_added = 0
         attempts = 0
-
+        
         while berries_added < initial_resources // 4 and attempts < max_attempts:
             attempts += 1
             x = random.randint(0, world.width - 1)
@@ -806,21 +807,23 @@ Examples:
                 print(
                     f"\n[stream] WebSocket streaming on "
                     f"ws://{args.stream_host}:{args.stream_port} "
-                    f"(every {stream_every} tick(s))"
+                    f"(every {stream_every} tick(s)) "
+                    f"TOTAL TICKS: {total_ticks}"
                 )
             except RuntimeError as e:
                 # Missing 'websockets' dependency — warn and continue unstreamed.
                 print(f"[stream] Disabled: {e}", file=sys.stderr)
                 stream_server = None
-
         try:
             for _ in range(total_ticks):
                 world.update()
-
+                print("stream server in loop")
                 if stream_server is not None and world.tick % stream_every == 0:
                     stream_server.publish(build_frame(world))
-
+                    print("built frame")
+                
                 if world.tick % progress_every == 0:
+                    print(f"streaming world tick: {world.tick}")
                     counts = world.get_cached_object_counts()
                     print(
                         f"  Tick {world.tick}/{total_ticks} | "

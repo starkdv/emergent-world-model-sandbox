@@ -7,7 +7,7 @@ into JSON-friendly messages for a browser / Three.js client. The simulation
 engine is untouched: streaming is an opt-in side-channel wired into the headless
 tick loop, consuming the same snapshot-then-handoff discipline the loggers use.
 
-Author: streaming integration
+Author: Vinchenzo98
 """
 
 from utils.stream.server import StreamServer

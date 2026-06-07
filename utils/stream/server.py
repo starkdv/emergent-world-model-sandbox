@@ -19,7 +19,7 @@ ongoing stream. Inbound messages from clients are currently ignored; the
 ``websockets`` is an optional dependency -- importing this module without it
 installed is fine; the error is raised only when ``start()`` is called.
 
-Author: streaming integration
+Author: Vinchenzo98
 """
 
 import asyncio
@@ -47,7 +47,7 @@ class StreamServer:
             server.publish(build_frame(world))
         server.stop()
 
-    Author: streaming integration
+    Author: Vinchenzo98
     """
 
     def __init__(

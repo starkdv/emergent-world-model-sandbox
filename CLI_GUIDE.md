@@ -48,6 +48,11 @@ python main.py
   python main.py --demo
   ```
 
+- **3D WebSocket Stream** (Server for threeJS front end):
+  ```bash
+  python main.py --stream
+  ```
+
 ### Configuration
 - **Custom Configuration File**:
   ```bash
