@@ -1,5 +1,5 @@
 {
-  "_comment": "Asset manifest for the 3D web renderer. Maps agents and object types/categories to real glTF (.glb) models. Entries with a model that fails to load fall back automatically to the shipped SVG sprite icons. Absolute http(s) URLs load as-is; relative paths resolve under /static/assets/ (e.g. 'models/plant.glb').",
+  "_comment": "Asset manifest for the 3D web renderer. Maps agents and object types/categories to real glTF (.glb) models. Absolute http(s) URLs load as-is; relative paths resolve under /static/assets/ (e.g. 'models/plant.glb'). The objects.by_category entries below are PRE-WIRED drop-in slots: add the matching .glb files to models/ and they render automatically. Until a file exists (or if it fails to load) the object falls back to its shipped SVG sprite. by_type overrides by_category for an exact type_id. See models/README.md for the recommended CC0 source models and the rename map.",
   "agent": {
     "model": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/models/gltf/RobotExpressive/RobotExpressive.glb",
     "scale": 0.42,
@@ -10,6 +10,12 @@
   },
   "objects": {
     "by_type": {},
-    "by_category": {}
+    "by_category": {
+      "food":       { "model": "models/food.glb",       "scale": 0.45, "yOffset": 0.0 },
+      "seed":       { "model": "models/seed.glb",       "scale": 0.40, "yOffset": 0.0 },
+      "plant":      { "model": "models/plant.glb",      "scale": 0.60, "yOffset": 0.0 },
+      "fertilizer": { "model": "models/fertilizer.glb", "scale": 0.50, "yOffset": 0.0 },
+      "tool":       { "model": "models/tool.glb",       "scale": 0.50, "yOffset": 0.0 }
+    }
   }
 }

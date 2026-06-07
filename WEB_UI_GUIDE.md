@@ -113,16 +113,21 @@ tooltips, and inventory chips, giving every object one consistent identity.
 
 #### Adding real models for objects
 
-The sandbox can't bundle third-party packs, but adding them is a drop-in:
+The manifest is **already wired** with drop-in slots per object category — you
+only need to add the files:
 
 1. Download a CC0 pack — **Kenney** (kenney.nl), **Quaternius** (quaternius.com),
    or **Poly Pizza** (poly.pizza, CC0 filter) — these are what real game devs use.
-2. Put the `.glb` files in `web/static/assets/models/`.
-3. Map them in `manifest.json` (`objects.by_type` / `objects.by_category`).
+2. Copy + rename a model to a canonical filename and drop it in
+   `web/static/assets/models/`: `food.glb`, `seed.glb`, `plant.glb`,
+   `fertilizer.glb`, `tool.glb`.
+3. Reload — it renders automatically. (Want a specific `type_id` to differ from
+   its category? Add it under `objects.by_type` in `manifest.json`.)
 
 See [`web/static/assets/models/README.md`](web/static/assets/models/README.md)
-for the manifest format and [`web/static/assets/CREDITS.md`](web/static/assets/CREDITS.md)
-for licensing. No code changes required.
+for the rename map + recommended source models, and
+[`web/static/assets/CREDITS.md`](web/static/assets/CREDITS.md) for licensing.
+No code changes required.
 
 > **Sprite-only fallback:** if the model CDN is unreachable, the whole world
 > renders with the shipped SVG sprites instead (berries, plants, an energy-tinted

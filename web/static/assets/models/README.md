@@ -1,54 +1,52 @@
 # Drop-in 3D model assets (`web/static/assets/models/`)
 
-Put real game-development **glTF / GLB** model files here to give world objects
-(and agents) authentic 3D art. The renderer loads them through a manifest, so
-**no code changes are needed** — and anything missing falls back automatically
-to the shipped SVG sprite icons.
+The 3D web renderer is **already wired** to load real glTF/GLB models for world
+objects from this folder — you just need to add the files. Anything missing
+falls back automatically to the shipped SVG sprite icons, so the world always
+renders.
 
-## How it works
+## Pre-wired slots (just drop these files in)
 
-1. Drop a `.glb` (preferred) or `.gltf` model into this folder, e.g.
-   `berry.glb`, `plant.glb`, `seed.glb`, `fertilizer.glb`.
-2. Reference it in [`../manifest.json`](../manifest.json) under
-   `objects.by_type` (exact `type_id`) or `objects.by_category` (a whole
-   category). Example:
+[`../manifest.json`](../manifest.json) already maps every object **category** to
+a canonical filename here. Add any of these and it renders immediately — no code
+or config changes:
 
-   ```json
-   "objects": {
-     "by_type": {
-       "berry":       { "model": "models/berry.glb",       "scale": 0.5 },
-       "berry_plant": { "model": "models/plant.glb",       "scale": 0.7, "yOffset": 0.0 },
-       "berry_seed":  { "model": "models/seed.glb",        "scale": 0.4 },
-       "fertilizer":  { "model": "models/fertilizer.glb",  "scale": 0.5 }
-     },
-     "by_category": {
-       "plant": { "model": "models/generic_plant.glb", "scale": 0.6 }
-     }
-   }
-   ```
+| Drop this file in `models/` | Used for objects of category | Built-in examples |
+|-----------------------------|------------------------------|-------------------|
+| `food.glb`                  | `food`                       | Berry |
+| `seed.glb`                  | `seed`                       | Berry Seed |
+| `plant.glb`                 | `plant`                      | Berry Plant (scales up as it matures) |
+| `fertilizer.glb`            | `fertilizer`                 | Fertilizer |
+| `tool.glb`                  | `tool`                       | (custom tools) |
 
-3. Reload the page. `by_type` wins over `by_category`; if neither matches (or a
-   model fails to load), the object renders with its SVG sprite icon.
+Want a *specific* type to differ from its category? Add it under
+`objects.by_type` in the manifest (it overrides `by_category`), e.g.
+`"berry": { "model": "models/berry.glb", "scale": 0.5 }`.
 
-Per-entry fields: `model` (required), `scale` (default 1), `yOffset` (lift off
-the ground, default 0), `skinned` + `animation` (for animated/rigged models).
+## Recommended CC0 source models (used in real game dev)
 
-## Where to get free, license-clean assets (CC0 — used in real game dev)
+Download a CC0 pack, then copy + **rename** a model to the canonical filename
+above. All sources are public-domain (CC0); no attribution required.
 
-These are the packs indie studios and game jams actually use. All **CC0 /
-public-domain** (no attribution required, though it's appreciated):
+| Target file       | Suggested CC0 source model |
+|-------------------|----------------------------|
+| `food.glb`        | Kenney **Food Kit** (e.g. `apple`, `tomato`) or Quaternius **Survival** berries |
+| `seed.glb`        | Quaternius **Ultimate Nature** seed/acorn, or Kenney **Nature Kit** `mushroom`/small prop |
+| `plant.glb`       | Kenney **Nature Kit** `plant_bush` / `tree_default`, or Quaternius **Ultimate Nature** bush |
+| `fertilizer.glb`  | Kenney **Survival Kit** sack/barrel, or any small crate/bag prop |
+| `tool.glb`        | Kenney **Tools** / **Survival Kit** axe/hammer |
 
-- **Kenney** — https://kenney.nl/assets  (e.g. *Nature Kit*, *Food Kit*,
-  *Survival Kit*, *Farm pack*). glTF + textures, CC0.
-- **Quaternius** — https://quaternius.com/  (*Ultimate Nature*, *Animated
-  Animals*, *Survival* packs). glTF, CC0.
-- **Poly Pizza** — https://poly.pizza/  (filter by CC0).
-- **three.js bundled models** — already used here for the agent
-  (`RobotExpressive`, CC0).
+Sources: **Kenney** (https://kenney.nl/assets) · **Quaternius**
+(https://quaternius.com/) · **Poly Pizza** (https://poly.pizza/, CC0 filter).
+
+## Per-entry manifest fields
+
+`model` (required), `scale` (default 1), `yOffset` (lift off the ground,
+default 0), and for animated/rigged models `skinned: true` + `animation: "<clip
+name>"`. Tune `scale`/`yOffset` so the model sits nicely on a 1×1 tile.
 
 > The sandbox that generated this project cannot download these packs (its
-> network is locked down) and won't commit copyrighted art, so the files are not
-> bundled. Add the CC0 packs you want here and update the manifest — everything
-> wires up automatically.
+> network is locked down) and won't commit copyrighted art, so the model files
+> are not bundled — only the wiring is. Add the CC0 packs you want here.
 
 See [`../CREDITS.md`](../CREDITS.md) for licensing of assets shipped in-repo.

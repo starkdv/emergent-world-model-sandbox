@@ -16,10 +16,13 @@
     `web/static/assets/manifest.json`. **Agents** load a real CC0 animated glTF
     model (three.js `RobotExpressive`) from the same CDN as the three.js runtime,
     rotated to facing with an energy-tinted ground disc. **Objects** load real
-    `.glb` models when mapped in the manifest (drop CC0 packs — Kenney /
-    Quaternius — into `web/static/assets/models/`). Everything falls back
-    automatically to shipped **SVG sprite** art if a model is absent or the CDN
-    is unreachable, so the world always renders. Added
+    `.glb` models via the manifest, which ships **pre-wired** drop-in slots per
+    object category (`food.glb`, `seed.glb`, `plant.glb`, `fertilizer.glb`,
+    `tool.glb`) — drop CC0 packs (Kenney / Quaternius / Poly Pizza) into
+    `web/static/assets/models/` under those names and they render automatically,
+    no code changes. Everything falls back automatically to shipped **SVG
+    sprite** art if a model is absent or the CDN is unreachable, so the world
+    always renders. Added
     `web/static/assets/{manifest.json,CREDITS.md,models/README.md}`.
   - Sprite fallback art (`web/static/assets/*.svg`) doubles as the icons reused
     across the registry cards, spawn list, inspector, tooltips, and inventory
