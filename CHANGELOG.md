@@ -22,6 +22,19 @@
 - `agents/agent.py`: Improved agent lifecycle and GRU hidden-state integration.
 - `tests/test_evolution.py`: New tests covering mating, selection, and lineage tracking.
 
+### Fixed
+- numpy 2.x compatibility: `agents/brain.py` value head used `float()` on a
+  length-1 array (rejected by numpy ≥ 2). Now uses `.item()` (works on 1.x/2.x).
+- Restored the missing `utils/data/agent_logger.py` module. `utils/data/__init__.py`
+  imported `AgentLogger` and `WorldModelLogger` from it, but the file was never
+  committed — breaking the `--log` CLI flag and 8 tests on import. Reimplemented
+  both as synchronous, persistent-handle CSV loggers (`agent_actions_*.csv` /
+  `agent_states_*.csv`; `transitions_*.csv` / `episodes_*.csv` /
+  `world_states_*.csv`) matching `WORLD_MODEL_LOGGING_FORMAT.md`.
+- `.gitignore`: anchored the `data/` pattern to the repo root (`/data/`). The
+  unanchored pattern also matched the `utils/data/` source package, which is why
+  `agent_logger.py` was silently skipped by `git add` and never committed.
+
 ### Changed
 - `main.py`: world + population creation refactored into a reusable
   `build_world_and_population()` factory (shared by every run mode and used by the

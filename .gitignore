@@ -9,7 +9,9 @@ dist/
 build/
 
 # Data and logs
-data/
+# Anchored to the repo root so it only ignores the top-level data/ output
+# directory — NOT source packages such as utils/data/.
+/data/
 *.log
 test_*.txt
 *_output.txt
