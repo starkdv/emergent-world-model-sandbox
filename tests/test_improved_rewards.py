@@ -8,6 +8,7 @@ import sys
 import pytest
 
 
+@pytest.mark.timeout(300)
 def test_improved_rewards():
     print("=" * 60)
     print("TESTING IMPROVED REWARD SHAPING")
@@ -19,8 +20,10 @@ def test_improved_rewards():
     print("  - Agents seeking food actively")
     print("\nStarting simulation...\n")
 
-    # Run the simulation with learning enabled
-    # We use a short run or just check return code
+    # Run the simulation with learning enabled. Bound the run to a single
+    # generation and headless mode so it stays a *short* smoke test (the
+    # training_easy config defaults to 100 generations x 1000 ticks, which
+    # would otherwise run for minutes and trip the CI per-test timeout).
     result = subprocess.run(
         [
             sys.executable,
@@ -31,9 +34,13 @@ def test_improved_rewards():
             "--learning-rate",
             "0.01",
             "--log",
+            "--no-viz",
+            "--generations",
+            "1",
         ],
         capture_output=True,
         text=True,
+        timeout=240,
     )  # Capture output to avoid spamming pytest logs unless failed
 
     if result.returncode != 0:
