@@ -1,6 +1,56 @@
 # Changelog
 
-## [Unreleased] — Brain v3, Phases 1–2
+## [Unreleased] — Brain v3, Phases 1–3
+
+### Phase 3 — Attention brain architecture (opt-in, `brain.version: 3`)
+
+**In simple terms:** there is now a second, smarter brain design you can switch
+on in the config. Instead of looking at all 25 vision tiles with equal, fixed
+importance, the new brain *attends*: a tiny attention mechanism, steered by the
+agent's internal state (hunger, inventory, …), decides which tiles matter right
+now. Its memory is larger, and its value estimate ("how good is my situation?")
+can see the current situation directly instead of only remembered context. The
+old brain remains the default, so the two can be compared scientifically under
+identical conditions.
+
+**Technical detail:**
+
+- New `agents/brain/v3.py` — `BrainV3(Brain)`, ≈17,337 parameters
+  (vs ≈8,873 for v2):
+  - **Shared tile embedding**: each vision tile becomes a token
+    `[type, value, pos_row, pos_col]` embedded by one 4×8 matrix shared
+    across all tiles (position-equivariant; scales to larger vision radii
+    with the same weights). Fixed positional encoding, not learned.
+  - **Single-head attention pool**: query derived from the state encoding
+    (22 non-vision features → 40), keys/values from tile embeddings;
+    softmax(k·q/√E) pools the tiles.
+  - **Latent z = [state 40 | pooled vision 8]** feeds a **GRU(48)**.
+  - **Value MLP reads [z, h]** (96 → 16 → 1) — the critic gets a direct
+    view of the present state ("separate value head" roadmap item).
+- `Brain` was refactored into overridable `_encode` / `_value` /
+  `_build_nested` template methods; v2 behaviour is unchanged (verified by
+  the existing equivalence tests).
+- New `Brain.rebind(genome)` re-binds parameter views after genome
+  replacement; `clone_agent`, `inherit_knowledge`, and pretrained-weight
+  loading now use it (architecture-agnostic, replaces hand-rolled
+  reconstruction).
+- Factory `agents.brain.create_brain(genome, brain_config, instincts)` and
+  `calculate_weight_count_for_config(brain_config)` map the YAML `brain`
+  section to the right class; `Agent.brain_config` (class-level, set in
+  `main.py`) makes offspring inherit the architecture.
+- Learner support: `AgentLearner.learn` routes version-3 brains to a
+  dedicated NumPy batch path (attention forward + policy-head and
+  value-MLP-output updates — same heads-only update depth as v2; the
+  full-backprop learning upgrade is Phase 3b).
+- Config: `brain.version` (default **2**) and a `brain.v3` size block
+  (`embed_dim`, `state_dim`, `gru_hidden_size`, `value_hidden`).
+- Validation: 1000-tick headless v3 runs — RL seed 42: 100 alive;
+  neuroevolution seed 42: 48 alive (vs 100 for v2 — the expected
+  capacity-vs-evolvability trade-off of mutating 2× the parameters, and
+  the reason v2 remains the default baseline).
+- New tests: `tests/test_brain_v3.py` (15 tests — spec count, factory
+  dispatch, masking, attention/positional sensitivity, rebind, learner
+  updates + Lamarckian sync, evolution integration).
 
 ### Phase 2 — Fading instincts & auto-eat removal (emergence integrity)
 

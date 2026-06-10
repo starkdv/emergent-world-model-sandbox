@@ -128,15 +128,9 @@ def clone_agent(
     # Apply mutation if requested
     if mutate:
         mutate_genome_weights(child.genome, mutation_std)
-        # Recreate brain with mutated genome to apply changes
-        child.brain = child.brain.__class__(
-            child.genome,
-            input_size=child.brain.input_size,
-            encoder_layers=child.brain.encoder_layers,
-            gru_hidden_size=child.brain.gru_hidden_size,
-            output_size=child.brain.output_size,
-            instincts=child.brain.instincts,
-        )
+        # Re-bind brain parameter views to the mutated genome
+        # (architecture-agnostic: works for Brain v2 and v3)
+        child.brain.rebind(child.genome)
         # Reset hidden state
         child.h = child.brain.initial_state()
 

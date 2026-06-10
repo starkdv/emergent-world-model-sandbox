@@ -184,6 +184,119 @@ def build_nested_params(named: dict[str, np.ndarray], num_encoder_layers: int) -
     }
 
 
+def build_brain_v3_param_spec(
+    state_inputs: int = 22,
+    embed_dim: int = 8,
+    state_dim: int = 40,
+    gru_hidden_size: int = 48,
+    value_hidden: int = 16,
+    output_size: int = 8,
+) -> ParamSpec:
+    """
+    Build the ParamSpec for the Brain v3 architecture.
+
+    v3 layout (see agents/brain/v3.py for the forward pass):
+      state encoder (22 non-vision features → S)
+      tile embedding (2 tile features + 2 positional → E, shared by all tiles)
+      attention (query from state, keys/values from tile embeddings)
+      GRU over the latent z = [state S | attended vision E]
+      policy head (H → actions)
+      value MLP ([z, h] → value_hidden → 1)
+
+    Args:
+        state_inputs: Non-vision feature count (agent_state+stimulus+inventory)
+        embed_dim: Per-tile embedding size (E)
+        state_dim: State encoder output size (S); GRU input is S + E
+        gru_hidden_size: GRU hidden state size (H)
+        value_hidden: Hidden size of the value MLP
+        output_size: Number of actions
+
+    Returns:
+        ParamSpec (version=3) describing the v3 genome layout
+    """
+    e = embed_dim
+    s = state_dim
+    h = gru_hidden_size
+    z = s + e  # latent fed to the GRU and (with h) to the value MLP
+
+    entries: list[tuple[str, tuple[int, ...]]] = [
+        # 1. State encoder (agent_state + stimulus + inventory → S)
+        ("state_enc.W", (state_inputs, s)),
+        ("state_enc.b", (s,)),
+        # 2. Shared tile embedding ([type, value, pos_row, pos_col] → E).
+        #    One small matrix shared by every tile — position-equivariant,
+        #    unlike v2's dense vision layer that memorises tile positions.
+        ("tile_embed.W", (4, e)),
+        ("tile_embed.b", (e,)),
+        # 3. Single-head attention pool over tile tokens
+        ("attn.Wq", (s, e)),
+        ("attn.Wk", (e, e)),
+        ("attn.Wv", (e, e)),
+    ]
+
+    # 4. GRU over the latent z (3 gates: reset, update, candidate)
+    for gate in ("r", "z", "h"):
+        entries.append((f"gru.W{gate}_input", (z, h)))
+        entries.append((f"gru.W{gate}_hidden", (h, h)))
+        entries.append((f"gru.b{gate}", (h,)))
+
+    # 5. Policy head
+    entries.append(("policy.W", (h, output_size)))
+    entries.append(("policy.b", (output_size,)))
+
+    # 6. Value MLP reads [z, h]: the critic gets a direct view of the
+    #    current state instead of only what the GRU chose to remember.
+    entries.append(("value.W1", (z + h, value_hidden)))
+    entries.append(("value.b1", (value_hidden,)))
+    entries.append(("value.W2", (value_hidden, 1)))
+    entries.append(("value.b2", (1,)))
+
+    return ParamSpec(entries=tuple(entries), version=3)
+
+
+def build_nested_params_v3(named: dict[str, np.ndarray]) -> dict:
+    """
+    Arrange v3 named parameter views into the nested structure used by
+    BrainV3 and the learner. Shares memory with ``named``.
+
+    The "gru" and "policy_head" sub-dicts use the same keys as v2 so
+    shared code (GRU step, policy update, instincts) works unchanged.
+
+    Args:
+        named: Output of ParamSpec.unpack for a version-3 spec
+
+    Returns:
+        Nested parameter dictionary
+    """
+    return {
+        "state_enc": {"W": named["state_enc.W"], "b": named["state_enc.b"]},
+        "tile_embed": {"W": named["tile_embed.W"], "b": named["tile_embed.b"]},
+        "attn": {
+            "Wq": named["attn.Wq"],
+            "Wk": named["attn.Wk"],
+            "Wv": named["attn.Wv"],
+        },
+        "gru": {
+            "Wr_input": named["gru.Wr_input"],
+            "Wr_hidden": named["gru.Wr_hidden"],
+            "br": named["gru.br"],
+            "Wz_input": named["gru.Wz_input"],
+            "Wz_hidden": named["gru.Wz_hidden"],
+            "bz": named["gru.bz"],
+            "Wh_input": named["gru.Wh_input"],
+            "Wh_hidden": named["gru.Wh_hidden"],
+            "bh": named["gru.bh"],
+        },
+        "policy_head": {"W": named["policy.W"], "b": named["policy.b"]},
+        "value_mlp": {
+            "W1": named["value.W1"],
+            "b1": named["value.b1"],
+            "W2": named["value.W2"],
+            "b2": named["value.b2"],
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Observation specification
 # ---------------------------------------------------------------------------

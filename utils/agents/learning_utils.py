@@ -821,14 +821,8 @@ class BestAgentTracker:
         mutated_weights = weights + np.random.normal(0, mutation_rate, weights.shape)
         agent.genome.weights = mutated_weights.astype(np.float32)
 
-        # Reinitialize brain with new weights
-        agent.brain = agent.brain.__class__(
-            agent.genome,
-            agent.brain.input_size,
-            agent.brain.encoder_layers,
-            agent.brain.gru_hidden_size,
-            agent.brain.output_size,
-            instincts=agent.brain.instincts,
-        )
+        # Re-bind brain parameter views to the new weights
+        # (architecture-agnostic: works for Brain v2 and v3)
+        agent.brain.rebind(agent.genome)
         # Reset hidden state
         agent.h = agent.brain.initial_state()

@@ -215,7 +215,13 @@ class AgentLearner:
 
         experiences = self.replay_buffer.sample(self.batch_size)
 
-        if self.compute_backend == "torch" and TORCH_AVAILABLE:
+        if getattr(brain.spec, "version", 2) == 3:
+            # Brain v3 (attention perception, value MLP) — dedicated
+            # numpy path; the torch fast path only mirrors the v2 layout.
+            total_loss, total_policy_loss, total_value_loss, total_entropy = (
+                self._learn_vectorized_numpy_v3(brain, experiences)
+            )
+        elif self.compute_backend == "torch" and TORCH_AVAILABLE:
             total_loss, total_policy_loss, total_value_loss, total_entropy = (
                 self._learn_vectorized_torch(brain, experiences)
             )
@@ -338,6 +344,161 @@ class AgentLearner:
 
         brain.params["value_head"]["W"] -= dW_value
         brain.params["value_head"]["b"] -= dB_value
+
+        return (
+            float(np.sum(np.abs(loss))),
+            float(np.sum(np.abs(policy_loss))),
+            float(np.sum(value_loss)),
+            float(np.sum(entropy)),
+        )
+
+    def _forward_batch_numpy_v3(
+        self,
+        brain: "Brain",
+        obs_batch: np.ndarray,
+        h_batch: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Batched forward pass for Brain v3 (attention perception).
+
+        Mirrors BrainV3._encode / _value over a batch dimension.
+
+        Returns:
+            (action_probs, values, next_hidden, value_mlp_hidden) — the
+            value-MLP hidden activations are returned so the learner can
+            update the MLP's output layer.
+        """
+        p = brain.params
+        spec_o = brain.obs_spec
+        batch = obs_batch.shape[0]
+
+        # State path
+        state_feats = np.concatenate(
+            [
+                obs_batch[:, spec_o.agent_state],
+                obs_batch[:, spec_o.stimulus],
+                obs_batch[:, spec_o.inventory],
+            ],
+            axis=1,
+        )
+        s = np.tanh(state_feats @ p["state_enc"]["W"] + p["state_enc"]["b"])
+
+        # Vision path: shared tile embedding + positional encoding
+        rows, cols, feats = spec_o.vision_shape
+        n_tiles = rows * cols
+        tiles = obs_batch[:, spec_o.vision].reshape(batch, n_tiles, feats)
+        pos = np.broadcast_to(brain.pos_enc, (batch, n_tiles, 2))
+        tokens = np.concatenate([tiles, pos], axis=2)
+        t = np.tanh(tokens @ p["tile_embed"]["W"] + p["tile_embed"]["b"])
+
+        # Attention pool (query from agent state)
+        q = s @ p["attn"]["Wq"]
+        k = t @ p["attn"]["Wk"]
+        v = t @ p["attn"]["Wv"]
+        scores = np.einsum("bte,be->bt", k, q) / np.sqrt(brain.embed_dim)
+        scores = scores - scores.max(axis=1, keepdims=True)
+        attn = np.exp(scores)
+        attn = attn / attn.sum(axis=1, keepdims=True)
+        pooled = np.einsum("bt,bte->be", attn, v)
+
+        z = np.concatenate([s, pooled], axis=1)
+
+        # GRU step
+        gru = p["gru"]
+        r = 1.0 / (
+            1.0
+            + np.exp(
+                -np.clip(
+                    z @ gru["Wr_input"] + h_batch @ gru["Wr_hidden"] + gru["br"],
+                    -20,
+                    20,
+                )
+            )
+        )
+        u = 1.0 / (
+            1.0
+            + np.exp(
+                -np.clip(
+                    z @ gru["Wz_input"] + h_batch @ gru["Wz_hidden"] + gru["bz"],
+                    -20,
+                    20,
+                )
+            )
+        )
+        h_tilde = np.tanh(
+            z @ gru["Wh_input"] + (r * h_batch) @ gru["Wh_hidden"] + gru["bh"]
+        )
+        h_next = (1 - u) * h_batch + u * h_tilde
+
+        # Policy head
+        logits = h_next @ p["policy_head"]["W"] + p["policy_head"]["b"]
+        logits = logits - np.max(logits, axis=1, keepdims=True)
+        exp_logits = np.exp(logits)
+        probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
+
+        # Value MLP over [z, h]
+        vm = p["value_mlp"]
+        zh = np.concatenate([z, h_next], axis=1)
+        v_hidden = np.tanh(zh @ vm["W1"] + vm["b1"])
+        values = (v_hidden @ vm["W2"] + vm["b2"]).squeeze(-1)
+
+        return probs, values, h_next, v_hidden
+
+    def _learn_vectorized_numpy_v3(
+        self, brain: "Brain", experiences: list[Experience]
+    ) -> tuple[float, float, float, float]:
+        """
+        Vectorized numpy learning step for Brain v3.
+
+        Same Actor-Critic math as the v2 path; gradient updates are
+        applied to the policy head and the value MLP's output layer
+        (matching the v2 heads-only update depth — full-network
+        backprop is the Phase 3b learning upgrade).
+        """
+        obs = np.stack([exp.observation for exp in experiences], axis=0)
+        hidden = np.stack([exp.hidden_state for exp in experiences], axis=0)
+        actions = np.array([exp.action for exp in experiences], dtype=np.int64)
+        rewards = np.array([exp.reward for exp in experiences], dtype=np.float32)
+        next_obs = np.stack([exp.next_observation for exp in experiences], axis=0)
+        next_hidden = np.stack([exp.next_hidden_state for exp in experiences], axis=0)
+        dones = np.array(
+            [1 if exp.done else 0 for exp in experiences], dtype=np.float32
+        )
+
+        probs, values, h_out, v_hidden = self._forward_batch_numpy_v3(
+            brain, obs, hidden
+        )
+        _, next_values, _, _ = self._forward_batch_numpy_v3(
+            brain, next_obs, next_hidden
+        )
+        next_values = next_values * (1.0 - dones)
+
+        td_target = rewards + self.discount_factor * next_values
+        advantage = td_target - values
+
+        batch_idx = np.arange(len(experiences))
+        selected = np.clip(probs[batch_idx, actions], 1e-8, 1.0)
+        policy_loss = -np.log(selected) * advantage
+        value_loss = 0.5 * (values - td_target) ** 2
+        entropy = -np.sum(probs * np.log(np.clip(probs, 1e-8, 1.0)), axis=1)
+        loss = policy_loss + value_loss - self.entropy_coef * entropy
+
+        # Policy head update (identical formula to v2)
+        action_gradient = probs.copy()
+        action_gradient[batch_idx, actions] -= 1.0
+        action_gradient *= (advantage * self.learning_rate)[:, None]
+
+        brain.params["policy_head"]["W"] -= h_out.T @ action_gradient
+        brain.params["policy_head"]["b"] -= np.sum(action_gradient, axis=0)
+
+        # Value MLP output-layer update (features = MLP hidden activations)
+        vm = brain.params["value_mlp"]
+        value_gradient = 2.0 * (values - td_target) * self.learning_rate
+        dW2 = np.sum(v_hidden * value_gradient[:, None], axis=0).reshape(-1, 1)
+        db2 = np.array([np.sum(value_gradient)], dtype=vm["b2"].dtype)
+
+        vm["W2"] -= dW2
+        vm["b2"] -= db2
 
         return (
             float(np.sum(np.abs(loss))),

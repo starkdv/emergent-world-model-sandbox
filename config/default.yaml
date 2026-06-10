@@ -29,13 +29,30 @@ agents:
   max_age: 1000
   inventory_size: 5
 
-# Neural Network Settings (Brain v2 with GRU + Actor-Critic)
+# Neural Network Settings (GRU + Actor-Critic)
 brain:
+  # Architecture version:
+  #   2 = legacy GRU-MLP (~8.9k params) — the controlled baseline
+  #   3 = attention perception + [z,h] value head (~17k params):
+  #       a small embedding shared by all vision tiles + an attention
+  #       pool driven by the agent's internal state, a larger GRU, and
+  #       a value head that sees the current state directly.
+  #       See agents/brain/v3.py and BRAIN_V3_PROPOSAL.md §3.
+  version: 2
+
+  # --- v2 sizes (used when version: 2) ---
   input_size: 72  # calculated from observation vector (8 agent + 50 vision + 8 stimulus + 6 inventory)
   encoder_layers: [32]  # Encoder MLP hidden layers
   gru_hidden_size: 32  # GRU hidden state size (memory)
   output_size: 8  # number of actions
   activation: "tanh"
+
+  # --- v3 sizes (used when version: 3) ---
+  v3:
+    embed_dim: 8       # per-tile embedding size (E), shared by all 25 tiles
+    state_dim: 40      # state encoder output (S); GRU input = S + E
+    gru_hidden_size: 48
+    value_hidden: 16   # hidden layer of the [z,h] value MLP
 
   # Bootstrap instincts (Brain v3 Phase 2).
   # Small additive biases on the action logits that scaffold early survival

@@ -94,7 +94,7 @@ class Brain:
         # Views into genome.weights (zero-copy), in two addressings:
         # flat named dict and the nested structure used by forward/learner.
         self.named_params = self.spec.unpack(genome.weights)
-        self.params = build_nested_params(self.named_params, len(self.encoder_layers))
+        self.params = self._build_nested(self.named_params)
 
     def initial_state(self) -> np.ndarray:
         """
@@ -126,17 +126,11 @@ class Brain:
         Returns:
             Tuple of (action_probs, value, next_hidden_state)
         """
-        # Ensure input is 1D
-        x = observation.flatten()
-
-        # 1. Encoder: Process observation
-        for i in range(len(self.params["encoder_weights"])):
-            x = np.tanh(
-                x @ self.params["encoder_weights"][i] + self.params["encoder_biases"][i]
-            )
+        # 1. Encode observation into the latent fed to the GRU
+        z = self._encode(observation)
 
         # 2. GRU: Update hidden state with memory
-        h_next = self._gru_step(x, h)
+        h_next = self._gru_step(z, h)
 
         # 3. Policy head: Compute action logits
         logits = (
@@ -160,13 +154,55 @@ class Brain:
         probs = modules.softmax(logits)
 
         # 4. Value head: Estimate state value
-        value = float(
+        value = self._value(z, h_next)
+
+        return probs, value, h_next
+
+    def _encode(self, observation: np.ndarray) -> np.ndarray:
+        """
+        Encode an observation into the latent fed to the GRU.
+
+        v2: plain MLP over the full observation vector.
+        (Overridden by BrainV3 with attention-pooled perception.)
+        """
+        x = observation.flatten()
+        for i in range(len(self.params["encoder_weights"])):
+            x = np.tanh(
+                x @ self.params["encoder_weights"][i] + self.params["encoder_biases"][i]
+            )
+        return x
+
+    def _value(self, z: np.ndarray, h_next: np.ndarray) -> float:
+        """
+        Compute the state-value estimate.
+
+        v2: linear head on the GRU hidden state only (``z`` unused).
+        (Overridden by BrainV3, whose value MLP reads [z, h].)
+        """
+        return float(
             (
                 h_next @ self.params["value_head"]["W"] + self.params["value_head"]["b"]
             ).item()
         )
 
-        return probs, value, h_next
+    def rebind(self, genome: "Genome") -> None:
+        """
+        Re-bind this brain's parameter views to (possibly new) genome
+        weights, keeping the architecture and instinct configuration.
+
+        Use after replacing ``genome.weights`` with a new array (e.g.
+        mutation that reallocates, inherited weights, loaded weights).
+
+        Args:
+            genome: Genome whose weights to bind to
+        """
+        self.genome = genome
+        self.named_params = self.spec.unpack(genome.weights)
+        self.params = self._build_nested(self.named_params)
+
+    def _build_nested(self, named: dict) -> dict:
+        """Build the nested params structure (overridden by BrainV3)."""
+        return build_nested_params(named, len(self.encoder_layers))
 
     def _gru_step(self, x: np.ndarray, h: np.ndarray) -> np.ndarray:
         """
@@ -256,3 +292,86 @@ class Brain:
         probs, _, _ = self.forward(observation, h)
 
         return {action.name: float(probs[action.value]) for action in Action}
+
+
+# ---------------------------------------------------------------------------
+# Factory — single place that maps the YAML ``brain`` section to a Brain.
+# Version 2 (default) is the legacy GRU-MLP; version 3 adds attention
+# perception and a [z, h] value head (see agents/brain/v3.py).
+# ---------------------------------------------------------------------------
+
+
+def _v3_kwargs(brain_config: dict) -> dict:
+    """Extract BrainV3 size kwargs from a ``brain`` config dict."""
+    v3 = brain_config.get("v3", {}) or {}
+    return {
+        "embed_dim": v3.get("embed_dim", 8),
+        "state_dim": v3.get("state_dim", 40),
+        "gru_hidden_size": v3.get("gru_hidden_size", 48),
+        "value_hidden": v3.get("value_hidden", 16),
+        "output_size": brain_config.get("output_size", 8),
+    }
+
+
+def create_brain(
+    genome: "Genome",
+    brain_config: Optional[dict] = None,
+    instincts: Optional[InstinctModule] = None,
+) -> Brain:
+    """
+    Build a Brain matching the ``brain`` config section.
+
+    Args:
+        genome: Genome containing the network weights
+        brain_config: ``brain`` config dict (None → v2 defaults)
+        instincts: Instinct module to attach
+
+    Returns:
+        Brain (version 2) or BrainV3 (version 3)
+    """
+    cfg = brain_config or {}
+    if cfg.get("version", 2) == 3:
+        # Imported lazily: v3.py imports this module
+        from agents.brain.v3 import BrainV3
+
+        return BrainV3(genome, instincts=instincts, **_v3_kwargs(cfg))
+
+    return Brain(
+        genome,
+        input_size=cfg.get("input_size", 72),
+        encoder_layers=cfg.get("encoder_layers"),
+        gru_hidden_size=cfg.get("gru_hidden_size", 32),
+        output_size=cfg.get("output_size", 8),
+        instincts=instincts,
+    )
+
+
+def calculate_weight_count_for_config(brain_config: Optional[dict] = None) -> int:
+    """
+    Genome length required by the ``brain`` config section.
+
+    Args:
+        brain_config: ``brain`` config dict (None → v2 defaults)
+
+    Returns:
+        Total number of weights (including biases)
+    """
+    cfg = brain_config or {}
+    if cfg.get("version", 2) == 3:
+        from agents.brain.v3 import BrainV3
+
+        kwargs = _v3_kwargs(cfg)
+        return BrainV3.calculate_v3_weight_count(
+            embed_dim=kwargs["embed_dim"],
+            state_dim=kwargs["state_dim"],
+            gru_hidden_size=kwargs["gru_hidden_size"],
+            value_hidden=kwargs["value_hidden"],
+            output_size=kwargs["output_size"],
+        )
+
+    return Brain.calculate_weight_count(
+        input_size=cfg.get("input_size", 72),
+        encoder_layers=cfg.get("encoder_layers"),
+        gru_hidden_size=cfg.get("gru_hidden_size", 32),
+        output_size=cfg.get("output_size", 8),
+    )

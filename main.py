@@ -17,7 +17,8 @@ from world.world import World
 from world.objects import WorldObject, EdibleComponent, SeedComponent, PlantComponent
 from world.tiles import TerrainType
 from world.object_registry import ObjectRegistry, register_builtin_objects
-from agents import Agent, Genome, Brain, create_default_trait_config
+from agents import Agent, Genome, Brain, create_default_trait_config  # noqa: F401
+from agents.brain import calculate_weight_count_for_config
 from agents.brain.instincts import InstinctModule
 from utils.render import ConsoleRenderer
 from utils.ui.pygame_renderer import PygameRenderer
@@ -529,13 +530,15 @@ Examples:
         agent_cfg = config["agents"]
         initial_population = agent_cfg["initial_population"]
 
-        # Get brain configuration
+        # Get brain configuration. The version switch selects the
+        # architecture: 2 = legacy GRU-MLP, 3 = attention perception +
+        # [z, h] value head (agents/brain/v3.py).
         brain_cfg = config["brain"]
-        weight_count = Brain.calculate_weight_count(
-            input_size=brain_cfg["input_size"],
-            encoder_layers=brain_cfg["encoder_layers"],
-            gru_hidden_size=brain_cfg["gru_hidden_size"],
-            output_size=brain_cfg["output_size"],
+        Agent.brain_config = brain_cfg
+        weight_count = calculate_weight_count_for_config(brain_cfg)
+        print(
+            f"Brain: v{brain_cfg.get('version', 2)} "
+            f"({weight_count} parameters per agent)"
         )
 
         # Configure bootstrap instincts for all agents (fading scaffolding —

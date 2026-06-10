@@ -1,6 +1,7 @@
 # Brain v3 — Architecture Proposal
 
-**Status:** Phases 1–2 implemented (see §5 and CHANGELOG.md); Phases 3–4 proposed
+**Status:** Phases 1–3a implemented (see §5 and CHANGELOG.md); Phase 3b
+(learning upgrade) and Phase 4 (world model) proposed
 **Scope:** `agents/brain.py`, `utils/agents/brain_utils.py`, `agents/learning.py`,
 `utils/agents/perception.py`, plus new modules under `agents/brain/`
 **Inputs reviewed:** current codebase, `PROJECT_OVERVIEW_TECHNICAL.md`,
@@ -275,10 +276,21 @@ recalibrated bands; an A/B config demonstrates adults act purely from learned lo
 `brain.instincts` config in both YAML configs, `tests/test_instinct_fading.py`.
 A/B survival validated on 1000-tick headless runs in both evolution modes.*
 
-**Phase 3 — Capacity + learning (config `brain.version: 3`).**
-Attention perception, GRU 48–64, `[z,h]` value head; torch full-backprop learner with
-sequence replay, GAE, clipping. v2 remains selectable for controlled comparison.
-Acceptance: `v3-small` matches v2 survival; learning-curve comparison logged.
+**Phase 3a — Capacity (config `brain.version: 3`). ✅ DONE**
+Attention perception, GRU 48, `[z,h]` value head. v2 remains the default and
+selectable for controlled comparison.
+*Shipped: `agents/brain/v3.py` (BrainV3, ≈17.3k params: shared tile embedding
++ positional encoding, state-driven attention pool, GRU(48), value MLP over
+[z,h]), `create_brain` factory + `Agent.brain_config`, `Brain.rebind` for
+architecture-agnostic genome rebinds, dedicated v3 learner path,
+`tests/test_brain_v3.py`. 1000-tick v3 runs viable in both modes (RL: 100
+alive; neuroevolution: 48 — the documented capacity/evolvability trade-off).*
+
+**Phase 3b — Learning upgrade.**
+Torch full-backprop learner (persistent parameter mirror, autograd end-to-end)
+with sequence replay, GAE(λ), and PPO-style clipped updates, for both brain
+versions. Acceptance: learning-curve comparison v2/v3, heads-only vs full
+backprop, logged under identical conditions.
 
 **Phase 4 — World model (the guide's Phase 3.x, re-based on v3).**
 Per-agent latent dynamics head → curiosity reward (prediction error, normalised,

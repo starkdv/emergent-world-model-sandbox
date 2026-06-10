@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Optional, List, ClassVar
 import numpy as np
 
 from agents.actions import Action, ActionResult, DIRECTIONS
-from agents.brain import Brain
+from agents.brain import Brain, create_brain  # noqa: F401 (Brain re-exported)
 from agents.brain.instincts import InstinctModule
 from agents.genome import Genome
 import utils.agents.agent_utils as agent_utils
@@ -60,12 +60,15 @@ class Agent:
         world_model_logger: Optional logger for world model training data
         instinct_config: Optional ``brain.instincts`` config dict applied
             to every newly created agent (set once from YAML in main.py)
+        brain_config: Optional ``brain`` config dict selecting the brain
+            architecture (version 2 or 3) and its sizes; None → v2 defaults
     """
 
     _next_id = 0
     logger: ClassVar[Optional["AgentLogger"]] = None
     world_model_logger: ClassVar[Optional["WorldModelLogger"]] = None
     instinct_config: ClassVar[Optional[dict]] = None
+    brain_config: ClassVar[Optional[dict]] = None
 
     def __init__(
         self,
@@ -109,10 +112,13 @@ class Agent:
         self.inventory_size = inventory_size
         # Evolutionary components
         self.genome = genome
-        # Instincts are configured once (class-level) and fade with age —
-        # see agents/brain/instincts.py for the rationale.
-        self.brain = Brain(
-            genome, instincts=InstinctModule.from_config(Agent.instinct_config)
+        # Brain architecture (v2 or v3) and instincts are configured once
+        # (class-level, from YAML) so offspring inherit the same setup.
+        # Instincts fade with age — see agents/brain/instincts.py.
+        self.brain = create_brain(
+            genome,
+            Agent.brain_config,
+            instincts=InstinctModule.from_config(Agent.instinct_config),
         )
         self.traits = genome.traits.copy()
         self.fitness = 0.0
@@ -670,8 +676,9 @@ class Agent:
         # Update genome with parent's learned weights
         self.genome.weights = parent_knowledge.copy()
 
-        # Rebuild brain with new weights (keep the configured instincts)
-        self.brain = Brain(self.genome, instincts=self.brain.instincts)
+        # Re-bind the brain's parameter views to the new weights
+        # (architecture and instinct configuration are preserved)
+        self.brain.rebind(self.genome)
 
     def __repr__(self) -> str:
         return (

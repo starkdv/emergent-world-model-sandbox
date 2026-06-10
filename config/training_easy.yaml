@@ -31,8 +31,9 @@ agents:
   max_age: 5000  # MUCH LONGER LIFESPAN (was 500) - let agents live and learn!
   inventory_size: 5
 
-# Neural Network Settings (Brain v2 with GRU + Actor-Critic)
+# Neural Network Settings (GRU + Actor-Critic)
 brain:
+  version: 2  # 2 = legacy GRU-MLP, 3 = attention brain (see config/default.yaml)
   input_size: 72
   encoder_layers: [32]  # Encoder MLP hidden layers
   gru_hidden_size: 32  # GRU hidden state size (memory)

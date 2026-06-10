@@ -91,11 +91,11 @@ python main.py --no-viz --generations 1000 --log
 
 See [CLI_GUIDE.md](CLI_GUIDE.md) for the full command-line reference.
 
-## What's New — Brain v3 Upgrade (Phases 1–2)
+## What's New — Brain v3 Upgrade (Phases 1–3)
 
-**In one sentence:** the brain's internals were reorganised so it can grow
-(world models, attention, bigger memory are coming), and the survival "training
-wheels" now genuinely come off as agents mature.
+**In one sentence:** the brain's internals were reorganised so it can grow,
+the survival "training wheels" now genuinely come off as agents mature, and an
+opt-in attention-based brain architecture is available alongside the legacy one.
 
 **In plain words:**
 - The neural network's wiring diagram now lives in *one* place
@@ -108,9 +108,14 @@ wheels" now genuinely come off as agents mature.
   agents now merely feel a strong urge to eat (which also fades with age), so
   "knowing when to eat" becomes something evolution and learning must solve —
   as the project's emergence-first principle demands.
+- A new opt-in **attention brain** (`brain.version: 3`) is available: agents
+  perceive their surroundings through a small attention mechanism steered by
+  their internal state, and the value estimate sees the current situation
+  directly. The legacy brain stays the default so the two can be compared
+  under identical conditions (see *Neural Architecture* below).
 
-Full design rationale and the roadmap for Phases 3–4 (attention perception,
-bigger GRU, full-network lifetime learning, learned world models) are in
+Full design rationale and the roadmap for the remaining phases (full-network
+lifetime learning, learned world models) are in
 [BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md); change details are in
 [CHANGELOG.md](CHANGELOG.md).
 
@@ -134,11 +139,52 @@ emergent-world-model/
 
 ## Neural Architecture
 
-Each agent runs a compact **Actor-Critic GRU** network (≈8 873 parameters):
+Two brain versions are available, selected by `brain.version` in the config.
+Both are compact recurrent **Actor-Critic** networks; v2 is the default and
+the controlled baseline for experiments.
+
+**v2 — legacy GRU-MLP (≈8 873 parameters):**
 
 ```
-Observation (72) → Encoder [FC→tanh×2] (32) → GRU (32) → Policy head (8 actions)
-                                                         → Value head  (1)
+Observation (72) → Encoder [FC→tanh] (32) → GRU (32) → Policy head (8 actions)
+                                                       → Value head  (1)
+```
+
+**v3 — attention brain (`brain.version: 3`, ≈17 337 parameters):**
+
+```
+vision 5×5×2 ──→ 25 tile tokens (+ positional enc) → shared embed (4→8) ─┐
+agent state + stimulus + inventory ──→ state encoder (22→40) ──┐         │
+                                          │ (attention query)  │  keys/values
+                                          ▼                    ▼         ▼
+                                  attention pool ◄────────────────────────┘
+                                          │
+                       latent z = [state 40 | pooled vision 8]
+                                          │
+                                     GRU (48)
+                                          │ h
+              Policy head (8, masked)  ·  Value MLP ([z,h] → 16 → 1)
+```
+
+Why v3 (full rationale in [BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md)):
+- **One tile embedding shared by all 25 tiles** makes perception
+  position-equivariant and lets it scale to larger vision radii with the
+  *same* weights — v2's dense vision layer spends ~1 600 parameters just
+  memorising tile positions.
+- **Attention driven by the agent's internal state** lets the network focus
+  on relevant tiles (e.g. food when hungry) instead of weighting all 25
+  cells equally.
+- **The value head reads [z, h]** — the critic sees the current state
+  directly instead of only what the GRU chose to remember.
+
+```yaml
+brain:
+  version: 3        # 2 (default) = legacy baseline, 3 = attention brain
+  v3:
+    embed_dim: 8
+    state_dim: 40
+    gru_hidden_size: 48
+    value_hidden: 16
 ```
 
 **Observation layout (72 features):**
