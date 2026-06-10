@@ -482,46 +482,10 @@ class AgentLearner:
 
         This ensures learned weights are stored in the genome
         and can be passed to offspring (Lamarckian inheritance).
+        The layout is defined by the brain's ParamSpec — no duplicated
+        packing logic here.
 
         Args:
             brain: Brain with updated parameters
         """
-        # Use np.concatenate on flat views — avoids building a Python list
-        # of thousands of individual floats via .extend()
-        parts = []
-
-        # 1. Encoder
-        for w, b in zip(
-            brain.params["encoder_weights"], brain.params["encoder_biases"]
-        ):
-            parts.append(w.ravel())
-            parts.append(b.ravel())
-
-        # 2. GRU (3 gates: reset, update, candidate)
-        gru = brain.params["gru"]
-
-        # Reset gate
-        parts.append(gru["Wr_input"].ravel())
-        parts.append(gru["Wr_hidden"].ravel())
-        parts.append(gru["br"].ravel())
-
-        # Update gate
-        parts.append(gru["Wz_input"].ravel())
-        parts.append(gru["Wz_hidden"].ravel())
-        parts.append(gru["bz"].ravel())
-
-        # Candidate
-        parts.append(gru["Wh_input"].ravel())
-        parts.append(gru["Wh_hidden"].ravel())
-        parts.append(gru["bh"].ravel())
-
-        # 3. Policy head
-        parts.append(brain.params["policy_head"]["W"].ravel())
-        parts.append(brain.params["policy_head"]["b"].ravel())
-
-        # 4. Value head
-        parts.append(brain.params["value_head"]["W"].ravel())
-        parts.append(brain.params["value_head"]["b"].ravel())
-
-        # Update genome - single concatenation (no Python float intermediaries)
-        brain.genome.weights = np.concatenate(parts).astype(np.float32)
+        brain.genome.weights = brain.spec.pack(brain.named_params)
