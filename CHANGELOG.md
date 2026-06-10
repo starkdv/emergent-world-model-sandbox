@@ -2,6 +2,56 @@
 
 ## [Unreleased] — Brain v3, Phases 1–3
 
+### Phase 3b — PPO learner: real lifetime learning (opt-in, `learning.algorithm: ppo`)
+
+**In simple terms:** until now, "learning during a lifetime" only adjusted the
+brain's final output layer — everything underneath (perception, memory) could
+only change across generations by mutation. The new PPO learner trains the
+**whole network** while the agent lives: it replays short episodes in order
+(so memory is trained too), uses a better estimate of "was that action good?"
+(GAE), and clips every update so a single bad batch can't wreck the policy.
+Learned weights are still written back into the genome, so offspring inherit
+them. The old learner remains the default for controlled comparisons.
+
+**Technical detail:**
+
+- New `agents/ppo.py` — `PPOSequenceLearner` + `TorchBrainMirror`:
+  - Persistent torch parameter mirror per agent (one `nn.Parameter` per
+    ParamSpec tensor) with a persistent Adam optimizer; functional forward
+    re-expressed in torch for **both** brain versions, so autograd reaches
+    encoder/attention, GRU (through time), and both heads.
+  - **Sequence replay**: time-ordered chunks of `seq_len: 8` steps with the
+    chunk-start hidden state; the GRU is re-run over each chunk during
+    learning (truncated BPTT; stored-state strategy à la R2D2).
+  - **GAE(λ)** advantages (`compute_gae`, default λ=0.95) with per-batch
+    advantage normalisation; value targets R = Â + V.
+  - **PPO clipped surrogate** (ε=0.2) against the recorded behaviour
+    log-probs (`Brain.decide_with_logprob`), + value loss (0.5) and entropy
+    bonus (0.01); gradient-norm clipping (0.5).
+  - Lamarckian sync after every update via `ParamSpec.pack`.
+- `Agent.enable_learning(algorithm="ppo", ppo_config=...)`; offspring inherit
+  the algorithm; graceful fallback to a2c when torch is unavailable.
+- Config: `learning.algorithm` + documented `learning.ppo` block
+  (`learning_rate`, `seq_len`, `batch_size`, `gae_lambda`, `clip_epsilon`,
+  `value_coef`, `entropy_coef`, `epochs`, `grad_clip`, `chunk_buffer`).
+- **Fix: the parallel agent-update path (`utils/parallel.py`, the default
+  `simulation.parallel: true` pipeline) had drifted from `Agent.update`** —
+  it still contained the removed auto-eat override and non-fading instinct
+  calls, so Phase 2 behaviour was not active in default headless runs (the
+  serial path and the test suite were correct). The parallel path now mirrors
+  `Agent.update` exactly (fading instincts, no auto-eat, PPO step storage and
+  terminal handling). Refreshed baselines with fading genuinely active:
+  RL a2c seed 42: 64 alive @1000; neuroevolution: 16–33 across seeds — harder,
+  viable, no extinctions.
+- New docs: **`BRAIN_V2_V3_COMPARISON.md`** — full math-level comparison of
+  both architectures (GRU gates, attention scaling, parameter/FLOP budgets)
+  and both learners (policy-gradient algebra, GAE derivation, clipped
+  surrogate), written for a CS-student audience.
+- New tests: `tests/test_ppo_learner.py` (14 tests — GAE vs hand-computed
+  values, chunking/padding/terminal handling, full-network gradient reach for
+  v2 AND v3, Lamarckian sync, clip-bounds-off-policy, agent/offspring
+  integration, no-torch fallback).
+
 ### Phase 3 — Attention brain architecture (opt-in, `brain.version: 3`)
 
 **In simple terms:** there is now a second, smarter brain design you can switch

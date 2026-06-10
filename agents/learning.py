@@ -46,7 +46,15 @@ class AgentLearner:
     - Value function for advantage estimation (Critic)
     - TD advantage for variance reduction
     - Entropy regularization for exploration
+
+    Note: updates touch only the output heads (policy + value); the
+    encoder and GRU are shaped by evolution alone. For full-network
+    lifetime learning use the PPO learner (agents/ppo.py,
+    ``learning.algorithm: ppo``).
     """
+
+    algorithm = "a2c"
+    wants_sequences = False
 
     def __init__(
         self,

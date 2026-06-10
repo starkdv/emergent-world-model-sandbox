@@ -199,24 +199,28 @@ class Agent:
             self.die(world)
 
             # Store terminal experience if learning
-            if (
-                self.learning_enabled
-                and self.learner
-                and self.last_observation is not None
-                and self.last_hidden_state is not None
-            ):
-                if terminal_obs is None:
-                    terminal_obs = self.observe(world)
-                terminal_h = self.brain.initial_state()  # Dead state
-                self.learner.store_experience(
-                    self.last_observation,
-                    self.last_hidden_state,
-                    0,  # Action doesn't matter
-                    -1.0,  # Death penalty
-                    terminal_obs,
-                    terminal_h,
-                    True,  # Episode done
-                )
+            if self.learning_enabled and self.learner:
+                if getattr(self.learner, "wants_sequences", False):
+                    # PPO path: flag the last stored step as terminal
+                    if terminal_obs is None:
+                        terminal_obs = self.observe(world)
+                    self.learner.mark_done(terminal_obs)
+                elif (
+                    self.last_observation is not None
+                    and self.last_hidden_state is not None
+                ):
+                    if terminal_obs is None:
+                        terminal_obs = self.observe(world)
+                    terminal_h = self.brain.initial_state()  # Dead state
+                    self.learner.store_experience(
+                        self.last_observation,
+                        self.last_hidden_state,
+                        0,  # Action doesn't matter
+                        -1.0,  # Death penalty
+                        terminal_obs,
+                        terminal_h,
+                        True,  # Episode done
+                    )
             return  # Get observation and decide action
         observation = self.observe(world)
 
@@ -227,14 +231,31 @@ class Agent:
         action_mask = self.get_action_mask(world)
         instinct_strength = self.brain.instincts.strength_at(self.age)
 
-        # Use brain to decide action (samples from policy)
-        action, self.h, _ = self.brain.decide(
-            observation,
-            self.h,
-            action_mask=action_mask,
-            temperature=self.temperature,
-            instinct_strength=instinct_strength,
+        # The PPO learner needs the behaviour log-prob and the pre-step
+        # hidden state for its clipped importance ratio and sequence replay
+        uses_sequences = self.learner is not None and getattr(
+            self.learner, "wants_sequences", False
         )
+        h_before_step = self.h.copy() if uses_sequences else None
+        step_logprob = 0.0
+
+        # Use brain to decide action (samples from policy)
+        if uses_sequences:
+            action, self.h, _, step_logprob = self.brain.decide_with_logprob(
+                observation,
+                self.h,
+                action_mask=action_mask,
+                temperature=self.temperature,
+                instinct_strength=instinct_strength,
+            )
+        else:
+            action, self.h, _ = self.brain.decide(
+                observation,
+                self.h,
+                action_mask=action_mask,
+                temperature=self.temperature,
+                instinct_strength=instinct_strength,
+            )
 
         # Store observation before action for logging
         obs_before = observation  # no copy needed — not modified before use
@@ -274,8 +295,24 @@ class Agent:
 
         # Learning step
         if self.learning_enabled and self.learner:
-            # Store experience (if we have previous observation and hidden state)
-            if self.last_observation is not None and self.last_hidden_state is not None:
+            if uses_sequences:
+                # PPO path: time-ordered step with behaviour log-prob and
+                # action mask (decision-time observation, not the stale
+                # previous-tick one)
+                self.learner.store_step(
+                    observation=observation,
+                    hidden_before=h_before_step,
+                    action=action.value,
+                    reward=reward,
+                    next_observation=obs_after,
+                    done=False,
+                    logprob=step_logprob,
+                    action_mask=action_mask,
+                )
+            elif (
+                self.last_observation is not None and self.last_hidden_state is not None
+            ):
+                # Legacy A2C path: single transitions
                 # Note: self.h has already been updated to h_next by brain.decide above
                 self.learner.store_experience(
                     self.last_observation,
@@ -590,7 +627,7 @@ class Agent:
                     # Offspring starts with fresh memory (no inherited hidden state)
                     offspring.h = offspring.brain.initial_state()
 
-                    # Enable learning if parent has it
+                    # Enable learning if parent has it (same algorithm)
                     if self.learner:
                         offspring.enable_learning(
                             learning_rate=self.learner.learning_rate,
@@ -599,6 +636,8 @@ class Agent:
                             buffer_capacity=1000,  # Use default capacity
                             compute_backend=self.learner.compute_backend,
                             compute_device=self.learner.compute_device,
+                            algorithm=getattr(self.learner, "algorithm", "a2c"),
+                            ppo_config=getattr(self, "_ppo_config", None),
                         )
 
                     # Inherit parent's temperature
@@ -619,6 +658,8 @@ class Agent:
         buffer_capacity: int = 1000,
         compute_backend: str = "auto",
         compute_device: str = "auto",
+        algorithm: str = "a2c",
+        ppo_config: Optional[dict] = None,
     ) -> None:
         """
         Enable reinforcement learning for this agent.
@@ -630,7 +671,40 @@ class Agent:
             buffer_capacity: Size of experience replay buffer
             compute_backend: 'auto', 'numpy', or 'torch'
             compute_device: 'auto', 'cpu', 'cuda', or 'mps'
+            algorithm: 'a2c' (legacy heads-only updates) or 'ppo'
+                (full-network backprop, sequence replay, GAE + clipping;
+                requires torch — falls back to a2c without it)
+            ppo_config: Optional ``learning.ppo`` config dict (seq_len,
+                gae_lambda, clip_epsilon, value_coef, entropy_coef,
+                epochs, grad_clip, chunk_buffer, learning_rate)
         """
+        if algorithm == "ppo":
+            from agents.ppo import TORCH_AVAILABLE, PPOSequenceLearner
+
+            if TORCH_AVAILABLE:
+                ppo = ppo_config or {}
+                self.learner = PPOSequenceLearner(
+                    learning_rate=ppo.get("learning_rate", 3e-4),
+                    discount_factor=discount_factor,
+                    batch_size=ppo.get("batch_size", 8),
+                    seq_len=ppo.get("seq_len", 8),
+                    gae_lambda=ppo.get("gae_lambda", 0.95),
+                    clip_epsilon=ppo.get("clip_epsilon", 0.2),
+                    value_coef=ppo.get("value_coef", 0.5),
+                    entropy_coef=ppo.get("entropy_coef", 0.01),
+                    epochs=ppo.get("epochs", 2),
+                    grad_clip=ppo.get("grad_clip", 0.5),
+                    chunk_capacity=ppo.get("chunk_buffer", 64),
+                    compute_device=(
+                        "cpu" if compute_device == "auto" else compute_device
+                    ),
+                )
+                self._ppo_config = ppo_config
+                self.learning_enabled = True
+                self.last_observation = None
+                return
+            print("  [LEARN] torch unavailable — falling back to a2c")
+
         from agents.learning import AgentLearner
 
         self.learner = AgentLearner(

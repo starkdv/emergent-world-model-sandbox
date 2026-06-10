@@ -152,6 +152,29 @@ data_collection:
 # Learning Settings (for --learning flag)
 learning:
   enabled: false  # Set via command line
+
+  # Lifetime-learning algorithm (Brain v3 Phase 3b):
+  #   a2c — legacy Actor-Critic: random single-transition replay, TD(0)
+  #         advantage, manual gradients on the OUTPUT HEADS ONLY (the
+  #         encoder and GRU are shaped by evolution alone)
+  #   ppo — full-network backprop via torch autograd, time-ordered
+  #         sequence replay (GRU re-run over chunks), GAE(λ) advantages,
+  #         PPO clipped updates, Adam + gradient clipping. Works with
+  #         both brain versions. Falls back to a2c if torch is missing.
+  # See BRAIN_V2_V3_COMPARISON.md for the math behind both.
+  algorithm: "a2c"
+  ppo:
+    learning_rate: 0.0003 # Adam step size (PPO ignores learning_rate below)
+    seq_len: 8            # steps per sequence chunk (BPTT horizon)
+    batch_size: 8         # chunks sampled per update
+    gae_lambda: 0.95      # GAE λ: 0 = TD(0), 1 = Monte-Carlo
+    clip_epsilon: 0.2     # PPO ratio clip ε
+    value_coef: 0.5       # weight of the value loss
+    entropy_coef: 0.01    # exploration bonus weight
+    epochs: 2             # optimisation passes per sampled batch
+    grad_clip: 0.5        # max gradient norm
+    chunk_buffer: 64      # chunks kept in the replay buffer
+
   learning_rate: 0.01
   discount_factor: 0.95
   batch_size: 12  # Lower batch to reduce per-update compute cost

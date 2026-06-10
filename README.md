@@ -113,11 +113,17 @@ opt-in attention-based brain architecture is available alongside the legacy one.
   their internal state, and the value estimate sees the current situation
   directly. The legacy brain stays the default so the two can be compared
   under identical conditions (see *Neural Architecture* below).
+- A new opt-in **PPO learner** (`learning.algorithm: ppo`) makes lifetime
+  learning real: previously only the network's output layer learned during a
+  lifetime; now gradients reach **every weight** (perception, memory, heads)
+  via sequence replay, GAE(λ) advantages, and PPO-clipped updates — and the
+  learned weights are still inherited by offspring (Lamarckian).
 
-Full design rationale and the roadmap for the remaining phases (full-network
-lifetime learning, learned world models) are in
-[BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md); change details are in
-[CHANGELOG.md](CHANGELOG.md).
+Full design rationale and the roadmap for the remaining phase (learned world
+models) are in [BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md); change details
+are in [CHANGELOG.md](CHANGELOG.md). For a complete, math-level comparison
+of the two brains and the two learners, see
+[**BRAIN_V2_V3_COMPARISON.md**](BRAIN_V2_V3_COMPARISON.md).
 
 ## Architecture
 
@@ -186,6 +192,23 @@ brain:
     gru_hidden_size: 48
     value_hidden: 16
 ```
+
+### Lifetime Learning: A2C vs PPO
+
+Two learning algorithms are available in RL mode (`learning.algorithm`):
+
+| | `a2c` (default) | `ppo` |
+|---|---|---|
+| Trains | output heads only | **every parameter** (perception, GRU, heads) |
+| Replay | random single transitions | time-ordered sequence chunks (BPTT) |
+| Advantage | TD(0) | GAE(λ) |
+| Update safety | none | PPO clipped ratio + grad-norm clip |
+| Backend | NumPy | torch (falls back to a2c without it) |
+
+Both are Lamarckian — learned weights are packed back into the genome and
+inherited by offspring. The full derivations (GRU gates, attention scaling,
+policy-gradient algebra, GAE telescoping, the clipped surrogate) are in
+[BRAIN_V2_V3_COMPARISON.md](BRAIN_V2_V3_COMPARISON.md).
 
 **Observation layout (72 features):**
 

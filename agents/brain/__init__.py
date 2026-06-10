@@ -250,6 +250,33 @@ class Brain:
 
         return Action(action_idx), h_next, value
 
+    def decide_with_logprob(
+        self,
+        observation: np.ndarray,
+        h: np.ndarray,
+        action_mask: Optional[np.ndarray] = None,
+        temperature: float = 1.0,
+        instinct_strength: float = 1.0,
+    ) -> Tuple[Action, np.ndarray, float, float]:
+        """
+        Like decide(), but also returns the log-probability of the
+        sampled action under the behaviour policy (the full acting
+        distribution: network + mask + instincts + temperature).
+
+        Needed by the PPO learner, whose clipped importance ratio is
+        π_new(a|s) / π_behaviour(a|s).
+
+        Returns:
+            Tuple of (selected_action, next_hidden_state, value_estimate,
+            log_prob_of_selected_action)
+        """
+        action_probs, value, h_next = self.forward(
+            observation, h, action_mask, temperature, instinct_strength
+        )
+        action_idx = np.random.choice(len(action_probs), p=action_probs)
+        log_prob = float(np.log(max(action_probs[action_idx], 1e-8)))
+        return Action(action_idx), h_next, value, log_prob
+
     @staticmethod
     def calculate_weight_count(
         input_size: int = 72,

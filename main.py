@@ -622,6 +622,8 @@ Examples:
                         buffer_capacity=1000,
                         compute_backend=learning_cfg.get("compute_backend", "auto"),
                         compute_device=learning_cfg.get("compute_device", "auto"),
+                        algorithm=learning_cfg.get("algorithm", "a2c"),
+                        ppo_config=learning_cfg.get("ppo", None),
                     )
 
                 world.add_agent(agent)
@@ -633,6 +635,15 @@ Examples:
         if use_learning and world.agents:
             sample_agent = next(iter(world.agents.values()))
             if sample_agent.learner is not None:
+                print(
+                    f"Learning algorithm: "
+                    f"{getattr(sample_agent.learner, 'algorithm', 'a2c').upper()} "
+                    + (
+                        "(full-network backprop, sequence replay, GAE + clipping)"
+                        if getattr(sample_agent.learner, "wants_sequences", False)
+                        else "(legacy heads-only updates)"
+                    )
+                )
                 print(
                     f"Learning backend: {sample_agent.learner.compute_backend} "
                     f"(device: {sample_agent.learner.compute_device})"

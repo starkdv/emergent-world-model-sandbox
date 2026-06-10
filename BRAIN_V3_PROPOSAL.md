@@ -1,7 +1,8 @@
 # Brain v3 — Architecture Proposal
 
-**Status:** Phases 1–3a implemented (see §5 and CHANGELOG.md); Phase 3b
-(learning upgrade) and Phase 4 (world model) proposed
+**Status:** Phases 1–3 implemented (see §5 and CHANGELOG.md); Phase 4
+(world model) proposed. Math-level architecture/learner comparison:
+BRAIN_V2_V3_COMPARISON.md
 **Scope:** `agents/brain.py`, `utils/agents/brain_utils.py`, `agents/learning.py`,
 `utils/agents/perception.py`, plus new modules under `agents/brain/`
 **Inputs reviewed:** current codebase, `PROJECT_OVERVIEW_TECHNICAL.md`,
@@ -286,11 +287,18 @@ architecture-agnostic genome rebinds, dedicated v3 learner path,
 `tests/test_brain_v3.py`. 1000-tick v3 runs viable in both modes (RL: 100
 alive; neuroevolution: 48 — the documented capacity/evolvability trade-off).*
 
-**Phase 3b — Learning upgrade.**
+**Phase 3b — Learning upgrade. ✅ DONE**
 Torch full-backprop learner (persistent parameter mirror, autograd end-to-end)
 with sequence replay, GAE(λ), and PPO-style clipped updates, for both brain
 versions. Acceptance: learning-curve comparison v2/v3, heads-only vs full
 backprop, logged under identical conditions.
+*Shipped: `agents/ppo.py` (PPOSequenceLearner + TorchBrainMirror), opt-in via
+`learning.algorithm: ppo`, A2C kept as the default control;
+`Brain.decide_with_logprob`; parallel update path brought back in line with
+`Agent.update` (it had retained the auto-eat override and non-fading
+instincts); `tests/test_ppo_learner.py`; math documented in
+`BRAIN_V2_V3_COMPARISON.md`. The systematic learning-curve sweep remains as
+the measurement step.*
 
 **Phase 4 — World model (the guide's Phase 3.x, re-based on v3).**
 Per-agent latent dynamics head → curiosity reward (prediction error, normalised,

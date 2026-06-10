@@ -101,15 +101,19 @@ def _observe_and_decide(agent: "Agent", world: "World") -> Optional[tuple]:
     """
     Run one agent's observe → decide pipeline.
 
+    Mirrors Agent.update's decision logic exactly: fading instinct
+    strength, no auto-eat override (replaced by the hunger-scaled EAT
+    instinct inside the InstinctModule), and the PPO log-prob path when
+    the agent's learner uses sequence replay.
+
     Returns
     -------
     tuple or None
-        (agent, action, obs_before, action_mask, energy_before) on success.
-        None if the agent died during the metabolism/age check.
+        ("OK", agent, action, observation, action_mask, energy_before,
+        h_before, logprob) on success.
+        ("DEATH", agent, energy_before, death_reason) on death.
+        None if the agent was already dead.
     """
-    from agents.actions import Action, ActionResult
-    from world.objects import EdibleComponent
-
     if not agent.alive:
         return None
 
@@ -130,22 +134,21 @@ def _observe_and_decide(agent: "Agent", world: "World") -> Optional[tuple]:
     # --- action mask (read-only world access) ---
     action_mask = agent.get_action_mask(world)
 
-    # --- auto-eat check ---
-    has_food = False
-    if agent.inventory:
-        for obj_id in agent.inventory:
-            obj = world.objects.get(obj_id)
-            if obj is not None and obj.has_component(EdibleComponent):
-                has_food = True
-                break
+    # --- decide (instincts fade with age; see agents/brain/instincts.py) ---
+    instinct_strength = agent.brain.instincts.strength_at(agent.age)
+    uses_sequences = agent.learner is not None and getattr(
+        agent.learner, "wants_sequences", False
+    )
+    h_before = agent.h.copy() if uses_sequences else None
+    logprob = 0.0
 
-    if agent.energy < agent.max_energy * 0.5 and has_food:
-        action = Action.EAT
-        _, _, agent.h = agent.brain.forward(
+    if uses_sequences:
+        action, agent.h, _, logprob = agent.brain.decide_with_logprob(
             observation,
             agent.h,
             action_mask=action_mask,
             temperature=agent.temperature,
+            instinct_strength=instinct_strength,
         )
     else:
         action, agent.h, _ = agent.brain.decide(
@@ -153,9 +156,19 @@ def _observe_and_decide(agent: "Agent", world: "World") -> Optional[tuple]:
             agent.h,
             action_mask=action_mask,
             temperature=agent.temperature,
+            instinct_strength=instinct_strength,
         )
 
-    return ("OK", agent, action, observation, action_mask, energy_before)
+    return (
+        "OK",
+        agent,
+        action,
+        observation,
+        action_mask,
+        energy_before,
+        h_before,
+        logprob,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -230,12 +243,28 @@ def _learn_step(
     reward: float,
     obs_after: np.ndarray,
     world: "World",
+    observation: Optional[np.ndarray] = None,
+    action_mask: Optional[np.ndarray] = None,
+    h_before: Optional[np.ndarray] = None,
+    logprob: float = 0.0,
 ) -> None:
     """Store experience and (maybe) run a gradient update."""
     if not agent.learning_enabled or agent.learner is None:
         return
 
-    if agent.last_observation is not None and agent.last_hidden_state is not None:
+    if getattr(agent.learner, "wants_sequences", False):
+        # PPO path: time-ordered step with behaviour log-prob and mask
+        agent.learner.store_step(
+            observation=observation,
+            hidden_before=h_before,
+            action=action.value,
+            reward=reward,
+            next_observation=obs_after,
+            done=False,
+            logprob=logprob,
+            action_mask=action_mask,
+        )
+    elif agent.last_observation is not None and agent.last_hidden_state is not None:
         agent.learner.store_experience(
             agent.last_observation,
             agent.last_hidden_state,
@@ -307,24 +336,25 @@ def _handle_death(
 
     agent.die(world)
 
-    if (
-        agent.learning_enabled
-        and agent.learner
-        and agent.last_observation is not None
-        and agent.last_hidden_state is not None
-    ):
-        if terminal_obs is None:
-            terminal_obs = agent.observe(world)
-        terminal_h = agent.brain.initial_state()
-        agent.learner.store_experience(
-            agent.last_observation,
-            agent.last_hidden_state,
-            0,
-            -1.0,
-            terminal_obs,
-            terminal_h,
-            True,
-        )
+    if agent.learning_enabled and agent.learner:
+        if getattr(agent.learner, "wants_sequences", False):
+            # PPO path: flag the last stored step as terminal
+            if terminal_obs is None:
+                terminal_obs = agent.observe(world)
+            agent.learner.mark_done(terminal_obs)
+        elif agent.last_observation is not None and agent.last_hidden_state is not None:
+            if terminal_obs is None:
+                terminal_obs = agent.observe(world)
+            terminal_h = agent.brain.initial_state()
+            agent.learner.store_experience(
+                agent.last_observation,
+                agent.last_hidden_state,
+                0,
+                -1.0,
+                terminal_obs,
+                terminal_h,
+                True,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +393,8 @@ def update_agents_parallel(world: "World") -> None:
     # ================================================================
     # PHASE 2:  execute actions  (serial — mutates world)
     # ================================================================
-    learn_items: List[tuple] = []  # (agent, action, reward, obs_after)
+    # (agent, action, reward, obs_after, obs_before, mask, h_before, logprob)
+    learn_items: List[tuple] = []
     new_offspring: List = []
 
     for res in phase1_results:
@@ -378,11 +409,22 @@ def update_agents_parallel(world: "World") -> None:
             continue
 
         # tag == "OK"
-        _, agent, action, obs_before, action_mask, energy_before = res
+        (
+            _,
+            agent,
+            action,
+            obs_before,
+            action_mask,
+            energy_before,
+            h_before,
+            logprob,
+        ) = res
 
         exec_result = _execute_and_log(agent, action, obs_before, energy_before, world)
         if exec_result is not None:
-            learn_items.append(exec_result)
+            learn_items.append(
+                exec_result + (obs_before, action_mask, h_before, logprob)
+            )
 
         # Reproduction check (after execute, same as original)
         if agent.alive and agent.can_reproduce(world.reproduction_config):
@@ -403,9 +445,29 @@ def update_agents_parallel(world: "World") -> None:
     # ================================================================
     if learn_items:
         learn_futures: List[Future] = []
-        for agent, action, reward, obs_after in learn_items:
+        for (
+            agent,
+            action,
+            reward,
+            obs_after,
+            obs_before,
+            action_mask,
+            h_before,
+            logprob,
+        ) in learn_items:
             learn_futures.append(
-                pool.submit(_learn_step, agent, action, reward, obs_after, world)
+                pool.submit(
+                    _learn_step,
+                    agent,
+                    action,
+                    reward,
+                    obs_after,
+                    world,
+                    obs_before,
+                    action_mask,
+                    h_before,
+                    logprob,
+                )
             )
         # Wait for all learning to complete
         for f in learn_futures:
