@@ -24,7 +24,7 @@ This project implements a **2D grid world** where:
 - 🧠 **Neural Evolution + Online Learning**: Agents use evolved GRU Actor-Critic networks with optional real-time RL
 - 🔀 **Dual Evolution Mode**: RL mode (gradient learning + Lamarckian inheritance) or pure neuroevolution — selectable via `--mode rl` / `--mode neuroevolution`
 - 🎮 **Dual Renderer**: Pygame 2D GUI **or** a GPU-accelerated isometric 2.5D renderer via ModernGL
-- 🎯 **Contextual Instincts**: Survival-bootstrapping biases (PICK_UP, EAT, USE, turn-toward-food) that fade as learned weights strengthen
+- 🎯 **Fading Instincts**: Survival-bootstrapping biases (PICK_UP, EAT, USE, turn-toward-food, hunger-eat) that genuinely fade to zero with agent age — adults act purely on their learned network
 - 🔬 **Scientific Analysis**: Comprehensive action-distribution and survival-metric analysis tools
 - ⚡ **Optimised Engine**: Per-tick caching, set-based tile indexing, persistent log file handles
 
@@ -91,19 +91,44 @@ python main.py --no-viz --generations 1000 --log
 
 See [CLI_GUIDE.md](CLI_GUIDE.md) for the full command-line reference.
 
+## What's New — Brain v3 Upgrade (Phases 1–2)
+
+**In one sentence:** the brain's internals were reorganised so it can grow
+(world models, attention, bigger memory are coming), and the survival "training
+wheels" now genuinely come off as agents mature.
+
+**In plain words:**
+- The neural network's wiring diagram now lives in *one* place
+  (`agents/brain/spec.py`) instead of three hand-synchronised copies, so
+  upgrading the architecture no longer risks silently corrupting genomes.
+- Baby agents still get helpful nudges ("pick that up", "eat when hungry",
+  "turn toward food"), but these nudges now **weaken every tick and vanish at
+  age 150** — adult behaviour is 100% produced by evolved/learned weights.
+- The old hidden rule that *forced* hungry agents to eat was removed. Hungry
+  agents now merely feel a strong urge to eat (which also fades with age), so
+  "knowing when to eat" becomes something evolution and learning must solve —
+  as the project's emergence-first principle demands.
+
+Full design rationale and the roadmap for Phases 3–4 (attention perception,
+bigger GRU, full-network lifetime learning, learned world models) are in
+[BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md); change details are in
+[CHANGELOG.md](CHANGELOG.md).
+
 ## Architecture
 
 ```
 emergent-world-model/
 ├── world/           # Tiles, objects, systems, object registry, tile-effect engine
-├── agents/          # Agent lifecycle, GRU brain, Actor-Critic learning, evolution, genome
+├── agents/          # Agent lifecycle, Actor-Critic learning, evolution, genome
+│   └── brain/       # GRU brain package: spec (genome/observation layouts),
+│                    #   modules (pure NN functions), instincts (fading biases)
 ├── simulation/      # Simulation management
 ├── utils/
 │   ├── agents/      # Perception (72-dim obs), action execution, reward shaping
 │   ├── data/        # AgentLogger, WorldModelLogger (async + persistent handles)
 │   └── ui/          # Pygame renderer, GPU isometric renderer (ModernGL)
 ├── config/          # YAML configs + custom object definitions
-├── tests/           # 219 unit tests
+├── tests/           # 240+ unit tests
 └── data/            # Logs, exported data, saved weights
 ```
 
@@ -125,14 +150,38 @@ Observation (72) → Encoder [FC→tanh×2] (32) → GRU (32) → Policy head (8
 | 58–65 | Stimulus | food_on_tile, seed_on_tile, food_ahead, resource_ahead, nearest_food_prox, food_dir_match, energy_urgency, can_interact |
 | 66–71 | Inventory | Fullness, has_food, has_seed, has_fertilizer, total_calories, count |
 
-**Contextual instinct biases** (bootstrap survival; fade as learned logits strengthen):
+### Fading Bootstrap Instincts
 
-| Condition | Action biased | Logit boost |
-|-----------|--------------|------------|
+Newborn agents have random (or freshly mutated) weights, so without help most would
+starve before evolution or learning can act. Instincts solve this: small additive
+biases on the action logits that make survival-relevant actions more likely **when
+they are contextually valid**. Crucially, every bias is multiplied by a strength
+factor that **fades linearly from 1.0 at birth to 0.0 at `fade_age`** — so instincts
+scaffold juveniles, then hand control entirely to the learned network. Any behaviour
+you observe in an adult agent is genuinely produced by its evolved/learned weights.
+
+| Condition | Action biased | Logit boost (× fade strength) |
+|-----------|--------------|------------------------------|
 | PICK_UP valid | PICK_UP | +1.5 |
 | EAT valid | EAT | +1.0 |
+| EAT valid **and hungry** | EAT | +3.0 × energy_urgency |
 | USE valid | USE | +0.5 |
 | Food nearby but not ahead | TURN_LEFT / TURN_RIGHT | +0.8 × proximity |
+
+Configured in `config/default.yaml`:
+
+```yaml
+brain:
+  instincts:
+    enabled: true        # false = pure network from birth (ablation)
+    fade_age: 150        # ticks until strength reaches 0 (null = never fade)
+    hunger_eat_bias: 3.0 # EAT prior at maximum hunger
+```
+
+> **Note:** older versions *forced* an EAT action whenever energy dropped below 50%
+> while food was held. That hardcoded override has been removed — the hunger-scaled
+> EAT bias above is a strong prior the policy can still override, and it fades with
+> age like everything else. Implementation: `agents/brain/instincts.py`.
 
 ## Core Concepts
 
@@ -287,7 +336,7 @@ This sandbox is designed for studying:
 2. All functions must have proper docstrings
 3. Focus on emergent behaviours, never hardcode high-level strategies
 4. Maintain separation between world physics and agent logic
-5. Write comprehensive tests — run `pytest` before opening a PR (219 tests, all must pass)
+5. Write comprehensive tests — run `pytest` before opening a PR (240+ tests, all must pass)
 
 ## Future Extensions
 

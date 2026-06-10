@@ -39,6 +39,15 @@ brain:
   output_size: 8
   activation: "tanh"
 
+  # Bootstrap instincts — LONGER SCAFFOLDING for easy mode.
+  # Fade is scaled to the 5000-tick lifespan (~10%), mirroring the
+  # 150/1000 ratio used in config/default.yaml. See default.yaml for
+  # the full explanation of each key.
+  instincts:
+    enabled: true
+    fade_age: 500
+    hunger_eat_bias: 3.0
+
 # Evolution Settings - GENTLER MUTATIONS
 evolution:
   selection_method: "tournament"

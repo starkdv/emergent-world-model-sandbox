@@ -37,6 +37,20 @@ brain:
   output_size: 8  # number of actions
   activation: "tanh"
 
+  # Bootstrap instincts (Brain v3 Phase 2).
+  # Small additive biases on the action logits that scaffold early survival
+  # (pick up food, eat when hungry, turn toward food). They FADE linearly
+  # with agent age so adult behaviour is produced purely by the learned
+  # network — this is what keeps the project's emergence-first claim honest.
+  # The old hardcoded auto-eat override (forced EAT below 50% energy) was
+  # replaced by the hunger_eat_bias prior, which the policy can override.
+  instincts:
+    enabled: true        # false = pure network from birth (hard mode ablation)
+    fade_age: 150        # ticks until instincts reach zero (null = never fade,
+                         #   which reproduces the legacy v2 behaviour)
+    hunger_eat_bias: 3.0 # extra EAT logit bias at maximum hunger (scaled by
+                         #   the energy_urgency stimulus and by the fade)
+
 # Evolution Settings
 evolution:
   mode: "rl"  # "rl" (RL + evolution) or "neuroevolution" (pure evolution, no gradient learning)

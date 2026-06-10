@@ -1,6 +1,6 @@
 # Brain v3 — Architecture Proposal
 
-**Status:** Proposal (no code changes yet)
+**Status:** Phases 1–2 implemented (see §5 and CHANGELOG.md); Phases 3–4 proposed
 **Scope:** `agents/brain.py`, `utils/agents/brain_utils.py`, `agents/learning.py`,
 `utils/agents/perception.py`, plus new modules under `agents/brain/`
 **Inputs reviewed:** current codebase, `PROJECT_OVERVIEW_TECHNICAL.md`,
@@ -257,17 +257,23 @@ indices disappear; observation changes become single-point edits.
 Each phase is independently shippable, behind config, with tests, and leaves `main`
 green — matching `guideline.md` test/commit conventions.
 
-**Phase 1 — Enabling refactor (no behaviour change).**
+**Phase 1 — Enabling refactor (no behaviour change). ✅ DONE**
 `ParamSpec` + `ObservationSpec`; port v2 brain onto them; delete the three duplicate
 layout definitions; extract instincts into `instincts.py` *with current constant
 strengths* so the fixed-seed regression bands in `tests/` still hold.
 Acceptance: identical action distributions on a fixed seed; all existing tests pass.
+*Shipped: `agents/brain/` package, `tests/test_brain_spec.py` (layout equivalence
+proven against a frozen legacy unpacker), NumPy 2.x fix.*
 
-**Phase 2 — Emergence-integrity fixes.**
+**Phase 2 — Emergence-integrity fixes. ✅ DONE**
 Turn on instinct fading; replace forced auto-eat with the fading EAT bias.
 Acceptance: baseline survival scenarios (`tests/scenarios/`) still pass with
 recalibrated bands; an A/B config demonstrates adults act purely from learned logits.
 *This phase is what makes the paper's emergence claim defensible.*
+*Shipped: linear fade (default `fade_age: 150`), hunger-scaled EAT prior
+(`hunger_eat_bias: 3.0 × energy_urgency`) replacing the forced auto-eat,
+`brain.instincts` config in both YAML configs, `tests/test_instinct_fading.py`.
+A/B survival validated on 1000-tick headless runs in both evolution modes.*
 
 **Phase 3 — Capacity + learning (config `brain.version: 3`).**
 Attention perception, GRU 48–64, `[z,h]` value head; torch full-backprop learner with

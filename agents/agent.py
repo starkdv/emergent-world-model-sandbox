@@ -17,8 +17,8 @@ import numpy as np
 
 from agents.actions import Action, ActionResult, DIRECTIONS
 from agents.brain import Brain
+from agents.brain.instincts import InstinctModule
 from agents.genome import Genome
-from world.objects import EdibleComponent
 import utils.agents.agent_utils as agent_utils
 
 if TYPE_CHECKING:
@@ -58,11 +58,14 @@ class Agent:
     Class Attributes:
         logger (AgentLogger): Optional logger for tracking actions/states
         world_model_logger: Optional logger for world model training data
+        instinct_config: Optional ``brain.instincts`` config dict applied
+            to every newly created agent (set once from YAML in main.py)
     """
 
     _next_id = 0
     logger: ClassVar[Optional["AgentLogger"]] = None
     world_model_logger: ClassVar[Optional["WorldModelLogger"]] = None
+    instinct_config: ClassVar[Optional[dict]] = None
 
     def __init__(
         self,
@@ -106,7 +109,11 @@ class Agent:
         self.inventory_size = inventory_size
         # Evolutionary components
         self.genome = genome
-        self.brain = Brain(genome)
+        # Instincts are configured once (class-level) and fade with age —
+        # see agents/brain/instincts.py for the rationale.
+        self.brain = Brain(
+            genome, instincts=InstinctModule.from_config(Agent.instinct_config)
+        )
         self.traits = genome.traits.copy()
         self.fitness = 0.0
 
@@ -207,37 +214,21 @@ class Agent:
             return  # Get observation and decide action
         observation = self.observe(world)
 
-        # AUTO-EAT: If energy is low and agent has food, eat automatically
-        # This ensures agents don't starve while holding food
-
-        # Check if agent has food in inventory
-        has_food = False
-        if self.inventory:
-            for obj_id in self.inventory:
-                obj = world.objects.get(obj_id)
-                if obj is not None and obj.has_component(EdibleComponent):
-                    has_food = True
-                    break
-
-        # Force EAT when hungry with food (50% threshold for safety)
+        # Instinct strength fades with age (1.0 at birth → 0.0 at fade_age),
+        # so adults act purely on learned weights. The old hardcoded
+        # auto-eat override was replaced by a hunger-scaled EAT instinct
+        # inside the InstinctModule — a strong prior, never a forced action.
         action_mask = self.get_action_mask(world)
-        if self.energy < self.max_energy * 0.5 and has_food:
-            action = Action.EAT
-            # Still need to update hidden state even for forced action
-            _, _, self.h = self.brain.forward(
-                observation,
-                self.h,
-                action_mask=action_mask,
-                temperature=self.temperature,
-            )
-        else:
-            # Use brain to decide action (samples from policy)
-            action, self.h, _ = self.brain.decide(
-                observation,
-                self.h,
-                action_mask=action_mask,
-                temperature=self.temperature,
-            )
+        instinct_strength = self.brain.instincts.strength_at(self.age)
+
+        # Use brain to decide action (samples from policy)
+        action, self.h, _ = self.brain.decide(
+            observation,
+            self.h,
+            action_mask=action_mask,
+            temperature=self.temperature,
+            instinct_strength=instinct_strength,
+        )
 
         # Store observation before action for logging
         obs_before = observation  # no copy needed — not modified before use
@@ -679,8 +670,8 @@ class Agent:
         # Update genome with parent's learned weights
         self.genome.weights = parent_knowledge.copy()
 
-        # Rebuild brain with new weights
-        self.brain = Brain(self.genome)
+        # Rebuild brain with new weights (keep the configured instincts)
+        self.brain = Brain(self.genome, instincts=self.brain.instincts)
 
     def __repr__(self) -> str:
         return (

@@ -18,6 +18,7 @@ from world.objects import WorldObject, EdibleComponent, SeedComponent, PlantComp
 from world.tiles import TerrainType
 from world.object_registry import ObjectRegistry, register_builtin_objects
 from agents import Agent, Genome, Brain, create_default_trait_config
+from agents.brain.instincts import InstinctModule
 from utils.render import ConsoleRenderer
 from utils.ui.pygame_renderer import PygameRenderer
 
@@ -536,6 +537,25 @@ Examples:
             gru_hidden_size=brain_cfg["gru_hidden_size"],
             output_size=brain_cfg["output_size"],
         )
+
+        # Configure bootstrap instincts for all agents (fading scaffolding —
+        # see agents/brain/instincts.py). Applied class-level so offspring
+        # created during the run inherit the same configuration.
+        instinct_cfg = brain_cfg.get("instincts", None)
+        Agent.instinct_config = instinct_cfg
+        _instincts_preview = InstinctModule.from_config(instinct_cfg)
+        if _instincts_preview.enabled:
+            fade_desc = (
+                f"fade to 0 at age {_instincts_preview.fade_age}"
+                if _instincts_preview.fade_age is not None
+                else "never fade (legacy)"
+            )
+            print(
+                f"Instincts: enabled ({fade_desc}, "
+                f"hunger_eat_bias={_instincts_preview.hunger_eat_bias})"
+            )
+        else:
+            print("Instincts: DISABLED (pure network from birth)")
 
         # Create trait configuration
         trait_config = create_default_trait_config()

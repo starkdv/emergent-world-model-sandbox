@@ -135,6 +135,7 @@ def clone_agent(
             encoder_layers=child.brain.encoder_layers,
             gru_hidden_size=child.brain.gru_hidden_size,
             output_size=child.brain.output_size,
+            instincts=child.brain.instincts,
         )
         # Reset hidden state
         child.h = child.brain.initial_state()

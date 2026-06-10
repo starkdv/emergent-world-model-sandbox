@@ -828,6 +828,7 @@ class BestAgentTracker:
             agent.brain.encoder_layers,
             agent.brain.gru_hidden_size,
             agent.brain.output_size,
+            instincts=agent.brain.instincts,
         )
         # Reset hidden state
         agent.h = agent.brain.initial_state()

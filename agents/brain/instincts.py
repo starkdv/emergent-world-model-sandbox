@@ -47,6 +47,12 @@ class InstinctModule:
     EAT_BIAS = 1.0  # instinct to eat when food in inventory
     USE_BIAS = 0.5  # instinct to plant seeds
 
+    # Hunger-scaled EAT instinct. Replaces the old hardcoded auto-eat
+    # override in Agent.update (which *forced* EAT below 50% energy).
+    # This is a strong prior, not a forced action: the policy can still
+    # override it, and it fades with age like every other instinct.
+    HUNGER_EAT_BIAS = 3.0  # scaled by the energy_urgency stimulus
+
     # Direction-aware turn-toward-food instinct
     TURN_TOWARD_FOOD_BIAS = 0.8  # scaled by food proximity
     OFF_SIDE_TURN_FACTOR = 0.2  # small bias for the non-food side
@@ -58,10 +64,16 @@ class InstinctModule:
     DIRECTION_GATE = 0.6
     AHEAD_GATE = 0.5
 
+    # Default age (ticks) at which instincts fade to zero.
+    # Chosen to outlast the reproduction min_age (100 ticks) so juveniles
+    # are still scaffolded, while adults act purely on learned weights.
+    DEFAULT_FADE_AGE = 150
+
     def __init__(
         self,
         enabled: bool = True,
         fade_age: Optional[int] = None,
+        hunger_eat_bias: float = HUNGER_EAT_BIAS,
         obs_spec: ObservationSpec = DEFAULT_OBSERVATION_SPEC,
     ):
         """
@@ -71,11 +83,37 @@ class InstinctModule:
             enabled: Master switch for all instinct biases
             fade_age: Age in ticks at which strength reaches 0
                       (None keeps strength constant at 1.0)
+            hunger_eat_bias: Extra EAT logit bias at maximum hunger
             obs_spec: Observation layout specification
         """
         self.enabled = enabled
         self.fade_age = fade_age
+        self.hunger_eat_bias = hunger_eat_bias
         self.obs_spec = obs_spec
+
+    @classmethod
+    def from_config(cls, config: Optional[dict]) -> "InstinctModule":
+        """
+        Build an InstinctModule from a ``brain.instincts`` config dict.
+
+        Recognised keys (all optional):
+            enabled (bool):        master switch          [default: true]
+            fade_age (int|null):   ticks until strength 0 [default: 150,
+                                   null = never fade (legacy v2 behaviour)]
+            hunger_eat_bias (float): EAT prior at max hunger [default: 3.0]
+
+        Args:
+            config: Config dict, or None for defaults
+
+        Returns:
+            Configured InstinctModule
+        """
+        config = config or {}
+        return cls(
+            enabled=config.get("enabled", True),
+            fade_age=config.get("fade_age", cls.DEFAULT_FADE_AGE),
+            hunger_eat_bias=config.get("hunger_eat_bias", cls.HUNGER_EAT_BIAS),
+        )
 
     def strength_at(self, age: int) -> float:
         """
@@ -123,6 +161,17 @@ class InstinctModule:
             logits[Action.PICK_UP.value] += self.PICK_UP_BIAS * strength
         if action_mask[Action.EAT.value] > 0:
             logits[Action.EAT.value] += self.EAT_BIAS * strength
+
+            # Hunger-scaled EAT prior (auto-eat replacement): the lower
+            # the agent's energy, the stronger the urge — but never a
+            # forced action, and it fades with age like everything else.
+            spec = self.obs_spec
+            if len(observation) > spec.energy_urgency:
+                urgency = float(observation[spec.energy_urgency])
+                if urgency > 0.0:
+                    logits[Action.EAT.value] += (
+                        self.hunger_eat_bias * urgency * strength
+                    )
         if action_mask[Action.USE.value] > 0:
             logits[Action.USE.value] += self.USE_BIAS * strength
 
