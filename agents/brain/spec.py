@@ -97,11 +97,48 @@ class ParamSpec:
         return np.concatenate(parts).astype(dtype)
 
 
+def _dynamics_entries(
+    latent_size: int, gru_hidden_size: int, output_size: int, hidden: int
+) -> list[tuple[str, tuple[int, ...]]]:
+    """
+    Genome entries for the latent dynamics head (learned world model).
+
+    The head predicts the NEXT latent ẑ_{t+1} and reward r̂_t from the
+    post-decision hidden state h_{t+1} and a one-hot action:
+
+        d  = tanh([h ‖ onehot(a)]·W1 + b1)
+        ẑ' = d·Wz + bz          (next-latent prediction, linear)
+        r̂  = d·Wr + br          (reward prediction, scalar)
+
+    Appended at the END of the spec so enabling the world model only
+    extends existing genome layouts (prefix stays valid for migration).
+
+    Args:
+        latent_size: Size of the latent z the head must predict
+        gru_hidden_size: Size of the GRU hidden state (head input)
+        output_size: Number of actions (one-hot size)
+        hidden: Hidden layer width of the dynamics MLP
+
+    Returns:
+        List of (name, shape) entries
+    """
+    d_in = gru_hidden_size + output_size
+    return [
+        ("dyn.W1", (d_in, hidden)),
+        ("dyn.b1", (hidden,)),
+        ("dyn.Wz", (hidden, latent_size)),
+        ("dyn.bz", (latent_size,)),
+        ("dyn.Wr", (hidden, 1)),
+        ("dyn.br", (1,)),
+    ]
+
+
 def build_brain_param_spec(
     input_size: int = 72,
     encoder_layers: Optional[list[int]] = None,
     gru_hidden_size: int = 32,
     output_size: int = 8,
+    world_model_hidden: Optional[int] = None,
 ) -> ParamSpec:
     """
     Build the ParamSpec for the recurrent Actor-Critic brain.
@@ -110,12 +147,15 @@ def build_brain_param_spec(
     layout, so existing genomes remain valid:
       encoder (W, b per layer) → GRU (r, z, h gates: W_in, W_hid, b)
       → policy head (W, b) → value head (W, b)
+      [→ dynamics head, only when world_model_hidden is set]
 
     Args:
         input_size: Size of observation vector
         encoder_layers: Sizes of encoder hidden layers (default: [32])
         gru_hidden_size: Size of GRU hidden state
         output_size: Number of actions
+        world_model_hidden: Hidden width of the latent dynamics head
+            (None = no world model; genome layout unchanged)
 
     Returns:
         ParamSpec describing the brain's genome layout
@@ -147,6 +187,10 @@ def build_brain_param_spec(
     entries.append(("value.W", (h, 1)))
     entries.append(("value.b", (1,)))
 
+    # 5. Optional latent dynamics head (world model)
+    if world_model_hidden is not None:
+        entries.extend(_dynamics_entries(enc_out, h, output_size, world_model_hidden))
+
     return ParamSpec(entries=tuple(entries), version=2)
 
 
@@ -165,7 +209,7 @@ def build_nested_params(named: dict[str, np.ndarray], num_encoder_layers: int) -
     Returns:
         Nested parameter dictionary
     """
-    return {
+    nested = {
         "encoder_weights": [named[f"encoder.{i}.W"] for i in range(num_encoder_layers)],
         "encoder_biases": [named[f"encoder.{i}.b"] for i in range(num_encoder_layers)],
         "gru": {
@@ -182,6 +226,11 @@ def build_nested_params(named: dict[str, np.ndarray], num_encoder_layers: int) -
         "policy_head": {"W": named["policy.W"], "b": named["policy.b"]},
         "value_head": {"W": named["value.W"], "b": named["value.b"]},
     }
+    if "dyn.W1" in named:
+        nested["dynamics"] = {
+            key.split(".", 1)[1]: named[key] for key in named if key.startswith("dyn.")
+        }
+    return nested
 
 
 def build_brain_v3_param_spec(
@@ -191,6 +240,7 @@ def build_brain_v3_param_spec(
     gru_hidden_size: int = 48,
     value_hidden: int = 16,
     output_size: int = 8,
+    world_model_hidden: Optional[int] = None,
 ) -> ParamSpec:
     """
     Build the ParamSpec for the Brain v3 architecture.
@@ -202,6 +252,7 @@ def build_brain_v3_param_spec(
       GRU over the latent z = [state S | attended vision E]
       policy head (H → actions)
       value MLP ([z, h] → value_hidden → 1)
+      [dynamics head, only when world_model_hidden is set]
 
     Args:
         state_inputs: Non-vision feature count (agent_state+stimulus+inventory)
@@ -210,6 +261,8 @@ def build_brain_v3_param_spec(
         gru_hidden_size: GRU hidden state size (H)
         value_hidden: Hidden size of the value MLP
         output_size: Number of actions
+        world_model_hidden: Hidden width of the latent dynamics head
+            (None = no world model; genome layout unchanged)
 
     Returns:
         ParamSpec (version=3) describing the v3 genome layout
@@ -251,6 +304,10 @@ def build_brain_v3_param_spec(
     entries.append(("value.W2", (value_hidden, 1)))
     entries.append(("value.b2", (1,)))
 
+    # 7. Optional latent dynamics head (world model)
+    if world_model_hidden is not None:
+        entries.extend(_dynamics_entries(z, h, output_size, world_model_hidden))
+
     return ParamSpec(entries=tuple(entries), version=3)
 
 
@@ -268,7 +325,7 @@ def build_nested_params_v3(named: dict[str, np.ndarray]) -> dict:
     Returns:
         Nested parameter dictionary
     """
-    return {
+    nested = {
         "state_enc": {"W": named["state_enc.W"], "b": named["state_enc.b"]},
         "tile_embed": {"W": named["tile_embed.W"], "b": named["tile_embed.b"]},
         "attn": {
@@ -295,6 +352,11 @@ def build_nested_params_v3(named: dict[str, np.ndarray]) -> dict:
             "b2": named["value.b2"],
         },
     }
+    if "dyn.W1" in named:
+        nested["dynamics"] = {
+            key.split(".", 1)[1]: named[key] for key in named if key.startswith("dyn.")
+        }
+    return nested
 
 
 # ---------------------------------------------------------------------------

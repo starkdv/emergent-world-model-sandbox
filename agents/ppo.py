@@ -269,12 +269,31 @@ class TorchBrainMirror:
             return (hidden @ p["value.W2"] + p["value.b2"]).squeeze(-1)
         return (h @ p["value.W"] + p["value.b"]).squeeze(-1)
 
+    @property
+    def has_world_model(self) -> bool:
+        """True when the mirrored brain includes a dynamics head."""
+        return "dyn.W1" in self.params
+
+    def _dynamics(
+        self, h: "torch.Tensor", actions_onehot: "torch.Tensor"
+    ) -> tuple["torch.Tensor", "torch.Tensor"]:
+        """Batched dynamics head: (h, onehot a) → (ẑ', r̂)."""
+        p = self.params
+        d = torch.tanh(
+            torch.cat([h, actions_onehot], dim=1) @ p["dyn.W1"] + p["dyn.b1"]
+        )
+        z_pred = d @ p["dyn.Wz"] + p["dyn.bz"]
+        r_pred = (d @ p["dyn.Wr"] + p["dyn.br"]).squeeze(-1)
+        return z_pred, r_pred
+
     def forward_sequence(
         self,
         obs_seq: "torch.Tensor",
         h0: "torch.Tensor",
         bootstrap_obs: "torch.Tensor",
-    ) -> tuple["torch.Tensor", "torch.Tensor", "torch.Tensor"]:
+    ) -> tuple[
+        "torch.Tensor", "torch.Tensor", "torch.Tensor", "torch.Tensor", "torch.Tensor"
+    ]:
         """
         Run the recurrent network over time-ordered sequences.
 
@@ -284,28 +303,38 @@ class TorchBrainMirror:
             bootstrap_obs: (B, obs_dim) observation after the last step
 
         Returns:
-            (logits (B, L, A), values (B, L), bootstrap_values (B,))
+            (logits (B, L, A), values (B, L), bootstrap_values (B,),
+            latents zs (B, L+1, Z) including the bootstrap latent,
+            hiddens hs (B, L, H)) — the extra tensors feed the
+            world-model auxiliary loss.
         """
         p = self.params
         batch, length, _ = obs_seq.shape
         h = h0
         logits_steps = []
         value_steps = []
+        z_steps = []
+        h_steps = []
         for t in range(length):
             z = self._encode(obs_seq[:, t, :])
             h = self._gru(z, h)
             logits_steps.append(h @ p["policy.W"] + p["policy.b"])
             value_steps.append(self._value(z, h))
+            z_steps.append(z)
+            h_steps.append(h)
 
         # Bootstrap value of the state after the final step
         z_boot = self._encode(bootstrap_obs)
         h_boot = self._gru(z_boot, h)
         v_boot = self._value(z_boot, h_boot)
+        z_steps.append(z_boot)
 
         return (
             torch.stack(logits_steps, dim=1),
             torch.stack(value_steps, dim=1),
             v_boot,
+            torch.stack(z_steps, dim=1),
+            torch.stack(h_steps, dim=1),
         )
 
 
@@ -342,6 +371,7 @@ class PPOSequenceLearner:
         grad_clip: float = 0.5,
         chunk_capacity: int = 64,
         compute_device: str = "cpu",
+        world_model_coef: float = 1.0,
     ):
         """
         Initialize the PPO learner.
@@ -359,6 +389,8 @@ class PPOSequenceLearner:
             grad_clip: Max gradient norm
             chunk_capacity: Max chunks kept in the buffer
             compute_device: torch device ("cpu", "cuda", "mps")
+            world_model_coef: Weight of the dynamics-head auxiliary loss
+                (only used when the brain has a world model)
         """
         if not TORCH_AVAILABLE:
             raise RuntimeError(
@@ -374,6 +406,7 @@ class PPOSequenceLearner:
         self.entropy_coef = entropy_coef
         self.epochs = epochs
         self.grad_clip = grad_clip
+        self.world_model_coef = world_model_coef
         self.compute_backend = "torch"
         self.compute_device = compute_device
 
@@ -515,12 +548,18 @@ class PPOSequenceLearner:
         )
         masks = torch.as_tensor(np.stack([c.masks for c in chunks]), device=device)
         valid = torch.as_tensor(np.stack([c.valid for c in chunks]), device=device)
+        dones = torch.as_tensor(np.stack([c.dones for c in chunks]), device=device)
+        rewards_t = torch.as_tensor(
+            np.stack([c.rewards for c in chunks]), device=device
+        )
         n_valid = torch.clamp(valid.sum(), min=1.0)
 
         # Advantages/targets from the CURRENT network (recomputed once,
         # before the optimisation epochs — standard PPO practice).
         with torch.no_grad():
-            _, values_now, v_boot = self._mirror.forward_sequence(obs, h0, boot_obs)
+            _, values_now, v_boot, _, _ = self._mirror.forward_sequence(
+                obs, h0, boot_obs
+            )
         advantages_np = np.zeros((len(chunks), self.seq_len), dtype=np.float32)
         targets_np = np.zeros((len(chunks), self.seq_len), dtype=np.float32)
         values_now_np = values_now.cpu().numpy()
@@ -552,7 +591,7 @@ class PPOSequenceLearner:
 
         total_loss = 0.0
         for _ in range(self.epochs):
-            logits, values, _ = self._mirror.forward_sequence(obs, h0, boot_obs)
+            logits, values, _, zs, hs = self._mirror.forward_sequence(obs, h0, boot_obs)
             logits = logits.masked_fill(masks <= 0, -1e9)
             log_probs_all = torch.log_softmax(logits, dim=-1)
             new_logprobs = torch.gather(
@@ -578,6 +617,30 @@ class PPOSequenceLearner:
             loss = (
                 policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
             )
+
+            # World-model auxiliary loss: predict the NEXT latent and the
+            # reward from (h_t, a_t). Targets are detached (stop-gradient)
+            # so the encoder cannot collapse the latent space to make
+            # prediction trivially easy — the policy/value losses anchor
+            # the representation; the dynamics head chases it.
+            if self._mirror.has_world_model:
+                batch_n, length, h_size = hs.shape
+                onehot = torch.nn.functional.one_hot(
+                    actions.reshape(-1), num_classes=logits.shape[-1]
+                ).float()
+                z_pred, r_pred = self._mirror._dynamics(hs.reshape(-1, h_size), onehot)
+                z_target = zs[:, 1:, :].reshape(batch_n * length, -1).detach()
+                # Steps whose successor crosses a terminal/padding boundary
+                # are excluded via the valid/done masks
+                wm_mask = (valid * (1.0 - dones)).reshape(-1)
+                wm_n = torch.clamp(wm_mask.sum(), min=1.0)
+                wm_latent = (
+                    ((z_pred - z_target) ** 2).mean(dim=1) * wm_mask
+                ).sum() / wm_n
+                wm_reward = (
+                    (r_pred - rewards_t.reshape(-1)) ** 2 * wm_mask
+                ).sum() / wm_n
+                loss = loss + self.world_model_coef * (wm_latent + wm_reward)
 
             self._mirror.optimizer.zero_grad()
             loss.backward()

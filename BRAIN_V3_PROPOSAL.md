@@ -1,8 +1,8 @@
 # Brain v3 — Architecture Proposal
 
-**Status:** Phases 1–3 implemented (see §5 and CHANGELOG.md); Phase 4
-(world model) proposed. Math-level architecture/learner comparison:
-BRAIN_V2_V3_COMPARISON.md
+**Status:** Phases 1–4 implemented (see §5 and CHANGELOG.md). Remaining:
+the population-level offline model for dream-based evolution. Math-level
+architecture/learner comparison: BRAIN_V2_V3_COMPARISON.md
 **Scope:** `agents/brain.py`, `utils/agents/brain_utils.py`, `agents/learning.py`,
 `utils/agents/perception.py`, plus new modules under `agents/brain/`
 **Inputs reviewed:** current codebase, `PROJECT_OVERVIEW_TECHNICAL.md`,
@@ -300,12 +300,20 @@ instincts); `tests/test_ppo_learner.py`; math documented in
 `BRAIN_V2_V3_COMPARISON.md`. The systematic learning-curve sweep remains as
 the measurement step.*
 
-**Phase 4 — World model (the guide's Phase 3.x, re-based on v3).**
+**Phase 4 — World model. ✅ DONE (per-agent core)**
 Per-agent latent dynamics head → curiosity reward (prediction error, normalised,
-replacing hand-crafted exploration shaping) → rollout planner over latents →
-population-level shared model trained offline from transition logs for
-**dream-based evolution** (guide §6.1: evolve in the model, ground periodically in
-the real world).
+replacing hand-crafted exploration shaping) → rollout planner over latents.
+*Shipped: `brain.world_model` dynamics head in the genome (both versions,
+appended to the layout so the prefix stays migration-compatible), PPO
+auxiliary training with stop-gradient latent targets, `agents/curiosity.py`
+(z-scored, clipped, decaying intrinsic reward), `agents/planner.py`
+(random-shooting latent rollouts with critic bootstrap),
+`tests/test_world_model.py`.*
+
+**Remaining — dream-based evolution.**
+Population-level shared model trained offline from the transition logs
+(WORLD_MODEL_LOGGING_FORMAT.md), used to evaluate mutated genomes *inside*
+the learned model with periodic grounding in the real environment.
 
 ---
 

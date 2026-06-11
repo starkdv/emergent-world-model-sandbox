@@ -134,30 +134,9 @@ def _observe_and_decide(agent: "Agent", world: "World") -> Optional[tuple]:
     # --- action mask (read-only world access) ---
     action_mask = agent.get_action_mask(world)
 
-    # --- decide (instincts fade with age; see agents/brain/instincts.py) ---
-    instinct_strength = agent.brain.instincts.strength_at(agent.age)
-    uses_sequences = agent.learner is not None and getattr(
-        agent.learner, "wants_sequences", False
-    )
-    h_before = agent.h.copy() if uses_sequences else None
-    logprob = 0.0
-
-    if uses_sequences:
-        action, agent.h, _, logprob = agent.brain.decide_with_logprob(
-            observation,
-            agent.h,
-            action_mask=action_mask,
-            temperature=agent.temperature,
-            instinct_strength=instinct_strength,
-        )
-    else:
-        action, agent.h, _ = agent.brain.decide(
-            observation,
-            agent.h,
-            action_mask=action_mask,
-            temperature=agent.temperature,
-            instinct_strength=instinct_strength,
-        )
+    # --- decide: Agent.choose_action is the single source of decision
+    # logic (fading instincts, PPO log-prob path, optional planner) ---
+    action, h_before, logprob, _ = agent.choose_action(observation, action_mask)
 
     return (
         "OK",
@@ -202,14 +181,8 @@ def _execute_and_log(
 
     reward = 0.0
     if agent.learning_enabled and agent.learner:
-        reward = agent.learner.reward_shaper.calculate_reward(
-            action,
-            result,
-            energy_before,
-            agent.energy,
-            agent,
-            world,
-        )
+        # Single source for reward shaping + curiosity (see Agent)
+        reward = agent.compute_reward(action, result, energy_before, obs_after, world)
 
     # World-model logging
     if Agent.world_model_logger is not None:

@@ -5,6 +5,15 @@
 **Updated:** February 21, 2026  
 **Status:** ✅ Production Ready
 
+> **Note (June 2026):** the *world physics* sections of this document are
+> current, but the **brain and learning sections describe the pre-Brain-v3
+> era** (single GRU-MLP brain, heads-only A2C, hardcoded auto-eat). For the
+> current agent architecture see README.md (Neural Architecture),
+> [BRAIN_V2_V3_COMPARISON.md](BRAIN_V2_V3_COMPARISON.md) (full math), and
+> [BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md) (phase status): brain v2/v3
+> versions, fading instincts, PPO full-network learning, and the learned
+> world model (curiosity + latent planning).
+
 ---
 
 ## Table of Contents

@@ -62,6 +62,7 @@ class Brain:
         gru_hidden_size: int = 32,
         output_size: int = 8,
         instincts: Optional[InstinctModule] = None,
+        world_model_hidden: Optional[int] = None,
     ):
         """
         Initialize brain from genome.
@@ -74,12 +75,15 @@ class Brain:
             output_size: Number of possible actions
             instincts: Instinct module (default: standard InstinctModule;
                        pass InstinctModule(enabled=False) for a pure network)
+            world_model_hidden: Hidden width of the latent dynamics head
+                (None = no world model)
         """
         self.genome = genome
         self.input_size = input_size
         self.encoder_layers = encoder_layers if encoder_layers else [32]
         self.gru_hidden_size = gru_hidden_size
         self.output_size = output_size
+        self.world_model_hidden = world_model_hidden
         self.instincts = instincts if instincts is not None else InstinctModule()
 
         # Declarative genome layout — single source of truth for
@@ -89,12 +93,56 @@ class Brain:
             self.encoder_layers,
             self.gru_hidden_size,
             self.output_size,
+            world_model_hidden=world_model_hidden,
         )
 
         # Views into genome.weights (zero-copy), in two addressings:
         # flat named dict and the nested structure used by forward/learner.
         self.named_params = self.spec.unpack(genome.weights)
         self.params = self._build_nested(self.named_params)
+
+    @property
+    def has_world_model(self) -> bool:
+        """True when the genome includes the latent dynamics head."""
+        return "dynamics" in self.params
+
+    def encode(self, observation: np.ndarray) -> np.ndarray:
+        """
+        Public access to the perception latent z (used by curiosity and
+        the planner to compare predictions against reality).
+        """
+        return self._encode(observation)
+
+    def predict_next_latent(
+        self, h: np.ndarray, action_idx: int
+    ) -> Tuple[np.ndarray, float]:
+        """
+        World-model prediction: next latent and reward from the
+        post-decision hidden state and a chosen action.
+
+            d  = tanh([h ‖ onehot(a)]·W1 + b1)
+            ẑ' = d·Wz + bz
+            r̂  = d·Wr + br
+
+        Args:
+            h: GRU hidden state AFTER processing the current observation
+            action_idx: Index of the action to imagine taking
+
+        Returns:
+            (predicted_next_latent, predicted_reward)
+
+        Raises:
+            RuntimeError: If the brain has no dynamics head
+        """
+        if not self.has_world_model:
+            raise RuntimeError("Brain has no world model (dynamics head)")
+        dyn = self.params["dynamics"]
+        onehot = np.zeros(self.output_size, dtype=np.float32)
+        onehot[action_idx] = 1.0
+        d = np.tanh(np.concatenate([h, onehot]) @ dyn["W1"] + dyn["b1"])
+        z_pred = d @ dyn["Wz"] + dyn["bz"]
+        r_pred = float((d @ dyn["Wr"] + dyn["br"]).item())
+        return z_pred, r_pred
 
     def initial_state(self) -> np.ndarray:
         """
@@ -283,6 +331,7 @@ class Brain:
         encoder_layers: Optional[list[int]] = None,
         gru_hidden_size: int = 32,
         output_size: int = 8,
+        world_model_hidden: Optional[int] = None,
     ) -> int:
         """
         Calculate total number of weights needed for the network.
@@ -293,12 +342,17 @@ class Brain:
             encoder_layers: Sizes of encoder hidden layers (default: [32])
             gru_hidden_size: Size of GRU hidden state
             output_size: Number of actions
+            world_model_hidden: Dynamics-head hidden width (None = none)
 
         Returns:
             Total number of weights (including biases)
         """
         return build_brain_param_spec(
-            input_size, encoder_layers, gru_hidden_size, output_size
+            input_size,
+            encoder_layers,
+            gru_hidden_size,
+            output_size,
+            world_model_hidden=world_model_hidden,
         ).count()
 
     def get_action_preferences(
@@ -328,6 +382,14 @@ class Brain:
 # ---------------------------------------------------------------------------
 
 
+def _world_model_hidden(brain_config: dict) -> Optional[int]:
+    """Read the ``brain.world_model`` block: hidden width or None."""
+    wm = brain_config.get("world_model", {}) or {}
+    if wm.get("enabled", False):
+        return wm.get("hidden", 32)
+    return None
+
+
 def _v3_kwargs(brain_config: dict) -> dict:
     """Extract BrainV3 size kwargs from a ``brain`` config dict."""
     v3 = brain_config.get("v3", {}) or {}
@@ -337,6 +399,7 @@ def _v3_kwargs(brain_config: dict) -> dict:
         "gru_hidden_size": v3.get("gru_hidden_size", 48),
         "value_hidden": v3.get("value_hidden", 16),
         "output_size": brain_config.get("output_size", 8),
+        "world_model_hidden": _world_model_hidden(brain_config),
     }
 
 
@@ -370,6 +433,7 @@ def create_brain(
         gru_hidden_size=cfg.get("gru_hidden_size", 32),
         output_size=cfg.get("output_size", 8),
         instincts=instincts,
+        world_model_hidden=_world_model_hidden(cfg),
     )
 
 
@@ -394,6 +458,7 @@ def calculate_weight_count_for_config(brain_config: Optional[dict] = None) -> in
             gru_hidden_size=kwargs["gru_hidden_size"],
             value_hidden=kwargs["value_hidden"],
             output_size=kwargs["output_size"],
+            world_model_hidden=kwargs["world_model_hidden"],
         )
 
     return Brain.calculate_weight_count(
@@ -401,4 +466,5 @@ def calculate_weight_count_for_config(brain_config: Optional[dict] = None) -> in
         encoder_layers=cfg.get("encoder_layers"),
         gru_hidden_size=cfg.get("gru_hidden_size", 32),
         output_size=cfg.get("output_size", 8),
+        world_model_hidden=_world_model_hidden(cfg),
     )

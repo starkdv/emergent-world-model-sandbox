@@ -1,5 +1,11 @@
 # World Model Training Data Logging Format
 
+> **Note (June 2026):** the *per-agent* world model is now implemented
+> in-engine (`brain.world_model` — a latent dynamics head trained online by
+> the PPO learner; see CHANGELOG.md Phase 4). This logging format remains
+> the data source for the next step: a **population-level offline model**
+> trained from logged transitions, enabling dream-based evolution.
+
 ## Overview
 
 The `WorldModelLogger` class captures complete transition data for training neural network world models. It generates three CSV files optimized for different training needs.

@@ -54,6 +54,23 @@ brain:
     gru_hidden_size: 48
     value_hidden: 16   # hidden layer of the [z,h] value MLP
 
+  # Learned world model (Brain v3 Phase 4). Adds a latent dynamics head
+  # to the genome that predicts (next latent, reward) from (hidden state,
+  # action). Works with both brain versions. Enables:
+  #   - curiosity (learning.curiosity): prediction error → intrinsic reward
+  #   - planning (below): imagined latent rollouts pick the next action
+  # The head is trained by the PPO learner (algorithm: ppo); under a2c or
+  # pure neuroevolution it only evolves.
+  # NOTE: enabling changes the genome length (the head lives in the genome).
+  world_model:
+    enabled: false
+    hidden: 32           # dynamics MLP hidden width
+    planner:
+      enabled: false     # model-based action selection (costly per tick)
+      depth: 3           # imagination horizon
+      samples: 16        # candidate rollouts per decision
+      gamma: 0.95        # discount inside the rollout
+
   # Bootstrap instincts (Brain v3 Phase 2).
   # Small additive biases on the action logits that scaffold early survival
   # (pick up food, eat when hungry, turn toward food). They FADE linearly
@@ -174,6 +191,18 @@ learning:
     epochs: 2             # optimisation passes per sampled batch
     grad_clip: 0.5        # max gradient norm
     chunk_buffer: 64      # chunks kept in the replay buffer
+    world_model_coef: 1.0 # weight of the dynamics-head auxiliary loss
+
+  # Curiosity (Brain v3 Phase 4) — requires brain.world_model.enabled.
+  # Intrinsic reward = weight * clip(zscore(prediction error), 0, clip):
+  # surprising transitions are rewarded, replacing hand-crafted
+  # exploration bonuses with an emergent signal.
+  curiosity:
+    enabled: false
+    weight: 0.1   # intrinsic reward scale
+    decay: 1.0    # per-step multiplicative weight decay (1.0 = constant)
+    clip: 3.0     # cap in standard deviations
+    warmup: 20    # samples before rewards start (stats stabilisation)
 
   learning_rate: 0.01
   discount_factor: 0.95

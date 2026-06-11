@@ -44,16 +44,16 @@ Deeper changes to make agents smarter. The brain architecture designed here beco
 
 ### 2.1 Brain Architecture
 
-- [ ] **Attention over vision grid** — Replace the flat 5×5×2 vision encoding with a small self-attention layer (or learned spatial pooling). This lets the network focus on relevant tiles instead of treating all 25 cells equally, improving food-seeking and obstacle avoidance. *→ Scales to camera-like sensors for robotics and enables larger vision radii for the online world.*
-- [ ] **Larger GRU / stacked GRU** — Current hidden size is 32. Experiment with 64 or a 2-layer GRU for richer memory. Track parameter count vs. evolution convergence speed.
-- [ ] **Separate value head architecture** — Currently value and policy share the same GRU output. A separate value encoder (small MLP from observation directly) can stabilize critic learning while the actor explores.
-- [ ] **Curiosity-driven exploration (ICM / RND)** — Add an intrinsic motivation module that rewards the agent for experiencing states that are hard to predict. This naturally reduces looping without hand-crafted anti-cycle penalties. *→ Drives emergent novelty for entertainment spectators and robust exploration for robotics controllers.*
+- [x] **Attention over vision grid** — DONE (Brain v3, `brain.version: 3`): 25 tile tokens + positional encoding, shared 4×8 embedding, single-head attention pool with the query derived from agent state. See `agents/brain/v3.py` and BRAIN_V2_V3_COMPARISON.md §4. *→ Scales to camera-like sensors for robotics and enables larger vision radii for the online world.*
+- [x] **Larger GRU / stacked GRU** — DONE (partially): Brain v3 uses GRU(48) (configurable via `brain.v3.gru_hidden_size`). Stacked (2-layer) GRU remains open.
+- [x] **Separate value head architecture** — DONE (Brain v3): the value MLP reads `[z, h]` — the current latent plus memory — so the critic no longer depends solely on what the GRU stored.
+- [x] **Curiosity-driven exploration (ICM / RND)** — DONE (Phase 4, `learning.curiosity` + `brain.world_model`): the latent dynamics head's prediction error, z-score-normalised and clipped, is the intrinsic reward. See `agents/curiosity.py`.
 
 ### 2.2 Learning System
 
 - [x] **Dual-mode evolution** — Added `--mode rl` / `--mode neuroevolution` CLI flag and `evolution.mode` config key. RL mode enables online Actor-Critic learning with Lamarckian inheritance (learned weights synced to genome and passed to offspring + mutation). Neuroevolution mode disables all gradient learning — agents act purely from evolved genome weights + instincts. Legacy `--learning` flag still works.
-- [ ] **GAE (Generalized Advantage Estimation)** — Replace raw TD advantage with GAE(λ) for smoother, lower-variance advantage estimates. Parameterize λ in config.
-- [ ] **PPO-style clipped updates** — Add clipped surrogate objective to prevent destructive policy updates, especially important with the torch backend.
+- [x] **GAE (Generalized Advantage Estimation)** — DONE (PPO learner, `learning.ppo.gae_lambda`). See `agents/ppo.py:compute_gae`.
+- [x] **PPO-style clipped updates** — DONE (`learning.algorithm: ppo`): clipped surrogate (ε configurable), full-network backprop via a persistent torch mirror, sequence replay with truncated BPTT, Adam + grad-norm clipping. A2C remains the default control.
 - [ ] **Curriculum learning** — Start agents in a resource-rich, small world and progressively increase difficulty (larger world, fewer resources, stronger calamities). Configurable schedule in YAML. *→ Foundation for robotics task curriculum (Part 8.5) and entertainment difficulty progression (survival gauntlet, Part 9.2).*
 - [ ] **Population-level knowledge distillation** — Periodically average weights of top-N agents and inject the averaged weights into the lowest-performing agents, accelerating convergence. *→ Accelerates robotics training convergence and creates visible "teaching" events for online spectators.*
 - [ ] **Hindsight experience replay** — When an agent dies near food, rewrite the trajectory reward as if it had eaten, providing learning signal for "almost successful" behaviors. *→ Sample-efficient learning critical for expensive robotics physics simulations.*
@@ -129,10 +129,10 @@ Improve the development and analysis workflow. This section builds the **backbon
 
 Longer-term explorations that could produce publishable results. The **world model** (Section 5.1) is the single most important technology for the Robotics Track — it enables 100–1000× faster training via "dreaming." **Emergent complexity** (Section 5.2) IS the entertainment value proposition — a world that never stops producing novel behaviors. **Interpretability** (Section 5.3) feeds both the creature wiki for users and debuggable robot controllers for engineers.
 
-### 5.1 World Models (as per WORLD_MODEL_IMPLEMENTATION_GUIDE.md)
+### 5.1 World Models
 
-- [ ] **Transition predictor** — Train a small MLP per agent that predicts (next_obs, reward) given (obs, action). Prediction error becomes intrinsic curiosity reward. *→ THE core technology for the Robotics Track — this becomes the full world model (Part 8.4) that enables dream-based evolution.*
-- [ ] **Dreamer-style imagination** — Agent "dreams" future trajectories using its learned world model and plans actions by evaluating imagined outcomes. No real-world interaction needed for planning. *→ Enables dream-based evolution (Part 8.4) — 1000× faster than physics simulation for robotics training.*
+- [x] **Transition predictor** — DONE (Phase 4, `brain.world_model`): a latent dynamics head in the genome predicts (next latent, reward) from (hidden state, action); prediction error is the curiosity reward (`learning.curiosity`). Implemented in latent space (sharing the policy encoder) rather than observation space — see BRAIN_V3_PROPOSAL.md §3.1. *→ THE core technology for the Robotics Track — this becomes the full world model (Part 8.4) that enables dream-based evolution.*
+- [x] **Dreamer-style imagination** — DONE (first version, `brain.world_model.planner`): random-shooting rollouts in latent space (imagine ẑ', advance the GRU, accumulate r̂, bootstrap with the critic) select the agent's next action. See `agents/planner.py`. Remaining: population-level offline model from transition logs + dream-based evolution (evolve inside the model, ground periodically in the real world).
 - [ ] **Model-based rollouts** — Before acting, simulate K steps in the learned model and pick the action sequence with highest expected return. Adds planning depth without environment cost.
 
 ### 5.2 Emergent Complexity

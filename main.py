@@ -536,9 +536,20 @@ Examples:
         brain_cfg = config["brain"]
         Agent.brain_config = brain_cfg
         weight_count = calculate_weight_count_for_config(brain_cfg)
+        _wm_cfg = brain_cfg.get("world_model", {}) or {}
         print(
             f"Brain: v{brain_cfg.get('version', 2)} "
             f"({weight_count} parameters per agent)"
+            + (
+                ", world model ON"
+                + (
+                    " + planner"
+                    if (_wm_cfg.get("planner", {}) or {}).get("enabled", False)
+                    else ""
+                )
+                if _wm_cfg.get("enabled", False)
+                else ""
+            )
         )
 
         # Configure bootstrap instincts for all agents (fading scaffolding —
@@ -624,6 +635,7 @@ Examples:
                         compute_device=learning_cfg.get("compute_device", "auto"),
                         algorithm=learning_cfg.get("algorithm", "a2c"),
                         ppo_config=learning_cfg.get("ppo", None),
+                        curiosity_config=learning_cfg.get("curiosity", None),
                     )
 
                 world.add_agent(agent)

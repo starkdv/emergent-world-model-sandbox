@@ -1,6 +1,69 @@
 # Changelog
 
-## [Unreleased] — Brain v3, Phases 1–3
+## [Unreleased] — Brain v3, Phases 1–4
+
+### Phase 4 — Learned world model: dynamics head, curiosity, latent planning (opt-in)
+
+**In simple terms:** agents can now carry a tiny *imagination*: a learned model
+that predicts "if I do this, what will I perceive next, and what reward will I
+get?". Three things fall out of it. (1) **Curiosity** — when reality differs
+from the prediction, the surprise itself becomes a reward, so agents explore
+without any hand-coded exploration bonus. (2) **Planning** — before acting, an
+agent can imagine a few action sequences in its head and pick the most
+promising first move. (3) The model lives in the genome, so good imaginations
+are inherited and evolved. Everything is off by default and works with both
+brain versions.
+
+**Technical detail:**
+
+- **Latent dynamics head** (`brain.world_model.enabled`): appended to the
+  genome layout (prefix unchanged → migration-friendly), for both brain
+  versions: `d = tanh([h ‖ onehot(a)]·W1+b1)`, `ẑ' = d·Wz+bz`,
+  `r̂ = d·Wr+br`. v2: +2,401 params (8,873 → 11,274); v3: +3,441
+  (17,337 → 20,778). New `Brain.encode`, `Brain.predict_next_latent`,
+  `Brain.has_world_model`.
+- **PPO training** (`learning.ppo.world_model_coef`): auxiliary loss
+  `‖ẑ_{t+1} − sg(z_{t+1})‖² + (r̂ − r)²` over sequence chunks, with
+  stop-gradient latent targets (the policy/value losses anchor the
+  representation; the dynamics head chases it — prevents latent collapse).
+  Under a2c or pure neuroevolution the head evolves only.
+- **Curiosity** (`agents/curiosity.py`, `learning.curiosity`): intrinsic
+  reward = `weight · clip(zscore⁺(prediction error), 0, clip)` with Welford
+  running statistics, warmup, and optional weight decay; only above-average
+  surprise is rewarded. Attached via `Agent.enable_learning`; inherited by
+  offspring.
+- **Latent rollout planner** (`agents/planner.py`,
+  `brain.world_model.planner`): random-shooting over imagined rollouts —
+  predict ẑ', advance the GRU on the imagined latent, accumulate discounted
+  r̂, bootstrap with the critic at the horizon; first action of the best
+  rollout wins. First-step actions respect the action mask.
+- **Decision/reward logic unified**: new `Agent.choose_action` and
+  `Agent.compute_reward` are the single sources used by BOTH the serial
+  path and `utils/parallel.py` — the duplication that caused the Phase-2
+  drift bug is gone structurally.
+- Config: documented `brain.world_model` + `learning.curiosity` blocks;
+  startup banner shows world-model/planner status.
+- New tests: `tests/test_world_model.py` (20 tests — spec counts and
+  prefix stability, prediction shapes, curiosity warmup/normalisation/
+  decay/clipping, planner mask-respect and preference for model-predicted
+  reward, PPO gradient reach into dyn.*, prediction error decreasing on a
+  learnable toy world, agent/offspring integration).
+
+### Documentation cleanup
+
+- Deleted `WORLD_MODEL_IMPLEMENTATION_GUIDE.md` — its plan is superseded by
+  the implemented Phase 4 (latent-space model sharing the policy encoder,
+  rather than the guide's standalone observation-space MLP). The surviving
+  idea from it — a population-level offline model trained from transition
+  logs for dream-based evolution — is tracked in BRAIN_V3_PROPOSAL.md §5
+  and SUGGESTIONS.md §5.1.
+- Deleted `todo.md` — a historical phase-completion checklist (Nov 2025)
+  fully superseded by SUGGESTIONS.md (forward roadmap), CHANGELOG.md
+  (history), and BRAIN_V3_PROPOSAL.md (phase status).
+- Updated SUGGESTIONS.md checkboxes (attention, GRU size, value head,
+  curiosity, GAE, PPO, world model items now DONE with pointers),
+  PROJECT_OVERVIEW_TECHNICAL.md status (world model now trained, not just
+  logged), ECOSYSTEM.md (status banner pointing to the current docs).
 
 ### Phase 3b — PPO learner: real lifetime learning (opt-in, `learning.algorithm: ppo`)
 

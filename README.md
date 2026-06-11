@@ -25,6 +25,8 @@ This project implements a **2D grid world** where:
 - 🔀 **Dual Evolution Mode**: RL mode (gradient learning + Lamarckian inheritance) or pure neuroevolution — selectable via `--mode rl` / `--mode neuroevolution`
 - 🎮 **Dual Renderer**: Pygame 2D GUI **or** a GPU-accelerated isometric 2.5D renderer via ModernGL
 - 🎯 **Fading Instincts**: Survival-bootstrapping biases (PICK_UP, EAT, USE, turn-toward-food, hunger-eat) that genuinely fade to zero with agent age — adults act purely on their learned network
+- 🔮 **Learned World Model** (opt-in): a latent dynamics head in the genome predicts *(next perception, reward)* — powering **curiosity** (surprise as intrinsic reward) and **imagination-based planning** (latent rollouts)
+- 🧪 **Two Learners**: legacy heads-only A2C (the control) or full-network PPO with sequence replay, GAE(λ), and clipped updates — both Lamarckian
 - 🔬 **Scientific Analysis**: Comprehensive action-distribution and survival-metric analysis tools
 - ⚡ **Optimised Engine**: Per-tick caching, set-based tile indexing, persistent log file handles
 
@@ -91,11 +93,13 @@ python main.py --no-viz --generations 1000 --log
 
 See [CLI_GUIDE.md](CLI_GUIDE.md) for the full command-line reference.
 
-## What's New — Brain v3 Upgrade (Phases 1–3)
+## What's New — Brain v3 Upgrade (Phases 1–4)
 
 **In one sentence:** the brain's internals were reorganised so it can grow,
-the survival "training wheels" now genuinely come off as agents mature, and an
-opt-in attention-based brain architecture is available alongside the legacy one.
+the survival "training wheels" now genuinely come off as agents mature, an
+opt-in attention-based brain is available alongside the legacy one, lifetime
+learning now reaches every weight, and agents can carry a **learned world
+model** that powers curiosity and imagination-based planning.
 
 **In plain words:**
 - The neural network's wiring diagram now lives in *one* place
@@ -118,11 +122,16 @@ opt-in attention-based brain architecture is available alongside the legacy one.
   lifetime; now gradients reach **every weight** (perception, memory, heads)
   via sequence replay, GAE(λ) advantages, and PPO-clipped updates — and the
   learned weights are still inherited by offspring (Lamarckian).
+- An opt-in **learned world model** (`brain.world_model.enabled`): a latent
+  dynamics head in the genome predicts *(next latent, reward)* from
+  *(memory, action)*. It unlocks **curiosity** (prediction error as
+  intrinsic reward — exploration without hand-crafted bonuses) and a
+  **latent rollout planner** (the agent imagines action consequences in
+  latent space and picks the best first move).
 
-Full design rationale and the roadmap for the remaining phase (learned world
-models) are in [BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md); change details
-are in [CHANGELOG.md](CHANGELOG.md). For a complete, math-level comparison
-of the two brains and the two learners, see
+Full design rationale is in [BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md);
+change details are in [CHANGELOG.md](CHANGELOG.md). For a complete,
+math-level comparison of the two brains and the two learners, see
 [**BRAIN_V2_V3_COMPARISON.md**](BRAIN_V2_V3_COMPARISON.md).
 
 ## Architecture
@@ -130,16 +139,20 @@ of the two brains and the two learners, see
 ```
 emergent-world-model/
 ├── world/           # Tiles, objects, systems, object registry, tile-effect engine
-├── agents/          # Agent lifecycle, Actor-Critic learning, evolution, genome
-│   └── brain/       # GRU brain package: spec (genome/observation layouts),
-│                    #   modules (pure NN functions), instincts (fading biases)
+├── agents/          # Agent lifecycle, evolution, genome
+│   ├── brain/       # Brain package: v2 + v3 (attention) architectures,
+│   │                #   spec (genome/observation layouts), instincts (fading)
+│   ├── learning.py  # A2C learner (legacy, heads-only — the control)
+│   ├── ppo.py       # PPO learner (full-network backprop, GAE, clipping)
+│   ├── curiosity.py # Intrinsic reward from world-model prediction error
+│   └── planner.py   # Latent rollout planner (imagination-based actions)
 ├── simulation/      # Simulation management
 ├── utils/
 │   ├── agents/      # Perception (72-dim obs), action execution, reward shaping
 │   ├── data/        # AgentLogger, WorldModelLogger (async + persistent handles)
 │   └── ui/          # Pygame renderer, GPU isometric renderer (ModernGL)
 ├── config/          # YAML configs + custom object definitions
-├── tests/           # 240+ unit tests
+├── tests/           # 290+ unit tests
 └── data/            # Logs, exported data, saved weights
 ```
 
@@ -209,6 +222,40 @@ Both are Lamarckian — learned weights are packed back into the genome and
 inherited by offspring. The full derivations (GRU gates, attention scaling,
 policy-gradient algebra, GAE telescoping, the clipped surrogate) are in
 [BRAIN_V2_V3_COMPARISON.md](BRAIN_V2_V3_COMPARISON.md).
+
+### Learned World Model, Curiosity & Planning
+
+With `brain.world_model.enabled: true`, the genome gains a small **latent
+dynamics head** (works with both brain versions):
+
+```
+d  = tanh([h ‖ onehot(a)]·W1 + b1)      h = GRU memory, a = imagined action
+ẑ' = d·Wz + bz                          predicted next latent
+r̂  = d·Wr + br                          predicted reward
+```
+
+It is trained end-to-end by the PPO learner (auxiliary loss against the real
+next latent, stop-gradient targets) — or simply evolves in pure
+neuroevolution mode. It unlocks two capabilities:
+
+- **Curiosity** (`learning.curiosity`): the prediction error, z-scored over
+  running statistics and clipped, becomes an intrinsic reward. Surprising
+  transitions are rewarded; exploration emerges instead of being hand-coded.
+- **Planning** (`brain.world_model.planner`): random-shooting rollouts
+  entirely in latent space — imagine ẑ′, advance the GRU, accumulate r̂,
+  bootstrap with the critic at the horizon — and take the best first action.
+
+```yaml
+brain:
+  world_model: { enabled: true, hidden: 32,
+                 planner: { enabled: false, depth: 3, samples: 16 } }
+learning:
+  curiosity:   { enabled: true, weight: 0.1, decay: 1.0 }
+```
+
+The remaining roadmap item is the population-level offline model (trained
+from the transition logs) for **dream-based evolution** — evolving genomes
+inside the learned model with periodic grounding in the real environment.
 
 **Observation layout (72 features):**
 
@@ -405,16 +452,16 @@ This sandbox is designed for studying:
 2. All functions must have proper docstrings
 3. Focus on emergent behaviours, never hardcode high-level strategies
 4. Maintain separation between world physics and agent logic
-5. Write comprehensive tests — run `pytest` before opening a PR (240+ tests, all must pass)
+5. Write comprehensive tests — run `pytest` before opening a PR (290+ tests, all must pass)
 
 ## Future Extensions
 
-- **Curiosity-driven Learning**: Intrinsic motivation for exploration (ICM / RND)
 - **Communication Evolution**: Emergent language and signalling via SIGNAL action
 - **Tool Construction**: Building and using complex tools
 - **Environmental Dynamics**: Day/night cycles, seasons, temperature, and weather
 - **Speciation (NEAT-style)**: Species-level diversity protection
-- **World Models**: Dreamer-style imagination and model-based planning
+- **Dream-based Evolution**: population-level offline world model trained from
+  transition logs; evolve genomes inside the model, ground in the real world
 
 See [SUGGESTIONS.md](SUGGESTIONS.md) for the full 80+ item roadmap.
 
