@@ -126,17 +126,27 @@ def build_frame(world: "World") -> Dict:
         for a in world.agents.values()
         if a.alive
     ]
-
     objects = [
- 
+            {
+                    "id": val.id,
+                    "x": val.x,
+                    "y": val.y,
+                    "id": key,
+                    "name": _object_category(val)
+            }
+            for key, val in world.objects.items()
+        ]        
+    
+    tiles = [
         {
-                "id": o.id,
-                "x": o.x,
-                "y": o.y,
-                "t": _object_category(o)
+            "x": t.x,
+            "y": t.y,
+            "terrain": t.terrain_type,
+            "fertility": t.fertility,
+            "moisture": t.moisture
         }
-        for o in world.objects.values()
-    ]       
+        for t in world.tiles.values()
+    ]
     
     world_options = [
         {
@@ -150,5 +160,6 @@ def build_frame(world: "World") -> Dict:
         "world_options": world_options,
         "tick": world.tick,
         "agents": agents,
-        "objects": objects
+        "objects": objects,
+        "tiles": tiles
     }
