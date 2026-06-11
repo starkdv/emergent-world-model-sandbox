@@ -47,16 +47,22 @@ def _object_category(obj) -> str:
         A short category string for the client to map to a colour / mesh.
     """
     if getattr(obj, "type_id", ""):
+        print(obj.type_id)
         return obj.type_id
     if obj.has_component(PlantComponent):
+        print("plant")
         return "plant"
     if obj.has_component(SeedComponent):
+        print("seed")
         return "seed"
     if obj.has_component(FertilizerComponent):
+        print("fertilizer")
         return "fertilizer"
     if obj.has_component(EdibleComponent):
+        print("food")
         return "food"
     return "object"
+
 
 
 def build_init(world: "World") -> Dict:
@@ -115,24 +121,34 @@ def build_frame(world: "World") -> Dict:
             "dir": list(a.direction),
             "e": round(a.energy, 1),
             "age": a.age,
+            "inventory_size": a.inventory_size
         }
         for a in world.agents.values()
         if a.alive
     ]
 
     objects = [
+ 
         {
-            "id": o.id,
-            "x": o.x,
-            "y": o.y,
-            "t": _object_category(o),
+                "id": o.id,
+                "x": o.x,
+                "y": o.y,
+                "t": _object_category(o)
         }
         for o in world.objects.values()
+    ]       
+    
+    world_options = [
+        {
+            "height": world.height,
+            "width": world.width,
+        }
     ]
 
     return {
         "type": "frame",
+        "world_options": world_options,
         "tick": world.tick,
         "agents": agents,
-        "objects": objects,
+        "objects": objects
     }

@@ -817,10 +817,8 @@ Examples:
         try:
             for _ in range(total_ticks):
                 world.update()
-                print("stream server in loop")
                 if stream_server is not None and world.tick % stream_every == 0:
                     stream_server.publish(build_frame(world))
-                    print("built frame")
 
                 if world.tick % progress_every == 0:
                     print(f"streaming world tick: {world.tick}")
@@ -837,6 +835,7 @@ Examples:
                     break
         finally:
             if stream_server is not None:
+                print("[stream] Websocket server stopping...")
                 stream_server.stop()
 
         print("\nHeadless simulation complete")

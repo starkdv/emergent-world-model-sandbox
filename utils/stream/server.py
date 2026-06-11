@@ -194,6 +194,7 @@ class StreamServer:
         if self._loop is None or self._wake is None:
             return
         self._latest = json.dumps(frame, separators=(",", ":"))
+        print(f"Latest Frame: {self._latest}")
         self._loop.call_soon_threadsafe(self._wake.set)
 
     @property
