@@ -132,7 +132,7 @@ Longer-term explorations that could produce publishable results. The **world mod
 ### 5.1 World Models
 
 - [x] **Transition predictor** — DONE (Phase 4, `brain.world_model`): a latent dynamics head in the genome predicts (next latent, reward) from (hidden state, action); prediction error is the curiosity reward (`learning.curiosity`). Implemented in latent space (sharing the policy encoder) rather than observation space — see BRAIN_V3_PROPOSAL.md §3.1. *→ THE core technology for the Robotics Track — this becomes the full world model (Part 8.4) that enables dream-based evolution.*
-- [x] **Dreamer-style imagination** — DONE (first version, `brain.world_model.planner`): random-shooting rollouts in latent space (imagine ẑ', advance the GRU, accumulate r̂, bootstrap with the critic) select the agent's next action. See `agents/planner.py`. Remaining: population-level offline model from transition logs + dream-based evolution (evolve inside the model, ground periodically in the real world).
+- [x] **Dreamer-style imagination** — DONE (first version, `brain.world_model.planner`): random-shooting rollouts in latent space (imagine ẑ', advance the GRU, accumulate r̂, bootstrap with the critic) select the agent's next action. See `agents/planner.py`. Population-level offline model + dream-based evolution also DONE: `dream_evolve.py` / `agents/dream.py` train an observation-space model from transition logs and evolve genomes inside it ((μ+λ) selection, mandatory real-world grounding documented).
 - [ ] **Model-based rollouts** — Before acting, simulate K steps in the learned model and pick the action sequence with highest expected return. Adds planning depth without environment cost.
 
 ### 5.2 Emergent Complexity

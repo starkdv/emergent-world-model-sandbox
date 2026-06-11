@@ -1,8 +1,8 @@
 # Brain v3 — Architecture Proposal
 
-**Status:** Phases 1–4 implemented (see §5 and CHANGELOG.md). Remaining:
-the population-level offline model for dream-based evolution. Math-level
-architecture/learner comparison: BRAIN_V2_V3_COMPARISON.md
+**Status:** ALL phases implemented, including dream-based evolution
+(see §5 and CHANGELOG.md). Math-level architecture/learner comparison:
+BRAIN_V2_V3_COMPARISON.md
 **Scope:** `agents/brain.py`, `utils/agents/brain_utils.py`, `agents/learning.py`,
 `utils/agents/perception.py`, plus new modules under `agents/brain/`
 **Inputs reviewed:** current codebase, `PROJECT_OVERVIEW_TECHNICAL.md`,
@@ -310,10 +310,14 @@ auxiliary training with stop-gradient latent targets, `agents/curiosity.py`
 (random-shooting latent rollouts with critic bootstrap),
 `tests/test_world_model.py`.*
 
-**Remaining — dream-based evolution.**
+**Dream-based evolution. ✅ DONE**
 Population-level shared model trained offline from the transition logs
 (WORLD_MODEL_LOGGING_FORMAT.md), used to evaluate mutated genomes *inside*
 the learned model with periodic grounding in the real environment.
+*Shipped: `agents/dream.py` (PopulationWorldModel: obs-space, policy-agnostic
+Δobs/reward/done predictor; dream rollouts; (μ+λ) dream evolution) and the
+`dream_evolve.py` CLI — log → train → dream → grounding-ready `.npz` for
+`main.py --load-weights`. Validated end-to-end; `tests/test_dream_evolution.py`.*
 
 ---
 

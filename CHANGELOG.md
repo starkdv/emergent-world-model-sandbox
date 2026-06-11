@@ -1,6 +1,46 @@
 # Changelog
 
-## [Unreleased] — Brain v3, Phases 1–4
+## [Unreleased] — Brain v3, Phases 1–4 + Dream-Based Evolution
+
+### Dream-based evolution (capstone of the world-model stack)
+
+**In simple terms:** the simulation can now train a model of the *world
+itself* from its own logs and run evolution **inside that model** — thousands
+of imagined episodes per second instead of full simulation. The loop is:
+collect real experience → train the population world model → evolve genomes
+in the dream → ground the champions back in the real environment (mandatory:
+dream fitness is a proxy, and evolution will exploit the model's mistakes).
+
+**Technical detail:**
+
+- New `agents/dream.py`:
+  - `PopulationWorldModel` — observation-space, policy-agnostic dynamics
+    model `f(obs, onehot a) → (Δobs, r̂, p̂_done)` (two tanh layers + three
+    heads; predicts observation *deltas* so a mostly-static world centres
+    the targets at zero). MSE on Δobs/reward, BCE on done; save/load.
+  - `load_transitions_csv` — loader for the `--world-model-log` schema.
+  - `evaluate_in_dream` — roll a genome's policy in imagination from real
+    seed observations; accumulated predicted reward = dream fitness.
+  - `dream_evolution` — (μ+λ) loop with elites + Gaussian mutation, every
+    evaluation imagined.
+- New CLI `dream_evolve.py`: transitions CSV → trained model → dream
+  generations → top-5 champions saved in the same `.npz` format
+  `main.py --load-weights` consumes (the grounding step).
+- **Fix:** `utils/data/__init__.py` imported the never-committed
+  `agent_logger` module unconditionally, making the whole `utils.data`
+  package unimportable — `--world-model-log` was broken on a fresh clone
+  and 7 test modules could not even be collected. The import is now
+  defensive; `tests/test_async_logger.py` (5 tests) is unblocked.
+- **Fix:** `AsyncWorldModelLogger` wrote a hardcoded 64 `obs_*` columns
+  while observations are 72-dimensional, misaligning every CSV column
+  after `obs_63`. The header now follows `get_observation_size()`.
+- Validated end-to-end: 400-tick logged run (9.5k transitions) → world
+  model trained → 8 dream generations (mean dream fitness 31 → ~50) →
+  champions grounded in the real environment (population remains viable).
+- New tests: `tests/test_dream_evolution.py` (10 — CSV loader vs logger
+  schema, header-width regression, model learns action-conditional toy
+  dynamics, save/load, dream evaluation rewards what the model rewards,
+  dream evolution beats random-genome baseline).
 
 ### Phase 4 — Learned world model: dynamics head, curiosity, latent planning (opt-in)
 

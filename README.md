@@ -128,6 +128,10 @@ model** that powers curiosity and imagination-based planning.
   intrinsic reward — exploration without hand-crafted bonuses) and a
   **latent rollout planner** (the agent imagines action consequences in
   latent space and picks the best first move).
+- **Dream-based evolution** (`dream_evolve.py`): a population-level world
+  model is trained offline from the transition logs and used as a virtual
+  environment — genomes evolve *inside the dream* at a fraction of the cost
+  of real simulation, then champions are grounded back in the real world.
 
 Full design rationale is in [BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md);
 change details are in [CHANGELOG.md](CHANGELOG.md). For a complete,
@@ -145,14 +149,15 @@ emergent-world-model/
 │   ├── learning.py  # A2C learner (legacy, heads-only — the control)
 │   ├── ppo.py       # PPO learner (full-network backprop, GAE, clipping)
 │   ├── curiosity.py # Intrinsic reward from world-model prediction error
-│   └── planner.py   # Latent rollout planner (imagination-based actions)
+│   ├── planner.py   # Latent rollout planner (imagination-based actions)
+│   └── dream.py     # Population world model + dream-based evolution
 ├── simulation/      # Simulation management
 ├── utils/
 │   ├── agents/      # Perception (72-dim obs), action execution, reward shaping
 │   ├── data/        # AgentLogger, WorldModelLogger (async + persistent handles)
 │   └── ui/          # Pygame renderer, GPU isometric renderer (ModernGL)
 ├── config/          # YAML configs + custom object definitions
-├── tests/           # 290+ unit tests
+├── tests/           # 300+ unit tests
 └── data/            # Logs, exported data, saved weights
 ```
 
@@ -253,9 +258,30 @@ learning:
   curiosity:   { enabled: true, weight: 0.1, decay: 1.0 }
 ```
 
-The remaining roadmap item is the population-level offline model (trained
-from the transition logs) for **dream-based evolution** — evolving genomes
-inside the learned model with periodic grounding in the real environment.
+### Dream-Based Evolution
+
+The capstone of the world-model stack: a **population-level** model of the
+environment itself (observation-space, policy-agnostic — any genome can be
+evaluated in it), trained offline from the transition logs, used as a cheap
+virtual world for evolution. Thousands of imagined episodes per second
+instead of full simulation:
+
+```bash
+# 1. Collect real experience
+python main.py --no-viz --world-model-log --mode rl --learning --seed 42
+
+# 2. Train the population world model + evolve genomes inside the dream
+python dream_evolve.py --transitions "data/logs/transitions_*.csv" \
+    --generations 20 --population 32
+
+# 3. GROUND the dream champions in the real environment (mandatory —
+#    dream fitness is a proxy and evolution exploits model errors)
+python main.py --load-weights data/weights/dream_best.npz --no-viz --seed 42
+```
+
+Implementation: `agents/dream.py` (model + dream rollouts + (μ+λ) evolution)
+and `dream_evolve.py` (CLI). The model predicts observation *deltas*, reward,
+and episode termination from `(obs, action)`.
 
 **Observation layout (72 features):**
 
@@ -452,7 +478,7 @@ This sandbox is designed for studying:
 2. All functions must have proper docstrings
 3. Focus on emergent behaviours, never hardcode high-level strategies
 4. Maintain separation between world physics and agent logic
-5. Write comprehensive tests — run `pytest` before opening a PR (290+ tests, all must pass)
+5. Write comprehensive tests — run `pytest` before opening a PR (300+ tests, all must pass)
 
 ## Future Extensions
 
@@ -460,8 +486,8 @@ This sandbox is designed for studying:
 - **Tool Construction**: Building and using complex tools
 - **Environmental Dynamics**: Day/night cycles, seasons, temperature, and weather
 - **Speciation (NEAT-style)**: Species-level diversity protection
-- **Dream-based Evolution**: population-level offline world model trained from
-  transition logs; evolve genomes inside the model, ground in the real world
+- **Recurrent population world model**: GRU/sequence version of the dream
+  model for partially observable dynamics; dream curricula
 
 See [SUGGESTIONS.md](SUGGESTIONS.md) for the full 80+ item roadmap.
 
