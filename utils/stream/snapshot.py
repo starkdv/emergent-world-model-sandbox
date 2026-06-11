@@ -137,17 +137,19 @@ def build_frame(world: "World") -> Dict:
             for key, val in world.objects.items()
         ]        
     
-    tiles = [
+  
+  
+    tiles = [  
         {
-            "x": t.x,
-            "y": t.y,
-            "terrain": t.terrain_type,
-            "fertility": t.fertility,
-            "moisture": t.moisture
+            "x": i.x,
+            "y": i.y,
+            "terrain": i.terrain_type,
+            "fertility": i.fertility,
+            "moisture": i.moisture
         }
-        for t in world.tiles.values()
+        for t in world.tiles for i in t 
     ]
-    
+
     world_options = [
         {
             "height": world.height,
