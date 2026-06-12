@@ -19,8 +19,10 @@ def test_improved_rewards():
     print("  - Agents seeking food actively")
     print("\nStarting simulation...\n")
 
-    # Run the simulation with learning enabled
-    # We use a short run or just check return code
+    # Run the simulation with learning enabled.
+    # --generations 1 keeps this a smoke test: without it the easy config
+    # runs 100 generations x 1000 ticks (the test only checks the return
+    # code, so a full training run adds nothing but hours of runtime).
     result = subprocess.run(
         [
             sys.executable,
@@ -31,9 +33,15 @@ def test_improved_rewards():
             "--learning-rate",
             "0.01",
             "--log",
+            "--no-viz",
+            "--generations",
+            "1",
+            "--seed",
+            "42",
         ],
         capture_output=True,
         text=True,
+        timeout=600,
     )  # Capture output to avoid spamming pytest logs unless failed
 
     if result.returncode != 0:

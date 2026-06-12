@@ -2,6 +2,38 @@
 
 ## [Unreleased] — Brain v3, Phases 1–4 + Dream-Based Evolution
 
+### Reconstructed `utils/data/agent_logger.py` (the `--log` pipeline)
+
+**In simple terms:** one source file referenced everywhere — the CSV logger
+behind the `--log` flag — had never actually been committed to the
+repository, so `--log` crashed on a fresh clone and six test files could not
+run. The module has been reconstructed from its complete usage surface and
+committed; the whole test suite is now collectable.
+
+**Root cause found:** `.gitignore` contained the unanchored pattern `data/`,
+which matches *any* directory named `data` — including `utils/data/` — so
+`git add` silently skipped the file. The pattern is now anchored to the
+repository root (`/data/`).
+
+**Technical detail:**
+
+- `AgentLogger`: per-action CSV (`agent_actions_*.csv`) + per-tick agent
+  state snapshots (`agent_states_*.csv`); persistent file handles with
+  batched flushes (headers and state snapshots flushed immediately so files
+  are readable mid-run); lock-guarded writes because `log_all_states` runs
+  on the simulation's I/O pool while `log_action` runs on the main thread;
+  accepts both the live agent dict (serial path) and snapshot lists
+  (parallel path).
+- `WorldModelLogger`: subclass of `AsyncWorldModelLogger` so the transition
+  CSV schema keeps a single source of truth.
+- `utils/data/__init__.py` restored to direct imports (the defensive
+  import added earlier is no longer needed).
+- Unblocked: `tests/test_logging.py`, `tests/test_world_model_logger.py`,
+  `tests/test_exploration_sweep.py`, all three `tests/scenarios/` modules,
+  and the previously failing `tests/test_improved_rewards.py` /
+  `tests/test_parallel.py::test_logging_offloaded` — the full suite is now
+  collectable and green.
+
 ### Dream-based evolution (capstone of the world-model stack)
 
 **In simple terms:** the simulation can now train a model of the *world

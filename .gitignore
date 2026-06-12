@@ -9,7 +9,10 @@ dist/
 build/
 
 # Data and logs
-data/
+# Anchored to the repo root: an unanchored "data/" also matched
+# utils/data/, silently keeping source files out of the repository
+# (this is how utils/data/agent_logger.py went missing for months)
+/data/
 *.log
 test_*.txt
 *_output.txt

@@ -18,7 +18,7 @@ import threading
 import time
 from collections import deque
 from datetime import datetime
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from typing import Dict, Any, TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
@@ -489,8 +489,6 @@ class AsyncWorldModelLogger:
         if tick % self.log_every_n_ticks != 0:
             return
 
-        from world.objects import EdibleComponent, PlantComponent, SeedComponent
-
         alive_agents = [a for a in world.agents.values() if a.alive]
         total_agents = len(world.agents)
 
@@ -567,14 +565,14 @@ class AsyncWorldModelLogger:
         self._flush_buffers()
 
         stats = self.get_stats()
-        print(f"\nAsyncWorldModelLogger closed:")
+        print("\nAsyncWorldModelLogger closed:")
         print(f"  Transitions logged: {stats['transitions_logged']}")
         print(f"  Episodes logged: {stats['episodes_logged']}")
         print(f"  World states logged: {stats['world_states_logged']}")
         print(f"  Batches written: {stats['batches_written']}")
         if stats["queue_overflows"] > 0:
             print(f"  ⚠️  Queue overflows: {stats['queue_overflows']}")
-        print(f"  Files:")
+        print("  Files:")
         print(f"    - {self.transitions_file}")
         print(f"    - {self.episodes_file}")
         print(f"    - {self.world_states_file}")

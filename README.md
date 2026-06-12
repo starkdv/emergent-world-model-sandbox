@@ -157,7 +157,7 @@ emergent-world-model/
 │   ├── data/        # AgentLogger, WorldModelLogger (async + persistent handles)
 │   └── ui/          # Pygame renderer, GPU isometric renderer (ModernGL)
 ├── config/          # YAML configs + custom object definitions
-├── tests/           # 300+ unit tests
+├── tests/           # 320+ unit tests
 └── data/            # Logs, exported data, saved weights
 ```
 
@@ -478,7 +478,7 @@ This sandbox is designed for studying:
 2. All functions must have proper docstrings
 3. Focus on emergent behaviours, never hardcode high-level strategies
 4. Maintain separation between world physics and agent logic
-5. Write comprehensive tests — run `pytest` before opening a PR (300+ tests, all must pass)
+5. Write comprehensive tests — run `pytest` before opening a PR (320+ tests, all must pass)
 
 ## Future Extensions
 

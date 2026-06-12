@@ -3,7 +3,7 @@ max-line-length = 120
 exclude =
     .venv,
     __pycache__,
-    data,
+    ./data,
     build,
     dist,
     .git,
