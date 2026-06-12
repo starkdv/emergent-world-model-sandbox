@@ -15,7 +15,7 @@ Architecture (config: ``brain.version: 3``):
                              │ h
         policy head (H → actions, masked)  ·  value MLP ([z, h] → V → 1)
 
-Why this shape (see BRAIN_V3_PROPOSAL.md §3 for the full rationale):
+Why this shape (see docs/BRAIN_V3_PROPOSAL.md §3 for the full rationale):
 
 - The tile embedding is ONE small matrix shared by all 25 tiles, so
   perception is position-equivariant and scales to larger vision radii

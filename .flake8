@@ -36,6 +36,6 @@ per-file-ignores =
     # Agent modules have conditional imports
     agents/*.py: F401
     # Analyzers have f-strings used as section headers
-    analyze_*.py: F541
+    scripts/*.py: F541
     # Main has conditional imports
     main.py: F401, E401

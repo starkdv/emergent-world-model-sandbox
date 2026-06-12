@@ -91,7 +91,7 @@ python main.py --no-viz --generations 1000 --log
 
 > 💡 Pause with **SPACE** then hover for easier tile inspection.
 
-See [CLI_GUIDE.md](CLI_GUIDE.md) for the full command-line reference, and
+See [CLI_GUIDE.md](docs/CLI_GUIDE.md) for the full command-line reference, and
 **[Modes & Feature Toggles](#modes--feature-toggles--complete-reference)**
 below for every mode, its prerequisites, and what enabling it does.
 
@@ -130,15 +130,15 @@ model** that powers curiosity and imagination-based planning.
   intrinsic reward — exploration without hand-crafted bonuses) and a
   **latent rollout planner** (the agent imagines action consequences in
   latent space and picks the best first move).
-- **Dream-based evolution** (`dream_evolve.py`): a population-level world
+- **Dream-based evolution** (`scripts/dream_evolve.py`): a population-level world
   model is trained offline from the transition logs and used as a virtual
   environment — genomes evolve *inside the dream* at a fraction of the cost
   of real simulation, then champions are grounded back in the real world.
 
-Full design rationale is in [BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md);
+Full design rationale is in [BRAIN_V3_PROPOSAL.md](docs/BRAIN_V3_PROPOSAL.md);
 change details are in [CHANGELOG.md](CHANGELOG.md). For a complete,
 math-level comparison of the two brains and the two learners, see
-[**BRAIN_V2_V3_COMPARISON.md**](BRAIN_V2_V3_COMPARISON.md).
+[**BRAIN_V2_V3_COMPARISON.md**](docs/BRAIN_V2_V3_COMPARISON.md).
 
 ## Modes & Feature Toggles — Complete Reference
 
@@ -154,7 +154,7 @@ can be run as a controlled experiment. Quick map:
 | 5 | World model | `brain.world_model.enabled` | off | — (training needs PPO) |
 | 6 | Curiosity | `learning.curiosity.enabled` | off | world model + RL mode |
 | 7 | Latent planner | `brain.world_model.planner.enabled` | off | world model |
-| 8 | Dream evolution | `python dream_evolve.py` | — | torch + `--world-model-log` data |
+| 8 | Dream evolution | `python scripts/dream_evolve.py` | — | torch + `--world-model-log` data |
 
 All YAML keys live in `config/default.yaml` (heavily commented). CLI flags
 override config.
@@ -277,7 +277,7 @@ planner's choices are recorded and learned from.
 python main.py --no-viz --world-model-log --seed 42
 
 # 2. Train a population world model on the logs, evolve genomes inside it
-python dream_evolve.py --transitions "data/logs/transitions_*.csv"
+python scripts/dream_evolve.py --transitions "data/logs/transitions_*.csv"
 
 # 3. GROUND the champions in the real environment (mandatory)
 python main.py --load-weights data/weights/dream_best.npz --no-viz
@@ -286,7 +286,7 @@ python main.py --load-weights data/weights/dream_best.npz --no-viz
 **Prerequisites:** PyTorch; transition CSVs from `--world-model-log`
 (≥ ~500 rows minimum, thousands recommended; logs written before the
 June 2026 schema fix are column-misaligned and will be skipped); the
-`--config` passed to `dream_evolve.py` must match the brain that will
+`--config` passed to `scripts/dream_evolve.py` must match the brain that will
 load the result (version + world-model setting decide genome length).
 **What happens:** an observation-space model of the *environment itself*
 is trained from the logs, then a (μ+λ) evolutionary loop evaluates every
@@ -331,6 +331,8 @@ emergent-world-model/
 │   ├── data/        # AgentLogger, WorldModelLogger (async + persistent handles)
 │   └── ui/          # Pygame renderer, GPU isometric renderer (ModernGL)
 ├── config/          # YAML configs + custom object definitions
+├── scripts/         # Analysis tools + dream-evolution CLI
+├── docs/            # All project documentation
 ├── tests/           # 320+ unit tests
 └── data/            # Logs, exported data, saved weights
 ```
@@ -364,7 +366,7 @@ agent state + stimulus + inventory ──→ state encoder (22→40) ──┐  
               Policy head (8, masked)  ·  Value MLP ([z,h] → 16 → 1)
 ```
 
-Why v3 (full rationale in [BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md)):
+Why v3 (full rationale in [BRAIN_V3_PROPOSAL.md](docs/BRAIN_V3_PROPOSAL.md)):
 - **One tile embedding shared by all 25 tiles** makes perception
   position-equivariant and lets it scale to larger vision radii with the
   *same* weights — v2's dense vision layer spends ~1 600 parameters just
@@ -388,7 +390,7 @@ brain:
 #### v3 size presets — small / base / large
 
 There are no named presets in the config; the three sizes from
-[BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md) §3.2 are **recipes for the
+[BRAIN_V3_PROPOSAL.md](docs/BRAIN_V3_PROPOSAL.md) §3.2 are **recipes for the
 `brain.v3` keys**. Exact parameter counts (from `ParamSpec`, verified by
 tests; add the dynamics head from `brain.world_model` on top: +~2–4k):
 
@@ -431,7 +433,7 @@ Two learning algorithms are available in RL mode (`learning.algorithm`):
 Both are Lamarckian — learned weights are packed back into the genome and
 inherited by offspring. The full derivations (GRU gates, attention scaling,
 policy-gradient algebra, GAE telescoping, the clipped surrogate) are in
-[BRAIN_V2_V3_COMPARISON.md](BRAIN_V2_V3_COMPARISON.md).
+[BRAIN_V2_V3_COMPARISON.md](docs/BRAIN_V2_V3_COMPARISON.md).
 
 ### Learned World Model, Curiosity & Planning
 
@@ -476,7 +478,7 @@ instead of full simulation:
 python main.py --no-viz --world-model-log --mode rl --learning --seed 42
 
 # 2. Train the population world model + evolve genomes inside the dream
-python dream_evolve.py --transitions "data/logs/transitions_*.csv" \
+python scripts/dream_evolve.py --transitions "data/logs/transitions_*.csv" \
     --generations 20 --population 32
 
 # 3. GROUND the dream champions in the real environment (mandatory —
@@ -485,7 +487,7 @@ python main.py --load-weights data/weights/dream_best.npz --no-viz --seed 42
 ```
 
 Implementation: `agents/dream.py` (model + dream rollouts + (μ+λ) evolution)
-and `dream_evolve.py` (CLI). The model predicts observation *deltas*, reward,
+and `scripts/dream_evolve.py` (CLI). The model predicts observation *deltas*, reward,
 and episode termination from `(obs, action)`.
 
 **Observation layout (72 features):**
@@ -631,9 +633,9 @@ Built-in terrain hazard: **Sand** (5 % of default map)
 
 ### Action-Distribution Analysis
 ```bash
-python analyze_v3_1.py                       # latest log in data/logs
-python analyze_v3_1.py --file path/to.csv    # a specific log
-python analyze_v3_1.py --fade-age 150        # match brain.instincts.fade_age
+python scripts/analyze_logs.py                       # latest log in data/logs
+python scripts/analyze_logs.py --file path/to.csv    # a specific log
+python scripts/analyze_logs.py --fade-age 150        # match brain.instincts.fade_age
 ```
 Works on both log schemas (`agent_actions_*.csv` from `--log` and
 `transitions_*.csv` from `--world-model-log`). Reports action distribution,
@@ -650,9 +652,9 @@ phases — plus two Brain-v3-era sections:
 
 ### Observation Sensitivity
 ```bash
-python analyze_observation_sensitivity.py                      # v2 brain
-python analyze_observation_sensitivity.py --brain 3            # attention brain
-python analyze_observation_sensitivity.py --brain 3 --world-model
+python scripts/analyze_observation_sensitivity.py                      # v2 brain
+python scripts/analyze_observation_sensitivity.py --brain 3            # attention brain
+python scripts/analyze_observation_sensitivity.py --brain 3 --world-model
 ```
 Perturbs each of the 72 observation features and ranks how much the policy
 and value change — in three views: RAW network, RUNTIME JUVENILE (mask +
@@ -704,7 +706,7 @@ This sandbox is designed for studying:
 
 ## Contributing
 
-1. Follow the development guidelines in `guideline.md`
+1. Follow the development guidelines in `docs/guideline.md`
 2. All functions must have proper docstrings
 3. Focus on emergent behaviours, never hardcode high-level strategies
 4. Maintain separation between world physics and agent logic
@@ -719,7 +721,7 @@ This sandbox is designed for studying:
 - **Recurrent population world model**: GRU/sequence version of the dream
   model for partially observable dynamics; dream curricula
 
-See [SUGGESTIONS.md](SUGGESTIONS.md) for the full 80+ item roadmap.
+See [SUGGESTIONS.md](docs/SUGGESTIONS.md) for the full 80+ item roadmap.
 
 ## License
 

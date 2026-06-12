@@ -11,7 +11,14 @@ It reports two views:
 from __future__ import annotations
 
 import argparse
+import os
+import sys
+
 import numpy as np
+
+# Allow running from anywhere: put the repo root on sys.path so the
+# agents/world/utils packages resolve (this file lives in scripts/)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agents import Agent, Genome, create_default_trait_config
 from agents.actions import Action

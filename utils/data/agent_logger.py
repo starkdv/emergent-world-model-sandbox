@@ -70,7 +70,7 @@ class AgentLogger:
         self._writes_since_flush = 0
         self._closed = False
 
-        # Persistent handles (see ECOSYSTEM.md performance notes)
+        # Persistent handles (see docs/ECOSYSTEM.md performance notes)
         self._action_fh = open(self.action_file, "w", newline="", encoding="utf-8")
         self._action_writer = csv.writer(self._action_fh)
         self._action_writer.writerow(

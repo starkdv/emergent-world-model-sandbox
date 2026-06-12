@@ -2,6 +2,35 @@
 
 ## [Unreleased] — Brain v3, Phases 1–4 + Dream-Based Evolution
 
+### Repository reorganization: docs/ and scripts/
+
+**In simple terms:** the repo root was cluttered with ten documentation
+files and three loose scripts. Documentation now lives in `docs/`
+(README and CHANGELOG stay at the root, as is conventional), runnable
+tools live in `scripts/`, and one redundant document was removed.
+
+- **Moved to `docs/`**: BRAIN_V3_PROPOSAL, BRAIN_V2_V3_COMPARISON,
+  ECOSYSTEM, PROJECT_OVERVIEW_TECHNICAL, SUGGESTIONS,
+  WORLD_MODEL_LOGGING_FORMAT, guideline, CLI_GUIDE.
+- **Moved to `scripts/`** (each with a repo-root path bootstrap so they
+  run from any directory): `analyze_v3_1.py` → **`scripts/analyze_logs.py`**
+  (renamed — the version-numbered name was stale),
+  `analyze_observation_sensitivity.py`, `dream_evolve.py`.
+- **Deleted** `PROJECT_OVERVIEW.md` — its non-technical narrative is fully
+  covered by the README's What's-New/plain-words sections;
+  `docs/PROJECT_OVERVIEW_TECHNICAL.md` remains for reviewer audiences.
+- **`docs/CLI_GUIDE.md` rewritten**: complete `main.py` flag table
+  (including `--mode`, `--world-model-log`, weight-loading caveats and
+  the parallel-determinism note), a section per script with usage, and
+  an updated troubleshooting/directory guide.
+- All cross-references updated (README links, docs↔docs relative links,
+  code comments, `config/default.yaml` pointers, `.flake8`
+  per-file-ignores).
+- **Fix** (`scripts/analyze_logs.py`): runs with zero object interactions
+  produce all-NaN `object_type`/`interaction_kind` columns, which pandas
+  reads as float64 — the string backfill then raised under pandas ≥ 3.
+  Text columns are now coerced to string dtype before backfilling.
+
 ### Reconstructed `utils/data/agent_logger.py` (the `--log` pipeline)
 
 **In simple terms:** one source file referenced everywhere — the CSV logger

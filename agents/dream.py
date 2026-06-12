@@ -29,7 +29,7 @@ Design notes:
   real environment (the returned weights are deliberately in the same
   .npz format `main.py --load-weights` consumes).
 
-CLI entry point: `python dream_evolve.py --transitions <csv>` (repo root).
+CLI entry point: `python scripts/dream_evolve.py --transitions <csv>`.
 
 Author: Karan Vasa
 Date: June 2026

@@ -37,7 +37,7 @@ brain:
   #       a small embedding shared by all vision tiles + an attention
   #       pool driven by the agent's internal state, a larger GRU, and
   #       a value head that sees the current state directly.
-  #       See agents/brain/v3.py and BRAIN_V3_PROPOSAL.md §3.
+  #       See agents/brain/v3.py and docs/BRAIN_V3_PROPOSAL.md §3.
   version: 2
 
   # --- v2 sizes (used when version: 2) ---
@@ -178,7 +178,7 @@ learning:
   #         sequence replay (GRU re-run over chunks), GAE(λ) advantages,
   #         PPO clipped updates, Adam + gradient clipping. Works with
   #         both brain versions. Falls back to a2c if torch is missing.
-  # See BRAIN_V2_V3_COMPARISON.md for the math behind both.
+  # See docs/BRAIN_V2_V3_COMPARISON.md for the math behind both.
   algorithm: "a2c"
   ppo:
     learning_rate: 0.0003 # Adam step size (PPO ignores learning_rate below)

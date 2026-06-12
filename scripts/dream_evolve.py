@@ -6,7 +6,7 @@ Closes the world-model loop end-to-end:
   1. Collect real experience:
        python main.py --no-viz --world-model-log --mode rl --learning
   2. Train a population world model on the logs and evolve in the dream:
-       python dream_evolve.py --transitions data/logs/transitions_*.csv
+       python scripts/dream_evolve.py --transitions data/logs/transitions_*.csv
   3. GROUND the dream champions in the real environment:
        python main.py --load-weights data/weights/dream_best.npz ...
 
@@ -25,6 +25,10 @@ import sys
 import numpy as np
 import yaml
 
+# Allow running from anywhere: put the repo root on sys.path so the
+# agents/world/utils packages resolve (this file lives in scripts/)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 def main() -> int:
     """Parse arguments, train the world model, run dream evolution."""
@@ -34,9 +38,9 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python dream_evolve.py --transitions data/logs/transitions_*.csv
-  python dream_evolve.py --transitions logs.csv --generations 30 --population 64
-  python dream_evolve.py --transitions logs.csv --config config/default.yaml \\
+  python scripts/dream_evolve.py --transitions data/logs/transitions_*.csv
+  python scripts/dream_evolve.py --transitions logs.csv --generations 30 --population 64
+  python scripts/dream_evolve.py --transitions logs.csv --config config/default.yaml \\
       --out data/weights/dream_best.npz
         """,
     )

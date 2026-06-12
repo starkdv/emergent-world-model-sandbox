@@ -2,7 +2,7 @@
 
 > **Note (June 2026):** the *per-agent* world model is implemented in-engine
 > (`brain.world_model`), and this logging format is the data source for
-> **dream-based evolution**: `dream_evolve.py` trains a population-level
+> **dream-based evolution**: `scripts/dream_evolve.py` trains a population-level
 > model from these transitions and evolves genomes inside it (see
 > agents/dream.py and CHANGELOG.md). The obs_*/obs_next_* column count now
 > follows the observation size (72) — files logged before June 2026 used a

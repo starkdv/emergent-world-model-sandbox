@@ -1,7 +1,7 @@
 # Brain v3 — Architecture Proposal
 
 **Status:** ALL phases implemented, including dream-based evolution
-(see §5 and CHANGELOG.md). Math-level architecture/learner comparison:
+(see §5 and ../CHANGELOG.md). Math-level architecture/learner comparison:
 BRAIN_V2_V3_COMPARISON.md
 **Scope:** `agents/brain.py`, `utils/agents/brain_utils.py`, `agents/learning.py`,
 `utils/agents/perception.py`, plus new modules under `agents/brain/`
