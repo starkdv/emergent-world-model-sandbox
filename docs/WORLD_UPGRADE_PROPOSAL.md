@@ -208,6 +208,12 @@ Key decisions, with rationale:
 Each phase independently shippable, config-gated, tests + A/B survival
 runs before merge — the same discipline as Brain v3 Phases 1–4.
 
+**W0 — Registry hardening & custom-object UX (prerequisite for W3).**
+Schema validation with named errors, cross-reference checking, `extends:`
+inheritance, the object toolbox CLI, respawn spec (§8–§9 below).
+*Acceptance:* every failure mode in §8 produces a clear, actionable error
+at load time; the golden-apple example shrinks to ≤10 lines via `extends`.
+
 **W1 — Environment engine (no observation change).**
 `EnvironmentSystem` (day/night, seasons, rain/drought events, derived
 temperature), multipliers consumed by growth/germination/spawn/decay/soil/
@@ -251,7 +257,7 @@ CSV, reward-shaping config + `minimal` preset.
 *Acceptance:* ≥3× tick-rate improvement at 100 agents on 100×100;
 checkpoint→resume reproduces identical state in serial mode.
 
-**Suggested order:** W6a (spatial index) → W1 → W2 → W3 → W4 → W5, with
+**Suggested order:** W0 + W6a (spatial index) → W1 → W2 → W3 → W4 → W5, with
 W6b/c (checkpointing, reward diet) slotted between. W1–W3 are pure
 selection-pressure upgrades that the *existing* brains can be re-evaluated
 against immediately; W4 is scheduled later precisely because it is the
@@ -285,3 +291,153 @@ genome break.
    migration-safe genome break unlocks the entire social research agenda.
 5. **Pay the engineering debts** (W6) — spatial index, checkpointing, and
    the reward-shaping diet keep the science honest and the simulation fast.
+
+---
+
+## 8. Object-system audit — issues found and upgrades
+
+The ECS registry is the right architecture, but a code audit (verified
+empirically, not just by reading) found real defects:
+
+| # | Issue | Evidence | Severity |
+|---|---|---|---|
+| O1 | **Silent section typos.** `ObjectDefinition.from_dict` looks sections up by key and ignores anything unknown — a YAML typo like `edibel:` registers the object *successfully* with no food component and no warning. | Reproduced: `load_from_config({'my_food': {'edibel': ...}})` → loads, `edible is None` | High — this is the core "too difficult to use" failure |
+| O2 | **Mixed failure modes.** A typo at *field* level (`callories:`) crashes with a context-free `TypeError: unexpected keyword argument` instead — so users get silence for one mistake class and a stack trace without the offending type_id for the other. | `Spec(**data[...])` dataclass kwargs | High |
+| O3 | **Dangling cross-references accepted.** `grows_into`, `produces`, `decompose_into`, `spread_type_id` are never checked against the registry; `grows_into: NONEXISTENT` loads fine and raises `KeyError` minutes later inside `SeedGerminationSystem`. | Reproduced at load time | High |
+| O4 | **Custom foods never regenerate.** `ResourceSpawnSystem`'s safety net hardcodes `"berry"` (`systems.py:613`); a standalone custom food exists only as `spawn.initial_count` copies — once eaten, gone forever. There is no respawn spec. | `_spawn_resource_near(world, x, y, "berry")` | Medium — major surprise for content authors |
+| O5 | **Vision-encoding collisions unmanaged.** `observation.vision_encoding` is a hand-picked float; nothing warns when a custom object collides with a builtin (berry=1.0, plant=0.75, seed=0.6, fert=0.4, sand=0.15) — colliding types are *indistinguishable to every brain*, silently. | No check in `register()` | Medium |
+| O6 | **Dead surface.** `EdibleComponent.toxicity` is parsed, documented ("1.0 = deadly") and wired to nothing; `ToolComponent`/`ToolSpec` ("DIG") are registered but no system consumes them. Documented promises that don't exist. | inventory §6 | Medium |
+| O7 | **No reuse.** No `extends:`/defaults mechanism — every object repeats up to 8 boilerplate sections (the example file needs 267 lines for 4 objects, half of it comment-documentation because no other docs exist). | `config/custom_objects.yaml` | Medium |
+| O8 | **Global mutable singleton.** `ObjectRegistry` is class-level state; tests need autouse reset fixtures, and two worlds in one process (island-model evolution, A/B framework) would share definitions. | `cls._definitions` | Low now, blocks W6/track work later |
+
+**Upgrades (Phase W0):**
+1. **Validating loader**: explicit allow-list of section/field names with
+   "unknown section 'edibel' in 'my_food' — did you mean 'edible'?" errors;
+   all errors collected and reported together with type_id context.
+2. **Cross-reference check** after bulk load: every `grows_into`/`produces`/
+   `decompose_into`/`spread_type_id` must resolve (builtins included).
+3. **`extends:` inheritance + top-level `defaults:`** — an object inherits a
+   registered definition and overrides only what differs.
+4. **Respawn spec**: `spawn.respawn_rate` + `spawn.max_count` consumed by
+   `ResourceSpawnSystem`, replacing the hardcoded berry safety net
+   (builtins re-expressed through the same mechanism — one code path).
+5. **Vision-encoding management**: collision warnings; optional
+   `vision_encoding: auto` allocating within per-category reserved bands
+   (food 0.85–1.0, plant 0.65–0.8, seed 0.5–0.65, hazard 0.1–0.3).
+6. **Wire or remove dead surface**: toxicity → EAT (W3); ToolSpec removed
+   until a system exists (honest schema).
+7. **Instance registries**: `ObjectRegistry` becomes instantiable
+   (`world.registry`), with the class-level API kept as a default-instance
+   facade for backward compatibility.
+
+## 9. Custom-object usability plan
+
+The current authoring loop is: read a 90-line comment block → copy 60 lines
+of boilerplate → run a full simulation → discover nothing spawned (or
+crashed at tick 800). Target loop: *write 8 lines → validate in one second
+→ preview → run*.
+
+- **`scripts/objects.py` toolbox CLI**:
+  - `validate config/my_objects.yaml` — schema + cross-refs + encoding
+    collisions + "will anything actually spawn?" dry-run, in <1s;
+  - `list` — table of all registered types (builtins + file): components,
+    encodings, spawn behaviour;
+  - `preview my_objects.yaml` — instantiate each object in a probe world
+    and print exactly how agents will perceive it (vision encoding, value
+    channel) and what each system will do to it per tick.
+- **Minimal-first authoring** with `extends`:
+  ```yaml
+  objects:
+    golden_apple:
+      extends: berry          # inherit everything that makes berry work
+      edible:   { calories: 60.0 }
+      physics:  { decay_rate: 0.02, decompose_into: "" }
+      observation: { vision_encoding: 0.95 }
+      spawn:    { initial_count: 10, respawn_rate: 0.005 }
+  ```
+- **`docs/OBJECTS_GUIDE.md`**: schema reference generated from the spec
+  dataclasses (single source of truth — the doc cannot drift), a cookbook
+  (food / poison / plant chain / hazard / terrain effect), and the three
+  rules people actually trip on (spawn required, encodings must differ,
+  chains must close).
+- `main.py --objects` prints the validator's summary at startup and
+  **refuses to start on errors** (today it starts and misbehaves).
+
+## 10. Target-track integration: Robotics & Entertainment
+
+The two end-state platforms (SUGGESTIONS Parts 8–9) pull the world in
+different directions — robotics wants *physics and reproducibility*,
+entertainment wants *persistence, spectators, and user content*. The
+upgrade should build the three seams both tracks share, and avoid
+grid-world features that neither needs:
+
+1. **A formal Environment interface** (the keystone). Extract what `main.py`
+   implicitly does into `Environment`: `reset(seed) → obs`,
+   `step(actions) → (obs, rewards, dones, info)`, plus declared
+   observation/action-space descriptors (ObservationSpec already is one).
+   The grid world becomes implementation #1; the robotics physics world
+   (MuJoCo/PyBullet — external engines, not a port of this code) becomes
+   implementation #2 behind the same interface; a thin Gymnasium adapter
+   makes the whole RL ecosystem and standard benchmarking available. The
+   brains, learners, world-model and dream stack already only consume
+   (obs, action, reward, done) — they transfer unchanged.
+2. **Determinism, checkpointing, and an event stream** (W6 + one addition).
+   Robotics needs bit-reproducible episodes (serial mode + RNG-state
+   checkpoints); entertainment needs a persistent always-on world (resume
+   from checkpoint) and spectators. Add a versioned **state-delta stream**
+   (per-tick JSON/msgpack: births, deaths, moves, events) — today both
+   renderers poke directly at `world` internals; making them consume the
+   stream turns "browser spectator client" from a rewrite into a websocket.
+3. **The registry as the entertainment content pipeline.** User-authored
+   creatures/objects (Part 9) are exactly the custom-object path — §9's
+   validation/UX work *is* track work: the validator becomes the upload
+   gate, `preview` becomes the content-creator tool, and instance
+   registries (O8) allow per-server content sets.
+
+What we deliberately do **not** do for the tracks yet: no elevation/3D in
+the grid world (robotics gets real physics engines instead), no networking
+layer (the event stream is its prerequisite), no continuous-action head
+(brain-side change, scheduled when a physics environment exists).
+
+## 11. Should the world stay on Python?
+
+**Recommendation: yes for now — with a structure-of-arrays migration and a
+measured escalation ladder, not a rewrite.**
+
+The honest numbers: at 100 agents / 100×100 the simulation runs ~5–20
+ticks/s (feature-dependent); a 1000-tick run is minutes. Profiling shows
+the cost is dominated by (a) O(441)-tile Python scans per agent-action in
+reward shaping/perception, (b) per-object Python loops in `systems.py`,
+(c) per-agent torch updates — i.e. **algorithmic and layout problems, not
+language ceiling**. Killing the project's research velocity (every
+scientist-facing surface — registry, configs, analyzers, tests, torch — is
+Python) for a rewrite before exhausting those is the wrong trade.
+
+The ladder — each rung is taken only if the previous one misses its target:
+
+| Rung | Change | Expected effect | Trigger |
+|---|---|---|---|
+| 1 (W6a) | Spatial object index | kills the O(441) scans → ~3–5× | now |
+| 2 | **World v2 layout: structure-of-arrays.** Tile fertility/moisture/temperature become NumPy arrays (`world.fertility[y, x]`), systems become vectorized array ops (SoilDynamics/Environment/diffusion are pure stencils). This is also what makes W1–W2 cheap to add. | ~5–20× on systems; large worlds viable | with W1/W2 |
+| 3 | Numba `@njit` on the few remaining hot kernels (germination, decay loops) — optional dependency, zero architecture change | 2–10× on those kernels | if 1000 agents @10 t/s unmet |
+| 4 | Rust/C++ core for the tick loop behind the §10 Environment interface (PyO3), Python keeps config/registry/science/learning | order of magnitude | only for the persistent entertainment server, if rung 3 misses |
+
+Two structural notes: the §10 Environment interface is exactly what makes
+rung 4 a *swap* instead of a rewrite, so building it now keeps the Python
+question reversible; and the robotics track never needed this world ported
+— its 3D environments come from existing engines with Python APIs. Python
+remains the contract; compiled code remains an implementation detail.
+
+## 12. Updated decision summary
+
+1. **W0 first**: harden the registry and fix the custom-object experience —
+   cheapest phase, removes the worst user-facing pain, and W3's
+   data-driven ecology depends on it.
+2. **Adopt the SoA world layout when building W1–W2** (rung 2) — climate
+   and diffusion want to be array stencils anyway; doing both at once
+   avoids touching the systems twice.
+3. **Build the Environment interface during W6** — it serves robotics
+   (Gymnasium/physics engines), entertainment (event stream/spectators),
+   and keeps the language decision reversible.
+4. **Stay on Python** until the measured ladder says otherwise; the next
+   two rungs are algorithmic and cost no rewrite.
