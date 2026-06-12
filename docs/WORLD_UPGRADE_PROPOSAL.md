@@ -70,7 +70,7 @@ fading instincts just fixed on the brain side.
 | B1 | **Moisture never decreases.** Recovery (+0.0008/tick, every soil tile, unconditional) exceeds evaporation (−0.0002) plus even max plant draw (−0.0005): net **+0.0006 empty / +0.0001 planted** — monotonic. | Measured: avg moisture 0.51 → 0.95 over 900 ticks; 57.5% of tiles fully saturated and climbing | The moisture dimension is functionally dead: every germination check passes after ~1.5k ticks, and the observation channel carries no information |
 | B2 | **Germination on sand is impossible, not "10× harder".** Sand clamps moisture/fertility to 0.05, but germination requires moisture ≥ 0.2 and fertility ≥ 0.3 — the check fails before the 0.1 multiplier is ever consulted. | `TileEffectSpec` overrides vs `SeedGerminationSystem` thresholds | Sand's germination_multiplier is dead config; sand reclamation (which needs a plant ON sand) can only occur when sand spreads under an existing plant |
 | B3 | **Water is cosmetic.** Water tiles force their own moisture to 1.0 and block planting — nothing else. No drinking/thirst, no crossing cost, no moisture sharing with neighbours. | inventory §1/§6 | "Water" currently means "tile you can't plant on" |
-| B4 | **Inventory is a stasis field.** Freshness decays only for objects on the ground (`DecaySystem` iterates `world.objects` on tiles); carried food never spoils. | inventory §6 | Hoarding is strictly free — an unintended dominant strategy |
+| ~~B4~~ | ~~Inventory is a stasis field~~ — **RETRACTED**: verified false. `DecaySystem` iterates `world.objects`, which includes carried items (pickup only removes the tile link), so carried food DOES spoil (measured: freshness 1.0 → 0.5 in 50 ticks while held). | empirical test | No fix needed |
 
 These are first-class fix targets: **W1's weather model is the B1/B3 fix**
 (evaporation scaled by temperature/light *exceeding* base recovery, recovery
@@ -78,8 +78,7 @@ arriving via rain events and water-adjacency diffusion — moisture becomes a
 real, spatially structured constraint), **W2's elevation/water rework
 addresses B3**, B2 is corrected by aligning sand's clamps with germination
 thresholds (or vice versa) so the multiplier actually expresses "harder",
-and B4 is a one-line `DecaySystem` extension over inventories, shipped with
-W1 behind its own flag.
+and B4 turned out to already behave correctly (retracted above).
 
 ---
 

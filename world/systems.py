@@ -612,6 +612,63 @@ class ResourceSpawnSystem:
             y = random.randint(0, world.height - 1)
             self._spawn_resource_near(world, x, y, "berry")
 
+        # Per-type respawn for registry types with spawn.respawn_rate > 0
+        # (custom standalone foods previously vanished forever once eaten —
+        # only plant-produced and the hardcoded berry safety net came back)
+        self._respawn_registry_types(world)
+
+    def _respawn_registry_types(self, world: "World") -> None:
+        """
+        Respawn registry-defined types up to their population cap.
+
+        For every definition with ``spawn.respawn_rate > 0``: with that
+        per-tick probability, place one new instance on an empty tile
+        matching ``spawn.terrain``, as long as fewer than
+        ``spawn.max_count`` (or ``spawn.initial_count`` when max_count
+        is 0) currently exist. Builtins keep respawn_rate 0, so default
+        behaviour is unchanged.
+        """
+        from world.object_registry import ObjectRegistry
+        from world.tiles import TerrainType
+
+        respawners = [
+            d
+            for d in ObjectRegistry.all_definitions().values()
+            if d.spawn.respawn_rate > 0
+        ]
+        if not respawners:
+            return
+
+        counts: dict = {}
+        for obj in world.objects.values():
+            tid = getattr(obj, "type_id", "")
+            if tid:
+                counts[tid] = counts.get(tid, 0) + 1
+
+        for defn in respawners:
+            sp = defn.spawn
+            if random.random() >= sp.respawn_rate:
+                continue
+            cap = sp.max_count if sp.max_count > 0 else sp.initial_count
+            if cap <= 0 or counts.get(defn.type_id, 0) >= cap:
+                continue
+            for _ in range(10):  # bounded placement attempts
+                x = random.randint(0, world.width - 1)
+                y = random.randint(0, world.height - 1)
+                tile = world.get_tile(x, y)
+                if tile is None or tile.object_ids:
+                    continue
+                terrain_ok = (
+                    (sp.terrain == "soil" and tile.terrain_type == TerrainType.SOIL)
+                    or (sp.terrain == "sand" and tile.terrain_type == TerrainType.SAND)
+                    or (sp.terrain == "plantable" and tile.is_plantable())
+                    or (sp.terrain == "any" and tile.terrain_type != TerrainType.ROCK)
+                )
+                if terrain_ok:
+                    world.add_object(ObjectRegistry.create(defn.type_id, x, y))
+                    counts[defn.type_id] = counts.get(defn.type_id, 0) + 1
+                    break
+
     def _spawn_resource_near(
         self, world: "World", center_x: int, center_y: int, resource_type: str
     ) -> bool:

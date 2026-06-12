@@ -313,8 +313,15 @@ Examples:
                 )
 
         # Load custom object definitions from config if present
+        # (validated: refuses to start on schema/cross-reference errors)
+        from world.object_validation import ObjectValidationError
+
         if "objects" in config:
-            loaded = ObjectRegistry.load_from_config(config["objects"])
+            try:
+                loaded = ObjectRegistry.load_from_config(config["objects"])
+            except ObjectValidationError as e:
+                print(f"Error in config 'objects' section:\n{e}", file=sys.stderr)
+                return 1
             print(f"Loaded {loaded} custom object definitions from config")
 
         # Load custom objects from a separate YAML file (--objects flag)
@@ -324,7 +331,18 @@ Examples:
                 with open(objects_path, "r") as f:
                     objects_data = yaml.safe_load(f)
                 if objects_data and "objects" in objects_data:
-                    loaded = ObjectRegistry.load_from_config(objects_data["objects"])
+                    try:
+                        loaded = ObjectRegistry.load_from_config(
+                            objects_data["objects"]
+                        )
+                    except ObjectValidationError as e:
+                        print(
+                            f"Error in {args.objects}:\n{e}\n"
+                            f"Fix the definitions (or run: python "
+                            f"scripts/objects.py validate {args.objects})",
+                            file=sys.stderr,
+                        )
+                        return 1
                     print(
                         f"Loaded {loaded} custom object definitions from {args.objects}"
                     )
