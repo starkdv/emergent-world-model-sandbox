@@ -1,5 +1,90 @@
 # Changelog
 
+## [Unreleased] — World upgrade, Phases W0–W1
+
+Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
+
+### Phase W1 — Environment engine: day/night, seasons, weather (opt-in)
+
+**In simple terms:** the world had a frozen climate — eternal noon, no
+seasons, and "rain" that fell every tick forever. A new environment
+engine gives it a real clock: days and nights, a slow seasonal
+temperature wave, and rain/drought events. Plants, food, spoilage,
+soil moisture, and agent metabolism all now respond to it. It is off
+by default; switch it on with `environment.enabled: true`.
+
+- **New `world/environment.py`** — `EnvironmentSystem`, the single
+  source of climate. Each tick (before every other system) it computes:
+  - **light**: sinusoid over `day_length` ticks, floored at `min_light`;
+  - **temperature**: `base_temperature` + seasonal sinusoid
+    (`season_length`, `season_temp_amplitude`) + a day/night offset;
+  - **weather**: stochastic rain (`rain_start_chance`, `rain_duration`)
+    and drought events (droughts suppress rain and multiply evaporation).
+- **Existing systems consume plain multipliers** (all exactly 1.0 when
+  disabled, keeping the legacy baseline bit-compatible):
+  - plant growth × light × temperature comfort window
+    (`temperature_response`: full rate in [0.3, 0.7], zero past 0.1/0.9);
+  - germination × temperature window; food production × light;
+  - freshness decay × (0.5 + temperature) — heat spoils, cold preserves;
+  - agent metabolism × (1 + `metabolism_temp_coef` · 2·|temp − 0.5|) in
+    **both** the serial and parallel agent paths.
+- **Bug B1 fixed (soil moisture only ever rose).** The legacy soil model
+  added a constant +0.0008/tick "rain" against −0.0002/tick evaporation,
+  so every tile saturated at 1.0 and moisture constrained nothing.
+  With the environment enabled, evaporation scales with temperature and
+  light (×`drought_evaporation_factor` in droughts) and recovery arrives
+  **only** during rain events or on tiles adjacent to water
+  (`world.water_adjacent`, computed once). Moisture is now a real,
+  non-monotonic constraint. (Legacy arithmetic is preserved verbatim
+  when disabled.)
+- **Bug B2 fixed (sand germination was impossible).** Sand clamped tile
+  fertility/moisture to 0.05, strictly below the seed requirements
+  (0.3/0.2), so its ×0.1 germination multiplier never even applied. The
+  clamps now sit *at* the thresholds (0.30/0.20) so the multiplier is
+  what makes sand harder — rare desert germination is possible again.
+- **Config**: new documented `environment:` block in
+  `config/default.yaml` (`enabled: false` by default).
+- **Validation**: 34 new tests (`tests/test_environment.py`) covering the
+  clock, the response curve, weather lifecycles, every multiplier,
+  disabled-mode neutrality/legacy parity, the B1 fix empirically
+  (moisture falls in dry spells, recovers in rain, non-monotonic over a
+  cycle), and the B2 fix (a seed germinates on sand). A/B 2,000-tick
+  runs (seed 42): population stays viable with the environment on
+  (99 vs 100 agents alive) while scarcity becomes real
+  (67 vs 246 food items, 66 vs 293 plants at the final tick).
+
+### Phase W0 — Registry hardening & custom-object UX
+
+**In simple terms:** defining a custom object used to fail silently — a
+typo'd section name registered a useless object, a wrong field crashed
+with a context-free error, and a definition took ~60 lines of copying.
+Definitions are now validated with actionable errors, can inherit from
+builtins with `extends:`, and ship with a one-second toolbox CLI.
+
+- **New `world/object_validation.py`**: schema validation against the
+  spec dataclasses (unknown sections/fields are errors with
+  *did-you-mean* suggestions, all collected and reported together);
+  cross-reference checking at load time (`grows_into`, `produces`,
+  `decompose_into`, `spread_type_id` must name real types);
+  `extends: <type_id>` deep-merge inheritance (spawn counts are never
+  inherited implicitly); `vision_encoding: auto` allocates a free value
+  inside per-category bands; collision warnings when two types are
+  closer than 0.02 in encoding space (agents cannot tell them apart).
+- **`SpawnSpec` gains `respawn_rate` / `max_count`** — custom foods can
+  now replenish like builtin berries (`_respawn_registry_types` in the
+  spawn system, terrain-filtered, capped).
+- **New `scripts/objects.py`** — `validate` (schema + spawn dry-run with
+  "will NEVER appear" warnings), `list` (table of all registered types),
+  `preview` (plain-language explanation of how the simulation will treat
+  each type).
+- **New `docs/OBJECTS_GUIDE.md`** — 60-second authoring loop, the three
+  rules that prevent silent failures, full schema reference, cookbook.
+- **`config/custom_objects.yaml` rewritten** around `extends:` — the
+  golden-apple example is now ~8 substantive lines (was ~60).
+- **`main.py` refuses invalid object files at startup** with the full
+  error report instead of running a broken world.
+- 19 new tests (`tests/test_object_validation.py`).
+
 ## [Unreleased] — Brain v3, Phases 1–4 + Dream-Based Evolution
 
 ### Repository reorganization: docs/ and scripts/

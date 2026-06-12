@@ -396,9 +396,17 @@ Examples:
                 "budget_low_frame_factor", 0.80
             ),
             parallel=config.get("simulation", {}).get("parallel", True),
+            environment_config=config.get("environment", None),
         )
 
         print(f"World created: {world.width}x{world.height}")
+        if world.environment.enabled:
+            print(
+                f"Environment: ENABLED (day {world.environment.day_length} ticks, "
+                f"season {world.environment.season_length} ticks, weather events on)"
+            )
+        else:
+            print("Environment: disabled (legacy static climate)")
         print(f"Seed: {world.seed}")
         print(
             f"Sand tiles: {sum(1 for row in world.tiles for t in row if t.terrain_type == TerrainType.SAND)}"

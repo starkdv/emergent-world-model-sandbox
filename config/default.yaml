@@ -128,6 +128,37 @@ soil:
   max_moisture: 1.0
   min_moisture: 0.0
 
+# Environment Engine (World upgrade W1) — day/night, seasons, weather
+# When enabled, ONE system computes global light/temperature/weather each
+# tick and existing systems consume plain multipliers from it:
+#   - plant growth × light × temperature window
+#   - germination × temperature window
+#   - food production × light
+#   - decay × (0.5 + temperature)  (hot = spoils faster)
+#   - agent metabolism × (1 + coef·|temp − 0.5|·2)  (extremes cost energy)
+# It also REPLACES the soil moisture arithmetic: evaporation scales with
+# temperature/light, and recovery happens ONLY during rain events or next
+# to water tiles (this is the fix for bug B1 — moisture used to only rise).
+# Disabled (default) = bit-compatible legacy behaviour, all multipliers 1.0.
+environment:
+  enabled: false               # Master switch (false = legacy static climate)
+  day_length: 200              # Ticks per full day/night cycle
+  min_light: 0.25              # Light level at deepest night (1.0 = noon)
+  season_length: 2000          # Ticks per full seasonal cycle
+  season_temp_amplitude: 0.25  # Seasonal swing around base_temperature
+  base_temperature: 0.5        # Yearly mean (0.5 = centre of comfort band)
+  daynight_temp_amplitude: 0.10  # Day-vs-night temperature swing
+  metabolism_temp_coef: 0.5    # Extra energy drain at temperature extremes
+  base_evaporation: 0.0012     # Soil moisture loss/tick (× temp & light)
+  water_adjacency_recovery: 0.002  # Moisture gain/tick next to WATER tiles
+  weather:
+    rain_start_chance: 0.01    # Per-tick chance rain begins (clear weather)
+    rain_duration: 60          # Ticks a rain event lasts
+    rain_recovery: 0.004       # Moisture gain/tick while raining
+    drought_start_chance: 0.002  # Per-tick chance a drought begins
+    drought_duration: 150      # Ticks a drought lasts
+    drought_evaporation_factor: 2.0  # Evaporation multiplier in drought
+
 # Simulation Settings
 simulation:
   max_generations: 100
@@ -258,7 +289,9 @@ sand:
   germination_multiplier: 0.1   # Multiplier on germination chance (0.1 = 10× harder)
   growth_multiplier: 0.1        # Multiplier on plant growth speed (0.1 = 10× slower)
   spawn_rate_multiplier: 0.3    # Multiplier on food production (0.3 = 70% less)
-  fertility_override: 0.05      # Clamp fertility to this on sand tiles (-1 = no clamp)
-  moisture_override: 0.05       # Clamp moisture to this on sand tiles (-1 = no clamp)
+  fertility_override: 0.30      # Clamp fertility on sand (-1 = no clamp). At the seed
+                                # threshold (0.3) so the ×0.1 multiplier does the work (B2 fix)
+  moisture_override: 0.20       # Clamp moisture on sand (-1 = no clamp). At the seed
+                                # threshold (0.2) — 0.05 made germination impossible (B2 fix)
   reclaim_terrain: "soil"       # Terrain to convert back to when a blocker is present ("" = disabled)
   reclaim_interval: 150         # Ticks a plant must sit on sand before it reclaims to soil (0 = disabled)

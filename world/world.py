@@ -73,6 +73,7 @@ class World:
         learning_budget_high_frame_factor: float = 1.10,
         learning_budget_low_frame_factor: float = 0.80,
         parallel: bool = True,
+        environment_config: dict = None,
     ):
         """
         Initialize a new world with generated terrain.
@@ -128,6 +129,14 @@ class World:
         self.seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         self.allow_stacking = allow_stacking  # NEW: Store stacking configuration
         self.parallel = parallel  # Enable parallel agent updates
+
+        # Environment engine (day/night, seasons, weather — W1).
+        # Disabled by default: every multiplier is then exactly 1.0 and
+        # soil dynamics keep their legacy arithmetic.
+        from world.environment import EnvironmentSystem
+
+        self.environment = EnvironmentSystem(environment_config)
+        self._water_adjacent_cache = None
 
         # Set random seed for reproducibility
         random.seed(self.seed)
@@ -514,6 +523,9 @@ class World:
         self.tick += 1
         self._learning_updates_this_tick = 0
 
+        # Environment first: every system this tick consumes its multipliers
+        self.environment.update(self)
+
         # Invalidate cached world counts (lazily recomputed on first use)
         self._cached_counts = None
         self._cached_soil_stats = None
@@ -545,6 +557,23 @@ class World:
                 )
             else:
                 Agent.logger.log_all_states(self.tick, self.agents)
+
+    @property
+    def water_adjacent(self) -> set:
+        """
+        Tiles orthogonally adjacent to WATER (computed once — water tiles
+        are never created or destroyed). Used by the environment-enabled
+        soil dynamics: these tiles recover moisture even without rain.
+        """
+        if self._water_adjacent_cache is None:
+            adjacent = set()
+            for y in range(self.height):
+                for x in range(self.width):
+                    if self.tiles[y][x].terrain_type == TerrainType.WATER:
+                        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                            adjacent.add((x + dx, y + dy))
+            self._water_adjacent_cache = adjacent
+        return self._water_adjacent_cache
 
     def get_cached_object_counts(self) -> dict:
         """

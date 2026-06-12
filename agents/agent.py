@@ -166,9 +166,10 @@ class Agent:
         # Age the agent
         self.age += 1
 
-        # Consume energy for metabolism
+        # Consume energy for metabolism (temperature extremes cost more
+        # when the environment engine is enabled — W1)
         energy_before = self.energy
-        self.energy -= self.metabolism_rate
+        self.energy -= self.metabolism_rate * world.environment.metabolism_multiplier
 
         # Check for death conditions
         if self.energy <= 0 or self.age >= self.max_age:

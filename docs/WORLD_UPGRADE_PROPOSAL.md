@@ -1,6 +1,7 @@
 # World Upgrade — Architecture Proposal
 
-**Status:** Proposal (no code changes yet)
+**Status:** In progress — W0 ✅ and W1 ✅ implemented (June 2026, see
+CHANGELOG); W2–W6 remain proposals
 **Branch:** `claude/world-upgrade`
 **Scope:** `world/` (tiles, systems, world, object registry), `utils/agents/`
 (perception, reward shaping, action execution), `config/default.yaml`
@@ -67,8 +68,8 @@ fading instincts just fixed on the brain side.
 
 | # | Bug | Evidence | Consequence |
 |---|---|---|---|
-| B1 | **Moisture never decreases.** Recovery (+0.0008/tick, every soil tile, unconditional) exceeds evaporation (−0.0002) plus even max plant draw (−0.0005): net **+0.0006 empty / +0.0001 planted** — monotonic. | Measured: avg moisture 0.51 → 0.95 over 900 ticks; 57.5% of tiles fully saturated and climbing | The moisture dimension is functionally dead: every germination check passes after ~1.5k ticks, and the observation channel carries no information |
-| B2 | **Germination on sand is impossible, not "10× harder".** Sand clamps moisture/fertility to 0.05, but germination requires moisture ≥ 0.2 and fertility ≥ 0.3 — the check fails before the 0.1 multiplier is ever consulted. | `TileEffectSpec` overrides vs `SeedGerminationSystem` thresholds | Sand's germination_multiplier is dead config; sand reclamation (which needs a plant ON sand) can only occur when sand spreads under an existing plant |
+| B1 ✅ fixed (W1) | **Moisture never decreases.** Recovery (+0.0008/tick, every soil tile, unconditional) exceeds evaporation (−0.0002) plus even max plant draw (−0.0005): net **+0.0006 empty / +0.0001 planted** — monotonic. | Measured: avg moisture 0.51 → 0.95 over 900 ticks; 57.5% of tiles fully saturated and climbing | The moisture dimension is functionally dead: every germination check passes after ~1.5k ticks, and the observation channel carries no information |
+| B2 ✅ fixed (W1) | **Germination on sand is impossible, not "10× harder".** Sand clamps moisture/fertility to 0.05, but germination requires moisture ≥ 0.2 and fertility ≥ 0.3 — the check fails before the 0.1 multiplier is ever consulted. | `TileEffectSpec` overrides vs `SeedGerminationSystem` thresholds | Sand's germination_multiplier is dead config; sand reclamation (which needs a plant ON sand) can only occur when sand spreads under an existing plant |
 | B3 | **Water is cosmetic.** Water tiles force their own moisture to 1.0 and block planting — nothing else. No drinking/thirst, no crossing cost, no moisture sharing with neighbours. | inventory §1/§6 | "Water" currently means "tile you can't plant on" |
 | ~~B4~~ | ~~Inventory is a stasis field~~ — **RETRACTED**: verified false. `DecaySystem` iterates `world.objects`, which includes carried items (pickup only removes the tile link), so carried food DOES spoil (measured: freshness 1.0 → 0.5 in 50 ticks while held). | empirical test | No fix needed |
 
@@ -225,13 +226,17 @@ Key decisions, with rationale:
 Each phase independently shippable, config-gated, tests + A/B survival
 runs before merge — the same discipline as Brain v3 Phases 1–4.
 
-**W0 — Registry hardening & custom-object UX (prerequisite for W3).**
+**W0 — Registry hardening & custom-object UX (prerequisite for W3).
+✅ DONE (June 2026 — see CHANGELOG "Phase W0").**
 Schema validation with named errors, cross-reference checking, `extends:`
 inheritance, the object toolbox CLI, respawn spec (§8–§9 below).
 *Acceptance:* every failure mode in §8 produces a clear, actionable error
 at load time; the golden-apple example shrinks to ≤10 lines via `extends`.
 
-**W1 — Environment engine (no observation change).**
+**W1 — Environment engine (no observation change).
+✅ DONE (June 2026 — see CHANGELOG "Phase W1"; includes the B1 and B2
+fixes; calamity generalization deferred — calamity remains its own
+system for now).**
 `EnvironmentSystem` (day/night, seasons, rain/drought events, derived
 temperature), multipliers consumed by growth/germination/spawn/decay/soil/
 metabolism; calamity generalized into the event system.

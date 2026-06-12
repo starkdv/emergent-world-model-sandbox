@@ -155,6 +155,7 @@ can be run as a controlled experiment. Quick map:
 | 6 | Curiosity | `learning.curiosity.enabled` | off | world model + RL mode |
 | 7 | Latent planner | `brain.world_model.planner.enabled` | off | world model |
 | 8 | Dream evolution | `python scripts/dream_evolve.py` | — | torch + `--world-model-log` data |
+| 9 | Environment engine | `environment.enabled` | off | — |
 
 All YAML keys live in `config/default.yaml` (heavily commented). CLI flags
 override config.
@@ -294,6 +295,27 @@ genome by imagined rollouts — thousands of episodes per second instead of
 full simulation. The top-5 champions are saved in the same `.npz` format
 `main.py --load-weights` consumes. Dream fitness is a **proxy**: evolution
 exploits model errors, which is why step 3 is not optional.
+
+### 9. Environment engine — day/night, seasons, weather
+
+**Enable:** `environment.enabled: true` in `config/default.yaml`
+(see the heavily-commented `environment:` block for every knob).
+**Prerequisites:** none — works in every mode and with every brain.
+**What happens:** one system computes a global climate each tick —
+a light cycle (`day_length` ticks per day), a slow seasonal temperature
+wave (`season_length`), and stochastic rain/drought events — and the
+existing systems consume plain multipliers from it: plants grow with
+light × a temperature comfort window, seeds germinate only in livable
+temperatures, food production follows daylight, spoilage speeds up in
+heat, and agent metabolism rises at both temperature extremes. It also
+**replaces the soil moisture model**: moisture now *evaporates*
+(faster when hot/bright, doubled in droughts) and recovers **only**
+during rain or next to water tiles — fixing a long-standing bug where
+moisture could only ever rise. The intent is emergence-first: nothing
+scripts the agents, but day/night rhythms, seasonal scarcity, and
+weather shocks become real pressures their brains can discover and
+exploit. Disabled (the default), every multiplier is exactly 1.0 and
+the simulation is bit-compatible with the pre-upgrade baseline.
 
 ### Supporting flags & settings
 

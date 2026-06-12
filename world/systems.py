@@ -68,8 +68,10 @@ class PlantGrowthSystem:
 
             plant = obj.get_component(PlantComponent)
 
-            # Apply growth multiplier from tile effects
+            # Apply growth multiplier from tile effects and the global
+            # environment (light × temperature window; 1.0 when disabled)
             growth_mult = _get_tile_growth_multiplier(world, obj.x, obj.y)
+            growth_mult *= world.environment.growth_multiplier
             plant.age += growth_mult
 
             # Check if plant died of old age
@@ -162,9 +164,14 @@ class SeedGerminationSystem:
 
             # Check if ready to attempt germination
             if seed.time_in_soil >= seed.grow_time:
-                # Apply germination multiplier from tile effects
+                # Apply germination multipliers: tile effects × the global
+                # temperature window (1.0 when environment is disabled)
                 germ_mult = _get_tile_germination_multiplier(world, obj.x, obj.y)
-                effective_rate = self.germination_success_rate * germ_mult
+                effective_rate = (
+                    self.germination_success_rate
+                    * germ_mult
+                    * world.environment.germination_multiplier
+                )
 
                 # Also check if any object on tile blocks growth
                 if _tile_blocks_growth(world, obj.x, obj.y):
@@ -276,6 +283,9 @@ class DecaySystem:
                 if (physics and physics.decay_rate > 0)
                 else self.decay_rate
             )
+
+            # Environment: heat accelerates spoilage, cold preserves (W1)
+            rate *= world.environment.decay_multiplier
 
             # Reduce freshness
             edible.freshness -= rate
@@ -503,10 +513,30 @@ class SoilDynamicsSystem:
     def _update_tile_rows(
         self, world: "World", start_y: int, end_y: int, occupied_tiles: Set[tuple]
     ) -> None:
-        """Process a contiguous range of tile rows."""
-        evap = self.moisture_evaporation_rate
-        rain = self.moisture_recovery_rate
+        """
+        Process a contiguous range of tile rows.
+
+        Two moisture models:
+        - legacy (environment disabled): constant evaporation + constant
+          unconditional recovery — kept bit-compatible (note: this is the
+          verified bug B1 — net drift is always positive, so moisture
+          saturates and never constrains anything);
+        - environment (W1): evaporation scales with temperature/light
+          (droughts multiply it), recovery arrives ONLY from rain events
+          or adjacency to water — moisture becomes a real constraint.
+        """
+        env = world.environment
         fert_rec = self.fertility_recovery_rate
+        if env.enabled:
+            evap = env.evaporation_rate
+            rain = env.moisture_recovery_rate
+            water_rec = env.water_adjacency_recovery
+            water_adjacent = world.water_adjacent
+        else:
+            evap = self.moisture_evaporation_rate
+            rain = self.moisture_recovery_rate
+            water_rec = 0.0
+            water_adjacent = ()
 
         for y in range(start_y, end_y):
             row = world.tiles[y]
@@ -515,7 +545,11 @@ class SoilDynamicsSystem:
                 if not tile.is_plantable():
                     continue
                 tile.moisture = max(0.0, tile.moisture - evap)
-                tile.moisture = min(1.0, tile.moisture + rain)
+                recovery = rain
+                if water_rec and (x, y) in water_adjacent:
+                    recovery += water_rec
+                if recovery:
+                    tile.moisture = min(1.0, tile.moisture + recovery)
                 if (x, y) not in occupied_tiles:
                     tile.fertility = min(1.0, tile.fertility + fert_rec)
 
@@ -594,7 +628,9 @@ class ResourceSpawnSystem:
 
             # Chance to spawn resource (modulated by tile effects)
             spawn_mult = _get_tile_spawn_rate_multiplier(world, obj.x, obj.y)
-            effective_rate = plant.spawn_rate * spawn_mult
+            effective_rate = (
+                plant.spawn_rate * spawn_mult * world.environment.spawn_multiplier
+            )
             if random.random() < effective_rate:
                 self._spawn_resource_near(
                     world, obj.x, obj.y, plant.spawn_resource_type

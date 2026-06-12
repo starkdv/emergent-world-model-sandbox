@@ -1064,8 +1064,11 @@ def register_builtin_objects() -> None:
                 spread_blocked_by=["plant"],  # any plant category blocks spreading
                 spread_chance=0.05,  # 5% per tick once interval met
                 converts_terrain="sand",  # mark tile terrain as SAND
-                fertility_override=0.05,  # sand has almost no fertility
-                moisture_override=0.05,  # sand has almost no moisture
+                # B2 fix: clamps sit AT the germination thresholds (0.3
+                # fertility / 0.2 moisture) so the ×0.1 multiplier is what
+                # makes sand "harder" — 0.05 made germination impossible
+                fertility_override=0.30,
+                moisture_override=0.20,
                 reclaim_terrain="soil",  # plants can reclaim sand → soil
                 reclaim_interval=150,  # 150 ticks with a plant → reclaim
             ),
