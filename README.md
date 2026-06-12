@@ -91,7 +91,9 @@ python main.py --no-viz --generations 1000 --log
 
 > 💡 Pause with **SPACE** then hover for easier tile inspection.
 
-See [CLI_GUIDE.md](CLI_GUIDE.md) for the full command-line reference.
+See [CLI_GUIDE.md](CLI_GUIDE.md) for the full command-line reference, and
+**[Modes & Feature Toggles](#modes--feature-toggles--complete-reference)**
+below for every mode, its prerequisites, and what enabling it does.
 
 ## What's New — Brain v3 Upgrade (Phases 1–4)
 
@@ -137,6 +139,176 @@ Full design rationale is in [BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md);
 change details are in [CHANGELOG.md](CHANGELOG.md). For a complete,
 math-level comparison of the two brains and the two learners, see
 [**BRAIN_V2_V3_COMPARISON.md**](BRAIN_V2_V3_COMPARISON.md).
+
+## Modes & Feature Toggles — Complete Reference
+
+Everything below is opt-in and independently switchable, so any combination
+can be run as a controlled experiment. Quick map:
+
+| # | Mode | Switch | Default | Requires |
+|---|------|--------|---------|----------|
+| 1 | Evolution mode | `--mode rl\|neuroevolution` / `evolution.mode` | `rl` | — |
+| 2 | Brain version | `brain.version: 2\|3` | `2` | — |
+| 3 | Fading instincts | `brain.instincts` | on, fade at 150 | — |
+| 4 | Learning algorithm | `learning.algorithm: a2c\|ppo` | `a2c` | RL mode; PPO needs torch |
+| 5 | World model | `brain.world_model.enabled` | off | — (training needs PPO) |
+| 6 | Curiosity | `learning.curiosity.enabled` | off | world model + RL mode |
+| 7 | Latent planner | `brain.world_model.planner.enabled` | off | world model |
+| 8 | Dream evolution | `python dream_evolve.py` | — | torch + `--world-model-log` data |
+
+All YAML keys live in `config/default.yaml` (heavily commented). CLI flags
+override config.
+
+### 1. Evolution mode — `rl` vs `neuroevolution`
+
+**Enable:** `python main.py --mode rl` or `--mode neuroevolution`; or set
+`evolution.mode` in the config. Resolution priority: `--mode` flag >
+legacy `--learning` flag (= rl) > config (default `rl`).
+**Prerequisites:** none.
+**When `rl` is enabled:** every agent gets a lifetime learner (see #4);
+learned weights are synced back into the genome after every update and
+inherited by offspring with mutation (**Lamarckian inheritance**).
+**When `neuroevolution` is enabled:** no gradients ever run — behaviour
+changes only through mutation + selection across generations. All
+`learning.*` settings are ignored. This is the scientific control for
+every "does learning help?" question.
+
+### 2. Brain version — legacy GRU-MLP vs attention brain
+
+**Enable:** `brain.version: 3` in the config (`2` is the default baseline).
+**Prerequisites:** none — v3 runs on plain NumPy for acting; the A2C
+learner has a dedicated v3 path. **Start a fresh run**: v3 genomes are
+17,337 weights vs v2's 8,873, so weights/populations saved under the other
+version cannot be loaded.
+**What happens:** perception switches from one dense layer to 25 shared
+tile tokens pooled by attention (the agent's internal state decides which
+tiles matter each tick), memory grows to GRU(48), and the value estimate
+reads the current state directly instead of only memory. ~2.4× the compute
+per tick (still microseconds). Under pure neuroevolution, early
+populations are measurably weaker (more parameters to search) — that
+capacity-vs-evolvability trade-off is itself an experiment. Sizes are
+tunable under `brain.v3`.
+
+### 3. Fading instincts
+
+**Enable:** on by default. Tune under `brain.instincts`:
+`fade_age: 150` (ticks until strength 0; `null` = never fade, the legacy
+behaviour), `enabled: false` (no instincts at all — hard mode),
+`hunger_eat_bias: 3.0`.
+**Prerequisites:** none. Applies identically in both evolution modes.
+**What happens when fading is on (default):** newborns get additive
+logit nudges (pick up food +1.5, eat +1.0, eat-when-hungry +3.0×urgency,
+plant +0.5, turn-toward-food) that shrink every tick and hit zero at
+`fade_age` — adults act purely on evolved/learned weights. Survival
+pressure rises versus the legacy never-fading setting (fewer agents
+survive a fixed window); populations remain viable at the defaults.
+**If you disable instincts entirely:** most random-weight newborns starve
+before learning/selection can act — useful only as an ablation.
+
+### 4. Learning algorithm — `a2c` vs `ppo`
+
+**Enable:** `learning.algorithm: ppo` (tunables under `learning.ppo`).
+**Prerequisites:** RL mode (#1); PyTorch installed — without torch the
+agent prints `[LEARN] torch unavailable — falling back to a2c` and uses
+the legacy learner.
+**When `a2c` (default):** the legacy learner — random single-transition
+replay, TD(0) advantage, manual gradients on the **output heads only**;
+the encoder and GRU change only through evolution. Cheap (µs/update) and
+the control condition.
+**When `ppo`:** gradients reach **every weight** (perception, GRU through
+time, heads) via a persistent torch mirror; time-ordered 8-step sequence
+replay, GAE(λ) advantages, PPO-clipped updates, Adam + grad clipping.
+Real lifetime learning — and still Lamarckian. Cost: ~ms per update on
+CPU (a v2+PPO 1000-tick run ≈ a few minutes; PPO+v3 ≈ 0.5 s/tick); set
+`learning.compute_device: cuda` at scale.
+
+### 5. Learned world model (per-agent dynamics head)
+
+**Enable:** `brain.world_model.enabled: true` (width via `hidden: 32`).
+Works with both brain versions.
+**Prerequisites:** none to enable — but the head is only *trained* by the
+PPO learner (#4); under a2c or neuroevolution it evolves like any other
+genome weights. **Changes the genome length** (v2: 11,274; v3: 20,778),
+so start fresh — saved weights without the head cannot be loaded.
+**What happens:** the genome gains a small head predicting *(next latent,
+reward)* from *(memory, action)* — the agent's "imagination". On its own
+it changes nothing visible; it is the prerequisite that unlocks #6 and #7,
+and PPO adds its prediction-error loss to training. Startup banner shows
+`world model ON`.
+
+### 6. Curiosity (intrinsic reward)
+
+**Enable:** `learning.curiosity.enabled: true` (plus `weight`, `decay`,
+`clip`, `warmup`).
+**Prerequisites:** world model (#5) **and** RL mode (#1) — curiosity
+shapes the learning reward, so it is attached with the learner and is
+silently inactive without the dynamics head.
+**What happens:** each tick the dynamics head's prediction error is
+z-scored against running statistics; above-average surprise becomes a
+positive reward bonus (`weight × clip(zscore⁺, 0, clip)`), zero during the
+first `warmup` steps. Agents are pushed toward transitions their model
+cannot yet predict — exploration emerges instead of being hand-crafted.
+Expect noisier early behaviour; use `decay < 1` to anneal curiosity away
+over a long run. Offspring inherit the setting.
+
+### 7. Latent rollout planner (imagination-based actions)
+
+**Enable:** `brain.world_model.planner.enabled: true` (plus `depth`,
+`samples`, `gamma`).
+**Prerequisites:** world model (#5). Meaningful only once the dynamics
+head is competent — i.e. trained with PPO (#4) or after substantial
+evolution; with a random head it is expensive noise.
+**What happens:** instead of sampling the policy directly, the agent
+imagines `samples` action sequences of length `depth` entirely in latent
+space (predict ẑ′ → advance the GRU → accumulate predicted reward →
+critic bootstrap) and takes the first action of the best rollout. Cost:
+`samples × depth` extra forward passes per agent per tick (default 16×3).
+The policy network still runs (memory must advance), and under PPO the
+planner's choices are recorded and learned from.
+
+### 8. Dream-based evolution (offline)
+
+**Enable:** a three-step pipeline, not a config key:
+
+```bash
+# 1. Collect real experience (any mode; more data = better model)
+python main.py --no-viz --world-model-log --seed 42
+
+# 2. Train a population world model on the logs, evolve genomes inside it
+python dream_evolve.py --transitions "data/logs/transitions_*.csv"
+
+# 3. GROUND the champions in the real environment (mandatory)
+python main.py --load-weights data/weights/dream_best.npz --no-viz
+```
+
+**Prerequisites:** PyTorch; transition CSVs from `--world-model-log`
+(≥ ~500 rows minimum, thousands recommended; logs written before the
+June 2026 schema fix are column-misaligned and will be skipped); the
+`--config` passed to `dream_evolve.py` must match the brain that will
+load the result (version + world-model setting decide genome length).
+**What happens:** an observation-space model of the *environment itself*
+is trained from the logs, then a (μ+λ) evolutionary loop evaluates every
+genome by imagined rollouts — thousands of episodes per second instead of
+full simulation. The top-5 champions are saved in the same `.npz` format
+`main.py --load-weights` consumes. Dream fitness is a **proxy**: evolution
+exploits model errors, which is why step 3 is not optional.
+
+### Supporting flags & settings
+
+| Switch | Effect |
+|---|---|
+| `--world-model-log` | Write transition/episode/world-state CSVs (the dream-evolution fuel). ~1 KB per transition. |
+| `--log` (+ `--log-dir`, `--log-frequency`) | Write per-action + per-tick agent-state CSVs for analysis. |
+| `--load-weights F.npz` / `--save-weights` | Seed agents from saved weights / save the best at the end. **Weight length must match the configured brain** (version + world model), otherwise loading fails. |
+| `--seed N` | Reproducible world generation. Note: with `simulation.parallel: true` (default) agent updates are threaded and runs are not bit-reproducible; set `parallel: false` for determinism. |
+| `--gui` / `--gpu` / `--no-viz` | Pygame 2D / ModernGL isometric / headless. |
+| `learning.compute_backend/device` | `numpy`/`torch`, `cpu`/`cuda`/`mps` for the learners. |
+
+**The full stack in one config:** `brain.version: 3` +
+`brain.world_model.enabled: true` + `brain.world_model.planner.enabled:
+true` + `learning.algorithm: ppo` + `learning.curiosity.enabled: true`,
+run with `--mode rl`. Budget CPU accordingly (or use `cuda`) — every
+feature stacks its per-tick cost.
 
 ## Architecture
 
@@ -356,7 +528,9 @@ Complex behaviors emerge from combinations of primitive actions:
 
 ## Configuration
 
-Key simulation parameters in `config/default.yaml`:
+Key simulation parameters in `config/default.yaml` (see
+[Modes & Feature Toggles](#modes--feature-toggles--complete-reference) for
+the full enable/prerequisite/effect reference):
 - **Evolution mode** (`evolution.mode`): `"rl"` or `"neuroevolution"`
 - World size, terrain generation (soil, rock, water, sand ratios)
 - Population size, genetic parameters
