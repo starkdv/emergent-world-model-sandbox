@@ -3,7 +3,7 @@ max-line-length = 120
 exclude =
     .venv,
     __pycache__,
-    data,
+    ./data,
     build,
     dist,
     .git,
@@ -36,6 +36,6 @@ per-file-ignores =
     # Agent modules have conditional imports
     agents/*.py: F401
     # Analyzers have f-strings used as section headers
-    analyze_*.py: F541
+    scripts/*.py: F541
     # Main has conditional imports
     main.py: F401, E401

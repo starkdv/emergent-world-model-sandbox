@@ -29,13 +29,61 @@ agents:
   max_age: 1000
   inventory_size: 5
 
-# Neural Network Settings (Brain v2 with GRU + Actor-Critic)
+# Neural Network Settings (GRU + Actor-Critic)
 brain:
+  # Architecture version:
+  #   2 = legacy GRU-MLP (~8.9k params) — the controlled baseline
+  #   3 = attention perception + [z,h] value head (~17k params):
+  #       a small embedding shared by all vision tiles + an attention
+  #       pool driven by the agent's internal state, a larger GRU, and
+  #       a value head that sees the current state directly.
+  #       See agents/brain/v3.py and docs/BRAIN_V3_PROPOSAL.md §3.
+  version: 2
+
+  # --- v2 sizes (used when version: 2) ---
   input_size: 72  # calculated from observation vector (8 agent + 50 vision + 8 stimulus + 6 inventory)
   encoder_layers: [32]  # Encoder MLP hidden layers
   gru_hidden_size: 32  # GRU hidden state size (memory)
   output_size: 8  # number of actions
   activation: "tanh"
+
+  # --- v3 sizes (used when version: 3) ---
+  v3:
+    embed_dim: 8       # per-tile embedding size (E), shared by all 25 tiles
+    state_dim: 40      # state encoder output (S); GRU input = S + E
+    gru_hidden_size: 48
+    value_hidden: 16   # hidden layer of the [z,h] value MLP
+
+  # Learned world model (Brain v3 Phase 4). Adds a latent dynamics head
+  # to the genome that predicts (next latent, reward) from (hidden state,
+  # action). Works with both brain versions. Enables:
+  #   - curiosity (learning.curiosity): prediction error → intrinsic reward
+  #   - planning (below): imagined latent rollouts pick the next action
+  # The head is trained by the PPO learner (algorithm: ppo); under a2c or
+  # pure neuroevolution it only evolves.
+  # NOTE: enabling changes the genome length (the head lives in the genome).
+  world_model:
+    enabled: false
+    hidden: 32           # dynamics MLP hidden width
+    planner:
+      enabled: false     # model-based action selection (costly per tick)
+      depth: 3           # imagination horizon
+      samples: 16        # candidate rollouts per decision
+      gamma: 0.95        # discount inside the rollout
+
+  # Bootstrap instincts (Brain v3 Phase 2).
+  # Small additive biases on the action logits that scaffold early survival
+  # (pick up food, eat when hungry, turn toward food). They FADE linearly
+  # with agent age so adult behaviour is produced purely by the learned
+  # network — this is what keeps the project's emergence-first claim honest.
+  # The old hardcoded auto-eat override (forced EAT below 50% energy) was
+  # replaced by the hunger_eat_bias prior, which the policy can override.
+  instincts:
+    enabled: true        # false = pure network from birth (hard mode ablation)
+    fade_age: 150        # ticks until instincts reach zero (null = never fade,
+                         #   which reproduces the legacy v2 behaviour)
+    hunger_eat_bias: 3.0 # extra EAT logit bias at maximum hunger (scaled by
+                         #   the energy_urgency stimulus and by the fade)
 
 # Evolution Settings
 evolution:
@@ -121,6 +169,41 @@ data_collection:
 # Learning Settings (for --learning flag)
 learning:
   enabled: false  # Set via command line
+
+  # Lifetime-learning algorithm (Brain v3 Phase 3b):
+  #   a2c — legacy Actor-Critic: random single-transition replay, TD(0)
+  #         advantage, manual gradients on the OUTPUT HEADS ONLY (the
+  #         encoder and GRU are shaped by evolution alone)
+  #   ppo — full-network backprop via torch autograd, time-ordered
+  #         sequence replay (GRU re-run over chunks), GAE(λ) advantages,
+  #         PPO clipped updates, Adam + gradient clipping. Works with
+  #         both brain versions. Falls back to a2c if torch is missing.
+  # See docs/BRAIN_V2_V3_COMPARISON.md for the math behind both.
+  algorithm: "a2c"
+  ppo:
+    learning_rate: 0.0003 # Adam step size (PPO ignores learning_rate below)
+    seq_len: 8            # steps per sequence chunk (BPTT horizon)
+    batch_size: 8         # chunks sampled per update
+    gae_lambda: 0.95      # GAE λ: 0 = TD(0), 1 = Monte-Carlo
+    clip_epsilon: 0.2     # PPO ratio clip ε
+    value_coef: 0.5       # weight of the value loss
+    entropy_coef: 0.01    # exploration bonus weight
+    epochs: 2             # optimisation passes per sampled batch
+    grad_clip: 0.5        # max gradient norm
+    chunk_buffer: 64      # chunks kept in the replay buffer
+    world_model_coef: 1.0 # weight of the dynamics-head auxiliary loss
+
+  # Curiosity (Brain v3 Phase 4) — requires brain.world_model.enabled.
+  # Intrinsic reward = weight * clip(zscore(prediction error), 0, clip):
+  # surprising transitions are rewarded, replacing hand-crafted
+  # exploration bonuses with an emergent signal.
+  curiosity:
+    enabled: false
+    weight: 0.1   # intrinsic reward scale
+    decay: 1.0    # per-step multiplicative weight decay (1.0 = constant)
+    clip: 3.0     # cap in standard deviations
+    warmup: 20    # samples before rewards start (stats stabilisation)
+
   learning_rate: 0.01
   discount_factor: 0.95
   batch_size: 12  # Lower batch to reduce per-update compute cost

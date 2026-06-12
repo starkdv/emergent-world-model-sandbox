@@ -104,9 +104,13 @@ demonstrates the core loop end-to-end:
   strategies.
 - The dual-mode design already supports **controlled comparison** of evolution with and
   without lifetime learning.
-- Infrastructure for the next research step is in place: full **transition logging**
-  `(state, action, reward, next_state)` is captured in a form designed for training a
-  predictive world model — though that model is **not yet trained**, only logged.
+- A first **learned world model is implemented and trained**: an optional latent
+  dynamics head (in the genome, both brain versions) predicts `(next latent, reward)`
+  from `(hidden state, action)`; it is trained end-to-end by the PPO learner, its
+  prediction error drives a normalised **curiosity** reward, and a random-shooting
+  **latent rollout planner** can select actions from imagined trajectories. Full
+  **transition logging** remains in place for the next step — a population-level
+  offline model for dream-based evolution.
 
 I'd characterise the present state honestly as *promising and operational, not yet a
 result*: the instrument works and produces the expected qualitative phenomena; the

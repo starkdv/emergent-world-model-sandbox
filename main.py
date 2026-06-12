@@ -17,7 +17,9 @@ from world.world import World
 from world.objects import WorldObject, EdibleComponent, SeedComponent, PlantComponent
 from world.tiles import TerrainType
 from world.object_registry import ObjectRegistry, register_builtin_objects
-from agents import Agent, Genome, Brain, create_default_trait_config
+from agents import Agent, Genome, Brain, create_default_trait_config  # noqa: F401
+from agents.brain import calculate_weight_count_for_config
+from agents.brain.instincts import InstinctModule
 from utils.render import ConsoleRenderer
 from utils.ui.pygame_renderer import PygameRenderer
 
@@ -528,14 +530,46 @@ Examples:
         agent_cfg = config["agents"]
         initial_population = agent_cfg["initial_population"]
 
-        # Get brain configuration
+        # Get brain configuration. The version switch selects the
+        # architecture: 2 = legacy GRU-MLP, 3 = attention perception +
+        # [z, h] value head (agents/brain/v3.py).
         brain_cfg = config["brain"]
-        weight_count = Brain.calculate_weight_count(
-            input_size=brain_cfg["input_size"],
-            encoder_layers=brain_cfg["encoder_layers"],
-            gru_hidden_size=brain_cfg["gru_hidden_size"],
-            output_size=brain_cfg["output_size"],
+        Agent.brain_config = brain_cfg
+        weight_count = calculate_weight_count_for_config(brain_cfg)
+        _wm_cfg = brain_cfg.get("world_model", {}) or {}
+        print(
+            f"Brain: v{brain_cfg.get('version', 2)} "
+            f"({weight_count} parameters per agent)"
+            + (
+                ", world model ON"
+                + (
+                    " + planner"
+                    if (_wm_cfg.get("planner", {}) or {}).get("enabled", False)
+                    else ""
+                )
+                if _wm_cfg.get("enabled", False)
+                else ""
+            )
         )
+
+        # Configure bootstrap instincts for all agents (fading scaffolding —
+        # see agents/brain/instincts.py). Applied class-level so offspring
+        # created during the run inherit the same configuration.
+        instinct_cfg = brain_cfg.get("instincts", None)
+        Agent.instinct_config = instinct_cfg
+        _instincts_preview = InstinctModule.from_config(instinct_cfg)
+        if _instincts_preview.enabled:
+            fade_desc = (
+                f"fade to 0 at age {_instincts_preview.fade_age}"
+                if _instincts_preview.fade_age is not None
+                else "never fade (legacy)"
+            )
+            print(
+                f"Instincts: enabled ({fade_desc}, "
+                f"hunger_eat_bias={_instincts_preview.hunger_eat_bias})"
+            )
+        else:
+            print("Instincts: DISABLED (pure network from birth)")
 
         # Create trait configuration
         trait_config = create_default_trait_config()
@@ -599,6 +633,9 @@ Examples:
                         buffer_capacity=1000,
                         compute_backend=learning_cfg.get("compute_backend", "auto"),
                         compute_device=learning_cfg.get("compute_device", "auto"),
+                        algorithm=learning_cfg.get("algorithm", "a2c"),
+                        ppo_config=learning_cfg.get("ppo", None),
+                        curiosity_config=learning_cfg.get("curiosity", None),
                     )
 
                 world.add_agent(agent)
@@ -610,6 +647,15 @@ Examples:
         if use_learning and world.agents:
             sample_agent = next(iter(world.agents.values()))
             if sample_agent.learner is not None:
+                print(
+                    f"Learning algorithm: "
+                    f"{getattr(sample_agent.learner, 'algorithm', 'a2c').upper()} "
+                    + (
+                        "(full-network backprop, sequence replay, GAE + clipping)"
+                        if getattr(sample_agent.learner, "wants_sequences", False)
+                        else "(legacy heads-only updates)"
+                    )
+                )
                 print(
                     f"Learning backend: {sample_agent.learner.compute_backend} "
                     f"(device: {sample_agent.learner.compute_device})"

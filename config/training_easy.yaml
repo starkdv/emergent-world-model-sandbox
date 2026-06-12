@@ -31,13 +31,23 @@ agents:
   max_age: 5000  # MUCH LONGER LIFESPAN (was 500) - let agents live and learn!
   inventory_size: 5
 
-# Neural Network Settings (Brain v2 with GRU + Actor-Critic)
+# Neural Network Settings (GRU + Actor-Critic)
 brain:
+  version: 2  # 2 = legacy GRU-MLP, 3 = attention brain (see config/default.yaml)
   input_size: 72
   encoder_layers: [32]  # Encoder MLP hidden layers
   gru_hidden_size: 32  # GRU hidden state size (memory)
   output_size: 8
   activation: "tanh"
+
+  # Bootstrap instincts — LONGER SCAFFOLDING for easy mode.
+  # Fade is scaled to the 5000-tick lifespan (~10%), mirroring the
+  # 150/1000 ratio used in config/default.yaml. See default.yaml for
+  # the full explanation of each key.
+  instincts:
+    enabled: true
+    fade_age: 500
+    hunger_eat_bias: 3.0
 
 # Evolution Settings - GENTLER MUTATIONS
 evolution:

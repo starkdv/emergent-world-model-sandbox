@@ -74,7 +74,9 @@ def build_observation(agent: "Agent", world: "World") -> np.ndarray:
 
 def get_observation_size() -> int:
     """Return the size of the observation vector."""
-    return 72
+    from agents.brain.spec import DEFAULT_OBSERVATION_SPEC
+
+    return DEFAULT_OBSERVATION_SPEC.size
 
 
 # ---------------------------------------------------------------------------

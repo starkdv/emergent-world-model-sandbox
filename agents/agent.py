@@ -16,9 +16,9 @@ from typing import TYPE_CHECKING, Optional, List, ClassVar
 import numpy as np
 
 from agents.actions import Action, ActionResult, DIRECTIONS
-from agents.brain import Brain
+from agents.brain import Brain, create_brain  # noqa: F401 (Brain re-exported)
+from agents.brain.instincts import InstinctModule
 from agents.genome import Genome
-from world.objects import EdibleComponent
 import utils.agents.agent_utils as agent_utils
 
 if TYPE_CHECKING:
@@ -58,11 +58,17 @@ class Agent:
     Class Attributes:
         logger (AgentLogger): Optional logger for tracking actions/states
         world_model_logger: Optional logger for world model training data
+        instinct_config: Optional ``brain.instincts`` config dict applied
+            to every newly created agent (set once from YAML in main.py)
+        brain_config: Optional ``brain`` config dict selecting the brain
+            architecture (version 2 or 3) and its sizes; None → v2 defaults
     """
 
     _next_id = 0
     logger: ClassVar[Optional["AgentLogger"]] = None
     world_model_logger: ClassVar[Optional["WorldModelLogger"]] = None
+    instinct_config: ClassVar[Optional[dict]] = None
+    brain_config: ClassVar[Optional[dict]] = None
 
     def __init__(
         self,
@@ -106,12 +112,31 @@ class Agent:
         self.inventory_size = inventory_size
         # Evolutionary components
         self.genome = genome
-        self.brain = Brain(genome)
+        # Brain architecture (v2 or v3) and instincts are configured once
+        # (class-level, from YAML) so offspring inherit the same setup.
+        # Instincts fade with age — see agents/brain/instincts.py.
+        self.brain = create_brain(
+            genome,
+            Agent.brain_config,
+            instincts=InstinctModule.from_config(Agent.instinct_config),
+        )
         self.traits = genome.traits.copy()
         self.fitness = 0.0
 
         # GRU hidden state (memory)
         self.h = self.brain.initial_state()
+
+        # World-model extras (only active when the brain has a dynamics
+        # head): optional latent rollout planner; curiosity is attached
+        # by enable_learning since it shapes the learning reward.
+        self.planner = None
+        wm_cfg = (Agent.brain_config or {}).get("world_model", {}) or {}
+        planner_cfg = wm_cfg.get("planner", {}) or {}
+        if self.brain.has_world_model and planner_cfg.get("enabled", False):
+            from agents.planner import LatentPlanner
+
+            self.planner = LatentPlanner.from_config(planner_cfg)
+        self.curiosity = None
 
         # Learning components
         self.learner: Optional["AgentLearner"] = None
@@ -186,58 +211,35 @@ class Agent:
             self.die(world)
 
             # Store terminal experience if learning
-            if (
-                self.learning_enabled
-                and self.learner
-                and self.last_observation is not None
-                and self.last_hidden_state is not None
-            ):
-                if terminal_obs is None:
-                    terminal_obs = self.observe(world)
-                terminal_h = self.brain.initial_state()  # Dead state
-                self.learner.store_experience(
-                    self.last_observation,
-                    self.last_hidden_state,
-                    0,  # Action doesn't matter
-                    -1.0,  # Death penalty
-                    terminal_obs,
-                    terminal_h,
-                    True,  # Episode done
-                )
+            if self.learning_enabled and self.learner:
+                if getattr(self.learner, "wants_sequences", False):
+                    # PPO path: flag the last stored step as terminal
+                    if terminal_obs is None:
+                        terminal_obs = self.observe(world)
+                    self.learner.mark_done(terminal_obs)
+                elif (
+                    self.last_observation is not None
+                    and self.last_hidden_state is not None
+                ):
+                    if terminal_obs is None:
+                        terminal_obs = self.observe(world)
+                    terminal_h = self.brain.initial_state()  # Dead state
+                    self.learner.store_experience(
+                        self.last_observation,
+                        self.last_hidden_state,
+                        0,  # Action doesn't matter
+                        -1.0,  # Death penalty
+                        terminal_obs,
+                        terminal_h,
+                        True,  # Episode done
+                    )
             return  # Get observation and decide action
         observation = self.observe(world)
 
-        # AUTO-EAT: If energy is low and agent has food, eat automatically
-        # This ensures agents don't starve while holding food
-
-        # Check if agent has food in inventory
-        has_food = False
-        if self.inventory:
-            for obj_id in self.inventory:
-                obj = world.objects.get(obj_id)
-                if obj is not None and obj.has_component(EdibleComponent):
-                    has_food = True
-                    break
-
-        # Force EAT when hungry with food (50% threshold for safety)
         action_mask = self.get_action_mask(world)
-        if self.energy < self.max_energy * 0.5 and has_food:
-            action = Action.EAT
-            # Still need to update hidden state even for forced action
-            _, _, self.h = self.brain.forward(
-                observation,
-                self.h,
-                action_mask=action_mask,
-                temperature=self.temperature,
-            )
-        else:
-            # Use brain to decide action (samples from policy)
-            action, self.h, _ = self.brain.decide(
-                observation,
-                self.h,
-                action_mask=action_mask,
-                temperature=self.temperature,
-            )
+        action, h_before_step, step_logprob, uses_sequences = self.choose_action(
+            observation, action_mask
+        )
 
         # Store observation before action for logging
         obs_before = observation  # no copy needed — not modified before use
@@ -253,8 +255,8 @@ class Agent:
         # Calculate reward (needed for both learning and logging)
         reward = 0.0
         if self.learning_enabled and self.learner:
-            reward = self.learner.reward_shaper.calculate_reward(
-                action, result, energy_before, self.energy, self, world
+            reward = self.compute_reward(
+                action, result, energy_before, obs_after, world
             )
 
         # World model logging (captures full transitions for training)
@@ -277,8 +279,24 @@ class Agent:
 
         # Learning step
         if self.learning_enabled and self.learner:
-            # Store experience (if we have previous observation and hidden state)
-            if self.last_observation is not None and self.last_hidden_state is not None:
+            if uses_sequences:
+                # PPO path: time-ordered step with behaviour log-prob and
+                # action mask (decision-time observation, not the stale
+                # previous-tick one)
+                self.learner.store_step(
+                    observation=observation,
+                    hidden_before=h_before_step,
+                    action=action.value,
+                    reward=reward,
+                    next_observation=obs_after,
+                    done=False,
+                    logprob=step_logprob,
+                    action_mask=action_mask,
+                )
+            elif (
+                self.last_observation is not None and self.last_hidden_state is not None
+            ):
+                # Legacy A2C path: single transitions
                 # Note: self.h has already been updated to h_next by brain.decide above
                 self.learner.store_experience(
                     self.last_observation,
@@ -308,6 +326,107 @@ class Agent:
             # Store current observation and hidden state for next step
             self.last_observation = obs_after.copy()
             self.last_hidden_state = self.h.copy()
+
+    def choose_action(
+        self, observation: np.ndarray, action_mask: np.ndarray
+    ) -> tuple[Action, Optional[np.ndarray], float, bool]:
+        """
+        Decide this tick's action. SINGLE source of decision logic —
+        used by both Agent.update and the parallel pipeline
+        (utils/parallel.py), so the two paths cannot drift.
+
+        Handles:
+        - fading instinct strength (1.0 at birth → 0.0 at fade_age)
+        - the PPO path (behaviour log-prob + pre-step hidden state)
+        - optional model-based planning over imagined latent rollouts
+
+        Updates self.h as a side effect.
+
+        Args:
+            observation: Current observation vector
+            action_mask: Valid-action mask
+
+        Returns:
+            (action, h_before_step, logprob, uses_sequences) where
+            h_before_step/logprob are only meaningful when
+            uses_sequences is True (PPO learner attached)
+        """
+        instinct_strength = self.brain.instincts.strength_at(self.age)
+        uses_sequences = self.learner is not None and getattr(
+            self.learner, "wants_sequences", False
+        )
+        h_before = self.h.copy() if uses_sequences else None
+        logprob = 0.0
+
+        if self.planner is not None and self.brain.has_world_model:
+            # Model-based: run the policy forward (memory must advance
+            # regardless), then override the sampled choice with the
+            # best imagined rollout's first action.
+            probs, _, h_next = self.brain.forward(
+                observation,
+                self.h,
+                action_mask=action_mask,
+                temperature=self.temperature,
+                instinct_strength=instinct_strength,
+            )
+            self.h = h_next
+            action_idx = self.planner.plan(self.brain, self.h, action_mask)
+            # Log-prob of the planner's choice under the policy — keeps
+            # PPO's importance ratio meaningful (clipping bounds the rest)
+            logprob = float(np.log(max(probs[action_idx], 1e-8)))
+            action = Action(action_idx)
+        elif uses_sequences:
+            action, self.h, _, logprob = self.brain.decide_with_logprob(
+                observation,
+                self.h,
+                action_mask=action_mask,
+                temperature=self.temperature,
+                instinct_strength=instinct_strength,
+            )
+        else:
+            action, self.h, _ = self.brain.decide(
+                observation,
+                self.h,
+                action_mask=action_mask,
+                temperature=self.temperature,
+                instinct_strength=instinct_strength,
+            )
+
+        return action, h_before, logprob, uses_sequences
+
+    def compute_reward(
+        self,
+        action: Action,
+        result: ActionResult,
+        energy_before: float,
+        obs_after: np.ndarray,
+        world: "World",
+    ) -> float:
+        """
+        Shaped reward for this tick, plus the curiosity bonus when a
+        world model is present. Single source for both update paths.
+
+        Curiosity = normalised error of the dynamics head's prediction
+        of the post-action latent (see agents/curiosity.py).
+
+        Args:
+            action: Action taken
+            result: Execution result
+            energy_before: Energy before the tick
+            obs_after: Observation after the action
+            world: The world (reward shaper context)
+
+        Returns:
+            Total reward (extrinsic + intrinsic)
+        """
+        reward = self.learner.reward_shaper.calculate_reward(
+            action, result, energy_before, self.energy, self, world
+        )
+        if self.curiosity is not None and self.brain.has_world_model:
+            z_pred, _ = self.brain.predict_next_latent(self.h, action.value)
+            z_actual = self.brain.encode(obs_after)
+            reward += self.curiosity.intrinsic_reward(z_pred, z_actual)
+        return reward
 
     def get_action_mask(self, world: "World") -> np.ndarray:
         """
@@ -593,7 +712,7 @@ class Agent:
                     # Offspring starts with fresh memory (no inherited hidden state)
                     offspring.h = offspring.brain.initial_state()
 
-                    # Enable learning if parent has it
+                    # Enable learning if parent has it (same algorithm)
                     if self.learner:
                         offspring.enable_learning(
                             learning_rate=self.learner.learning_rate,
@@ -602,6 +721,9 @@ class Agent:
                             buffer_capacity=1000,  # Use default capacity
                             compute_backend=self.learner.compute_backend,
                             compute_device=self.learner.compute_device,
+                            algorithm=getattr(self.learner, "algorithm", "a2c"),
+                            ppo_config=getattr(self, "_ppo_config", None),
+                            curiosity_config=getattr(self, "_curiosity_config", None),
                         )
 
                     # Inherit parent's temperature
@@ -622,6 +744,9 @@ class Agent:
         buffer_capacity: int = 1000,
         compute_backend: str = "auto",
         compute_device: str = "auto",
+        algorithm: str = "a2c",
+        ppo_config: Optional[dict] = None,
+        curiosity_config: Optional[dict] = None,
     ) -> None:
         """
         Enable reinforcement learning for this agent.
@@ -633,7 +758,54 @@ class Agent:
             buffer_capacity: Size of experience replay buffer
             compute_backend: 'auto', 'numpy', or 'torch'
             compute_device: 'auto', 'cpu', 'cuda', or 'mps'
+            algorithm: 'a2c' (legacy heads-only updates) or 'ppo'
+                (full-network backprop, sequence replay, GAE + clipping;
+                requires torch — falls back to a2c without it)
+            ppo_config: Optional ``learning.ppo`` config dict (seq_len,
+                gae_lambda, clip_epsilon, value_coef, entropy_coef,
+                epochs, grad_clip, chunk_buffer, learning_rate)
+            curiosity_config: Optional ``learning.curiosity`` config dict
+                (enabled, weight, decay, clip, warmup); only active when
+                the brain has a world model (brain.world_model.enabled)
         """
+        # Curiosity rides on the world model's prediction error
+        self._curiosity_config = curiosity_config
+        if (
+            curiosity_config
+            and curiosity_config.get("enabled", False)
+            and self.brain.has_world_model
+        ):
+            from agents.curiosity import CuriosityModule
+
+            self.curiosity = CuriosityModule.from_config(curiosity_config)
+        if algorithm == "ppo":
+            from agents.ppo import TORCH_AVAILABLE, PPOSequenceLearner
+
+            if TORCH_AVAILABLE:
+                ppo = ppo_config or {}
+                self.learner = PPOSequenceLearner(
+                    learning_rate=ppo.get("learning_rate", 3e-4),
+                    discount_factor=discount_factor,
+                    batch_size=ppo.get("batch_size", 8),
+                    seq_len=ppo.get("seq_len", 8),
+                    gae_lambda=ppo.get("gae_lambda", 0.95),
+                    clip_epsilon=ppo.get("clip_epsilon", 0.2),
+                    value_coef=ppo.get("value_coef", 0.5),
+                    entropy_coef=ppo.get("entropy_coef", 0.01),
+                    epochs=ppo.get("epochs", 2),
+                    grad_clip=ppo.get("grad_clip", 0.5),
+                    chunk_capacity=ppo.get("chunk_buffer", 64),
+                    compute_device=(
+                        "cpu" if compute_device == "auto" else compute_device
+                    ),
+                    world_model_coef=ppo.get("world_model_coef", 1.0),
+                )
+                self._ppo_config = ppo_config
+                self.learning_enabled = True
+                self.last_observation = None
+                return
+            print("  [LEARN] torch unavailable — falling back to a2c")
+
         from agents.learning import AgentLearner
 
         self.learner = AgentLearner(
@@ -679,8 +851,9 @@ class Agent:
         # Update genome with parent's learned weights
         self.genome.weights = parent_knowledge.copy()
 
-        # Rebuild brain with new weights
-        self.brain = Brain(self.genome)
+        # Re-bind the brain's parameter views to the new weights
+        # (architecture and instinct configuration are preserved)
+        self.brain.rebind(self.genome)
 
     def __repr__(self) -> str:
         return (
