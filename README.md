@@ -631,10 +631,33 @@ Built-in terrain hazard: **Sand** (5 % of default map)
 
 ### Action-Distribution Analysis
 ```bash
-python analyze_v3_1.py
+python analyze_v3_1.py                       # latest log in data/logs
+python analyze_v3_1.py --file path/to.csv    # a specific log
+python analyze_v3_1.py --fade-age 150        # match brain.instincts.fade_age
 ```
-Reports action distribution, success rates, food consumption, and compares against
-survival targets (WAIT ≥ 32–35 %, EAT success 100 %, survival > 1 500 ticks).
+Works on both log schemas (`agent_actions_*.csv` from `--log` and
+`transitions_*.csv` from `--world-model-log`). Reports action distribution,
+success rates, energy economy, population dynamics, lifespans, spatial
+coverage, farming pipeline, behavioural diversity, action n-grams, temporal
+phases — plus two Brain-v3-era sections:
+
+- **🍼 Instinct fade phases** — juvenile (age < fade_age) vs adult behaviour
+  split: do agents still eat/forage once the instinct scaffold is gone?
+  (the emergence-first claim, measured per run)
+- **💀 Death analysis** — death reasons and age-at-death distribution
+  (transitions format; e.g. a starvation spike just past fade_age means
+  agents aren't learning to eat before the training wheels come off)
+
+### Observation Sensitivity
+```bash
+python analyze_observation_sensitivity.py                      # v2 brain
+python analyze_observation_sensitivity.py --brain 3            # attention brain
+python analyze_observation_sensitivity.py --brain 3 --world-model
+```
+Perturbs each of the 72 observation features and ranks how much the policy
+and value change — in three views: RAW network, RUNTIME JUVENILE (mask +
+full-strength instincts), and RUNTIME ADULT (instincts fully faded, the
+pure network that governs adult behaviour).
 
 ### CSV Logging
 

@@ -88,6 +88,20 @@ def _ensure_interaction_fields(df: pd.DataFrame) -> None:
     df.loc[target_y < 0, "target_y"] = parsed_y[target_y < 0].fillna(-1).astype(int)
 
 
+def _normalize_energy_columns(df: pd.DataFrame) -> None:
+    """
+    Unify the two log schemas' energy columns.
+
+    AgentLogger writes energy_before/energy_after; the transitions
+    format writes energy/energy_next. Alias them so every downstream
+    metric (lifespan, energy economy, efficiency) works on both.
+    """
+    if "energy_before" not in df.columns and "energy" in df.columns:
+        df["energy_before"] = df["energy"]
+    if "energy_after" not in df.columns and "energy_next" in df.columns:
+        df["energy_after"] = df["energy_next"]
+
+
 def _derive_position_columns(df: pd.DataFrame) -> tuple[str, str] | tuple[None, None]:
     if "x" in df.columns and "y" in df.columns:
         return "x", "y"
@@ -510,8 +524,84 @@ def _compute_action_sequences(df: pd.DataFrame, top_n: int = 10) -> dict:
     }
 
 
-log_dir = "data/logs"
-latest_file, is_new_format = _pick_latest_log(log_dir)
+def _compute_instinct_phases(df: pd.DataFrame, fade_age: int) -> dict:
+    """
+    Juvenile vs adult behaviour split at the instinct fade age.
+
+    Instinct biases fade linearly to zero at ``fade_age`` (Brain v3
+    Phase 2), so rows with age >= fade_age show behaviour produced
+    PURELY by the evolved/learned network — the emergence-first claim
+    made measurable.
+    """
+    if "age" not in df.columns:
+        return {}
+    juvenile = df[df["age"] < fade_age]
+    adult = df[df["age"] >= fade_age]
+    if len(adult) == 0 or len(juvenile) == 0:
+        return {}
+
+    def _phase(p: pd.DataFrame) -> dict:
+        eats = p[p["action"] == "EAT"]
+        return {
+            "n_actions": len(p),
+            "n_agents": int(p["agent_id"].nunique()),
+            "action_dist": {
+                k: round(v * 100, 1)
+                for k, v in p["action"].value_counts(normalize=True).items()
+            },
+            "eat_attempts": len(eats),
+            "eat_success_pct": (
+                round(float(eats["success"].mean()) * 100, 1) if len(eats) else 0.0
+            ),
+        }
+
+    return {"fade_age": fade_age, "juvenile": _phase(juvenile), "adult": _phase(adult)}
+
+
+def _compute_death_analysis(df: pd.DataFrame) -> dict:
+    """Death reasons and age-at-death (transitions format only)."""
+    if "death_reason" not in df.columns or "done" not in df.columns:
+        return {}
+    done = df["done"].astype(str).str.lower().isin({"1", "true", "yes"})
+    deaths = df[done & (df["death_reason"].astype(str).str.len() > 0)]
+    if len(deaths) == 0:
+        return {}
+    return {
+        "total_deaths": len(deaths),
+        "by_reason": deaths["death_reason"].value_counts().to_dict(),
+        "avg_age_at_death": float(deaths["age"].mean()),
+        "median_age_at_death": float(deaths["age"].median()),
+        "min_age_at_death": int(deaths["age"].min()),
+        "max_age_at_death": int(deaths["age"].max()),
+    }
+
+
+import argparse
+
+_parser = argparse.ArgumentParser(
+    description="Analyze the latest action/transition logs"
+)
+_parser.add_argument(
+    "--log-dir", default="data/logs", help="Directory containing the CSV logs"
+)
+_parser.add_argument(
+    "--file", default=None, help="Analyze a specific CSV instead of the latest"
+)
+_parser.add_argument(
+    "--fade-age",
+    type=int,
+    default=150,
+    help="Instinct fade age used for the juvenile/adult behaviour split "
+    "(must match brain.instincts.fade_age of the analyzed run)",
+)
+_args = _parser.parse_args()
+
+log_dir = _args.log_dir
+if _args.file:
+    latest_file = _args.file
+    is_new_format = "transitions_" in os.path.basename(latest_file)
+else:
+    latest_file, is_new_format = _pick_latest_log(log_dir)
 
 if latest_file is None:
     print("❌ No log files found!")
@@ -530,6 +620,7 @@ _coerce_bool_success(df)
 if "death_reason" in df.columns:
     df["death_reason"] = df["death_reason"].fillna("")
 _ensure_interaction_fields(df)
+_normalize_energy_columns(df)
 
 total_actions = len(df)
 total_ticks = int(df["tick"].max()) if total_actions > 0 else 0
@@ -866,6 +957,57 @@ if phase_m:
         dist = info["action_dist"]
         parts = [f"{a}={p:.1f}%" for a, p in sorted(dist.items(), key=lambda x: -x[1])]
         print(f"    {', '.join(parts)}")
+
+# ── NEW: INSTINCT FADE PHASES ────────────────────────────────────────
+
+instinct_m = _compute_instinct_phases(df, fade_age=_args.fade_age)
+if instinct_m:
+    print(f"\n🍼 INSTINCT FADE PHASES (split at age {instinct_m['fade_age']})")
+    for label, key in (
+        ("Juvenile (instincts on)", "juvenile"),
+        ("Adult (pure network)", "adult"),
+    ):
+        info = instinct_m[key]
+        dist = ", ".join(
+            f"{a}={p:.1f}%"
+            for a, p in sorted(info["action_dist"].items(), key=lambda x: -x[1])
+        )
+        print(f"  {label}:")
+        print(
+            f"    actions={info['n_actions']:,}, agents={info['n_agents']}, "
+            f"EAT attempts={info['eat_attempts']} "
+            f"(success {info['eat_success_pct']:.1f}%)"
+        )
+        print(f"    {dist}")
+    j, a = instinct_m["juvenile"], instinct_m["adult"]
+    if a["eat_attempts"] > 0:
+        print(
+            "  → Adults still eat without the instinct scaffold: "
+            f"{a['eat_attempts']} attempts at {a['eat_success_pct']:.1f}% success "
+            "(the emergence-first claim, measured)"
+        )
+    else:
+        print(
+            "  ⚠️  No adult EAT attempts — agents may not be learning to eat "
+            "before instincts fade (try a longer fade_age or RL+PPO)"
+        )
+else:
+    print("\n🍼 INSTINCT FADE PHASES")
+    print("  Skipped (no rows on both sides of the fade age, or no age column)")
+
+# ── NEW: DEATH ANALYSIS (transitions format) ─────────────────────────
+
+death_m = _compute_death_analysis(df)
+if death_m:
+    print("\n💀 DEATH ANALYSIS")
+    print(f"  Total deaths logged: {death_m['total_deaths']}")
+    for reason, count in death_m["by_reason"].items():
+        print(f"    {reason}: {count}")
+    print(
+        f"  Age at death: avg={death_m['avg_age_at_death']:.0f}, "
+        f"median={death_m['median_age_at_death']:.0f}, "
+        f"range {death_m['min_age_at_death']}–{death_m['max_age_at_death']}"
+    )
 
 # ── OVERALL VERDICT ──────────────────────────────────────────────────
 
