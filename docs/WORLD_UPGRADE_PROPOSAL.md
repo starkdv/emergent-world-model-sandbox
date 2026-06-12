@@ -63,6 +63,24 @@ checkpointed (only weights are saved). And the RewardShaper has grown into
 penalties...) — a quiet tension with the emergence-first claim that
 fading instincts just fixed on the brain side.
 
+### Verified dynamics bugs (measured, not suspected)
+
+| # | Bug | Evidence | Consequence |
+|---|---|---|---|
+| B1 | **Moisture never decreases.** Recovery (+0.0008/tick, every soil tile, unconditional) exceeds evaporation (−0.0002) plus even max plant draw (−0.0005): net **+0.0006 empty / +0.0001 planted** — monotonic. | Measured: avg moisture 0.51 → 0.95 over 900 ticks; 57.5% of tiles fully saturated and climbing | The moisture dimension is functionally dead: every germination check passes after ~1.5k ticks, and the observation channel carries no information |
+| B2 | **Germination on sand is impossible, not "10× harder".** Sand clamps moisture/fertility to 0.05, but germination requires moisture ≥ 0.2 and fertility ≥ 0.3 — the check fails before the 0.1 multiplier is ever consulted. | `TileEffectSpec` overrides vs `SeedGerminationSystem` thresholds | Sand's germination_multiplier is dead config; sand reclamation (which needs a plant ON sand) can only occur when sand spreads under an existing plant |
+| B3 | **Water is cosmetic.** Water tiles force their own moisture to 1.0 and block planting — nothing else. No drinking/thirst, no crossing cost, no moisture sharing with neighbours. | inventory §1/§6 | "Water" currently means "tile you can't plant on" |
+| B4 | **Inventory is a stasis field.** Freshness decays only for objects on the ground (`DecaySystem` iterates `world.objects` on tiles); carried food never spoils. | inventory §6 | Hoarding is strictly free — an unintended dominant strategy |
+
+These are first-class fix targets: **W1's weather model is the B1/B3 fix**
+(evaporation scaled by temperature/light *exceeding* base recovery, recovery
+arriving via rain events and water-adjacency diffusion — moisture becomes a
+real, spatially structured constraint), **W2's elevation/water rework
+addresses B3**, B2 is corrected by aligning sand's clamps with germination
+thresholds (or vice versa) so the multiplier actually expresses "harder",
+and B4 is a one-line `DecaySystem` extension over inventories, shipped with
+W1 behind its own flag.
+
 ---
 
 ## 2. Design principles
@@ -222,11 +240,17 @@ metabolism; calamity generalized into the event system.
 enabled defaults keep populations viable over 2,000-tick runs; each cycle
 visible in the world-state logs.
 
-**W2 — Living terrain.**
-Biome generator (smoothed noise, connected water), moisture diffusion,
-3×3 nutrient return, temperature/moisture-coupled decay, slow erosion.
-*Acceptance:* biome maps render correctly in both renderers; fertility
-"river corridors" measurably form; legacy generator still selectable.
+**W2 — Living terrain (elevation becomes first-class).**
+Heightmap generator (smoothed noise): mountains = high rock, water settles
+and **flows downhill into actual rivers**, biomes derived from
+elevation × moisture (forest/plains/wetland/desert); slope movement cost;
+moisture diffusion, 3×3 nutrient return, temperature/moisture-coupled
+decay, slow erosion. This delivers rivers/mountains/real biomes *within*
+the lab world (a heightmap is exactly how game terrain works) and the
+elevation field is the bridge asset for the 3D track (§13) — the GPU
+isometric renderer is already built to display it.
+*Acceptance:* rivers connect high→low and create fertility corridors;
+slopes measurably shape movement; legacy flat generator still selectable.
 
 **W3 — Ecology & hazards (mostly data).**
 2–3 plant/food species (YAML), toxicity wired into EAT, invasive species,
@@ -428,7 +452,45 @@ question reversible; and the robotics track never needed this world ported
 — its 3D environments come from existing engines with Python APIs. Python
 remains the contract; compiled code remains an implementation detail.
 
-## 12. Updated decision summary
+## 12. The stated destination: a 3D game-like world
+
+The owner's aim is explicit: move beyond the 2D tile grid toward a 3D
+game-like world. The honest engineering translation of that aim:
+
+**What's true:** spatially coherent rivers, mountains, and biomes are not
+expressible in the *current flat* tile world — terrain is a uniform random
+shuffle with no elevation, and that is a real ceiling.
+
+**What's also true:** the cheapest 80% of "3D game-like" is a
+**heightmap (2.5D)**, not a polygon engine — this is how most game terrain
+actually works. W2 makes elevation a first-class simulated field: water
+flows downhill into rivers, mountains block and cost energy, biomes fall
+out of elevation × moisture, and the existing ModernGL isometric renderer
+displays it. That step needs no engine, no new language, no genome break.
+
+**The staged road:**
+
+| Stage | World | Perception / actions | Status |
+|---|---|---|---|
+| A (now → W2) | Heightmap 2.5D lab world | current tile tokens + elevation channel; discrete actions | this proposal |
+| B | **Engine-backed 3D world** behind the §10 Environment interface — Godot (headless, open-source, good Python bridges) for the entertainment world; MuJoCo/Isaac for the robotics flavour | depth/raycast or low-res camera → v3's tile-token attention generalises to sensor patches (it was designed for this); locomotion → **continuous Gaussian action head** (the scheduled brain-side change) | after W4, as the tracks demand |
+| C | Persistent multiplayer 3D world (entertainment Part 9) | Stage B + the event stream/networking | far |
+
+**What transfers unchanged across stages** — and why the lab world is not
+throwaway work: the brains (they consume ObservationSpec/action descriptors,
+not tiles), both learners, curiosity/planner, the dream-evolution stack
+(observation-space, world-agnostic), the registry as the content format,
+and every analyzer. **What gets replaced per stage:** the perception
+front-end and the action set — exactly the two seams ObservationSpec and
+the Environment interface were built to isolate.
+
+**Role split after Stage B:** the grid/heightmap world remains the *fast
+lab* (thousands of ticks/second of evolution, interpretable, cheap dream
+training); the 3D world is the *product* (spectators, robotics transfer).
+Same genomes, same science, two worlds behind one interface — evolve in
+the lab, ground in 3D, exactly the dream-evolution pattern already proven.
+
+## 13. Updated decision summary
 
 1. **W0 first**: harden the registry and fix the custom-object experience —
    cheapest phase, removes the worst user-facing pain, and W3's
@@ -441,3 +503,10 @@ remains the contract; compiled code remains an implementation detail.
    and keeps the language decision reversible.
 4. **Stay on Python** until the measured ladder says otherwise; the next
    two rungs are algorithmic and cost no rewrite.
+5. **Fix the dead dynamics first-class** (§1 bugs): W1 exists precisely to
+   make moisture a real constraint again — until then, one of the four
+   observation channels agents are evolving against is a constant.
+6. **Aim every terrain decision at the 3D destination** (§12): elevation
+   as a first-class field now (heightmap rivers/mountains/biomes), an
+   engine-backed 3D world behind the Environment interface next — the
+   lab world stays as the fast-evolution substrate, not a dead end.
