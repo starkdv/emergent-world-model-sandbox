@@ -186,8 +186,10 @@ tiles matter each tick), memory grows to GRU(48), and the value estimate
 reads the current state directly instead of only memory. ~2.4× the compute
 per tick (still microseconds). Under pure neuroevolution, early
 populations are measurably weaker (more parameters to search) — that
-capacity-vs-evolvability trade-off is itself an experiment. Sizes are
-tunable under `brain.v3`.
+capacity-vs-evolvability trade-off is itself an experiment. Three size
+recipes (`v3-small` 9,617 / `v3-base` 17,337 / `v3-large` 29,537 params)
+are set via the `brain.v3` keys — see
+[v3 size presets](#v3-size-presets--small--base--large).
 
 ### 3. Fading instincts
 
@@ -382,6 +384,37 @@ brain:
     gru_hidden_size: 48
     value_hidden: 16
 ```
+
+#### v3 size presets — small / base / large
+
+There are no named presets in the config; the three sizes from
+[BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md) §3.2 are **recipes for the
+`brain.v3` keys**. Exact parameter counts (from `ParamSpec`, verified by
+tests; add the dynamics head from `brain.world_model` on top: +~2–4k):
+
+| Preset | embed_dim (E) | state_dim (S) | gru_hidden_size (H) | Params | Use case |
+|---|---|---|---|---|---|
+| `v3-small` | 8 | 32 | 32 | **9,617** | evolvability parity with v2 (8,873) — isolates the *architecture* effect from the *capacity* effect |
+| `v3-base` (default) | 8 | 40 | 48 | **17,337** | the standard v3 |
+| `v3-large` | 12 | 52 | 64 | **29,537** | capacity study — how far can mutation/PPO push a bigger brain? |
+
+```yaml
+# v3-small — drop-in:
+brain:
+  version: 3
+  v3: { embed_dim: 8, state_dim: 32, gru_hidden_size: 32, value_hidden: 16 }
+
+# v3-large — drop-in:
+brain:
+  version: 3
+  v3: { embed_dim: 12, state_dim: 52, gru_hidden_size: 64, value_hidden: 16 }
+```
+
+Notes: the GRU input is always `z = state_dim + embed_dim`; each preset is
+a **different genome length**, so saved weights/populations don't transfer
+between presets (start fresh, or use dream evolution with a matching
+`--config`). For pure neuroevolution, prefer `v3-small` — search degrades
+as the genome grows.
 
 ### Lifetime Learning: A2C vs PPO
 
