@@ -159,6 +159,8 @@ can be run as a controlled experiment. Quick map:
 | 10 | Terrain generator | `terrain.generator: legacy\|heightmap` | `legacy` | — |
 | 11 | Wildfire | `fire.enabled` | off | — (hotter/drier = more fire) |
 | 12 | Ecology species pack | `--objects config/ecology.yaml` | — | — |
+| 13 | Agents visible in vision | `world.agents_visible` | off | — |
+| 14 | Tile exclusivity | `world.agent_collision` | off | — |
 
 All YAML keys live in `config/default.yaml` (heavily commented). CLI flags
 override config.
@@ -381,6 +383,29 @@ crossable-but-costly terrain hazard. Validate/preview any pack first:
 python scripts/objects.py validate config/ecology.yaml
 python scripts/objects.py preview  config/ecology.yaml   # shows net energy + ⚠ POISON
 ```
+
+### 13. Agents visible in vision — `world.agents_visible`
+
+**Enable:** `world.agents_visible: true`.
+**What happens:** another living agent occupying a vision tile reads as the
+encoding `0.40` with that agent's energy ratio in the value slot, overriding
+the terrain/object underneath (an agent never sees itself). This is the
+unblock for every social research direction — until now agents were
+invisible to each other. It changes vision *content*, not the observation
+size, so existing genomes run unchanged; they simply start perceiving a new
+value where agents stand.
+
+### 14. Tile exclusivity — `world.agent_collision`
+
+**Enable:** `world.agent_collision: true`.
+**What happens:** a tile occupied by a living agent blocks `MOVE_FORWARD`, so
+physical space becomes a contested resource (territory, crowding, blocking).
+Off by default, agents may overlap exactly as before.
+
+> **W4 status:** these two toggles plus the genome-migration tool
+> (`migrate_genome`) are shipped; the batched **Observation v2 + SIGNAL**
+> genome break is staged next. See the CHANGELOG and
+> [docs/WORLD_UPGRADE_PROPOSAL.md](docs/WORLD_UPGRADE_PROPOSAL.md).
 
 ### Supporting flags & settings
 
@@ -677,6 +702,8 @@ drive a day/night/seasonal/weather climate. Every parameter below lives in
 | `world.initial_resources` | 50 | Objects scattered at world start |
 | `world.resource_spawn_rate` | 0.01 | Safety-net berry spawn probability when food is depleted |
 | `world.allow_stacking` | false | If false, one object per tile (overflow placed nearby) |
+| `world.agents_visible` | false | (W4) Other living agents appear in vision as encoding 0.40 with their energy ratio (the P3 unblock) |
+| `world.agent_collision` | false | (W4) A living agent blocks a tile, so space becomes contested |
 | `world.seed` | null | RNG seed (null = random each run) |
 | `terrain.soil_ratio` | 0.695 | Fraction of plantable soil tiles |
 | `terrain.rock_ratio` | 0.20 | Impassable rock (blocks movement) |

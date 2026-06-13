@@ -4,7 +4,8 @@
 CHANGELOG); W2 partially implemented (heightmap/rivers/biomes/slope shipped;
 moisture diffusion + erosion deferred); W3 partially implemented (toxicity,
 species pack, thorns, wildfire shipped; invasive-species + flood deferred);
-W4–W6 remain proposals
+W4 partially implemented (agents-in-vision, tile collision, genome-migration
+tool shipped; Observation-v2 + SIGNAL break staged); W5–W6 remain proposals
 **Branch:** `claude/world-upgrade`
 **Scope:** `world/` (tiles, systems, world, object registry), `utils/agents/`
 (perception, reward shaping, action execution), `config/default.yaml`
@@ -300,13 +301,28 @@ and self-extinguishes at water/moisture boundaries.
 > **Deferred:** a dedicated invasive-species mechanic (the fast shrub fills
 > that niche through reproduction) and the flood event.
 
-**W4 — Agents in the world + Observation v2 (the one genome break).**
+**W4 — Agents in the world + Observation v2 (the one genome break).
+🟡 PARTIALLY DONE (June 2026 — see CHANGELOG "Phase W4 part 1/2").**
 Agents visible in vision; optional tile exclusivity; pheromone field +
 SIGNAL action; Observation v2 block + `output_size` 9 with zero-init
 spec migration (old populations load and behave identically).
 *Acceptance:* migration test proves bit-identical pre/post behavior for
 old genomes; signal entropy and agent-proximity response measurable in
 new analyzer sections.
+
+> **Shipped (W4 part 1/2):** the genome-migration tool `migrate_genome`
+> (generic top-left copy; bit-identical original-action logits + value,
+> tested for v2 and v3), **agents visible in vision** (`world.agents_visible`,
+> the P3 unblock), and **tile exclusivity** (`world.agent_collision`). The
+> migration bit-identity acceptance criterion is met for the append-only
+> growth mechanism.
+>
+> **Staged (W4 part 2/2):** the single batched **Observation v2** block +
+> **SIGNAL** action / pheromone field (`output_size` 8→9). Deferred from
+> part 1 because the action-count change ripples through the action mask,
+> instincts, PPO replay, the dream model, and the world-model logger's
+> one-hot — it deserves its own validated increment, now that the migration
+> tool it depends on is in place.
 
 **W5 — Social dynamics & open-endedness instruments.**
 Kin-similarity observation feature, inventory transfer (trade via USE on

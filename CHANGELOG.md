@@ -1,8 +1,46 @@
 # Changelog
 
-## [Unreleased] — World upgrade, Phases W0–W3
+## [Unreleased] — World upgrade, Phases W0–W4
 
 Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
+
+### Phase W4 (part 1/2) — Agents in each other's world + genome-migration tool
+
+**In simple terms:** agents have been blind to each other and unable to
+contest space — every social research direction was blocked behind that
+(proposal P3). This first W4 increment lets agents *see* each other and
+optionally *block* each other, and ships the genome-migration utility the
+upcoming Observation-v2/SIGNAL break will use. Everything is opt-in; the
+default world is unchanged.
+
+- **`migrate_genome(old_flat, old_spec, new_spec)`** (`agents/brain/spec.py`):
+  a generic top-left-corner copy across any **append-only** spec change.
+  Because new observation features become extra rows at the end of the first
+  weight matrix and a new action becomes an extra policy column, the old
+  genome always sits in the new tensor's top-left corner; new rows/columns
+  stay zero. Result: a migrated brain's logits for the original actions and
+  its value are **bit-identical** to the old brain's (the W4 migration
+  guarantee), verified for both v2 and v3 layouts.
+- **Agents visible in vision** (`world.agents_visible`, default off): a tile
+  holding another living agent reads as `(0.40, energy-ratio)` in the vision
+  grid, overriding the terrain/object underneath. Self is excluded. This is
+  the P3 unblock — agents can finally perceive each other.
+- **Tile exclusivity** (`world.agent_collision`, default off): a living
+  agent blocks a tile, so space itself becomes a contested resource.
+- **Config**: `world.agents_visible` / `world.agent_collision` (wired via
+  `main.py`).
+- **Tests**: 10 new in `tests/test_agents_in_world.py` (migration top-left
+  copy for v2 obs/action growth and v3, behavioural bit-identity,
+  agents-in-vision enabled/disabled/self-excluded, collision). Full suite:
+  420 passing.
+
+**Staged next (W4 part 2/2):** the single batched genome break —
+Observation-v2 feature block (`time_of_day` sin/cos, tile temperature,
+nearest-agent proximity/signal, on-hazard) + the **SIGNAL** action and
+pheromone field (`output_size` 8→9). Deferred deliberately: the action-count
+change ripples through the action mask, instincts, PPO replay, the dream
+model, and the world-model logger's one-hot, and warrants its own carefully
+validated increment on top of the migration tool landed here.
 
 ### Phase W3 — Ecology & hazards: toxicity, species, thorns, wildfire
 
