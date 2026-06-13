@@ -34,13 +34,16 @@ default world is unchanged.
   agents-in-vision enabled/disabled/self-excluded, collision). Full suite:
   420 passing.
 
-**Staged next (W4 part 2/2):** the single batched genome break —
-Observation-v2 feature block (`time_of_day` sin/cos, tile temperature,
-nearest-agent proximity/signal, on-hazard) + the **SIGNAL** action and
-pheromone field (`output_size` 8→9). Deferred deliberately: the action-count
-change ripples through the action mask, instincts, PPO replay, the dream
-model, and the world-model logger's one-hot, and warrants its own carefully
-validated increment on top of the migration tool landed here.
+**Staged next (W4 part 2/2) — now scoped as Brain v3.5.** The single batched
+genome break — Observation-v2 feature block (`time_of_day` sin/cos, tile
+temperature, nearest-agent proximity/signal, on-hazard) + the **SIGNAL**
+action and pheromone field (`output_size` 8→9) — is a minor bump of the v3
+attention brain with widened I/O. Designed in full (architecture diagram,
+genome/param deltas, migration, implementation checklist) in
+`docs/BRAIN_V3_PROPOSAL.md` §8. Deferred deliberately: the action-count change
+ripples through the action mask, instincts, PPO replay, the dream model, and
+the world-model logger's one-hot, and warrants its own carefully validated
+increment on top of the migration tool landed here.
 
 ### Phase W3 — Ecology & hazards: toxicity, species, thorns, wildfire
 

@@ -499,6 +499,26 @@ brain:
     value_hidden: 16
 ```
 
+**v3.5 — the social brain (in design; World phase W4):** a *minor* bump of v3
+that widens its I/O so agents can live in each other's world — **six new
+observation inputs** (time-of-day sin/cos, tile temperature, nearest-agent
+proximity & signal, on-hazard → state encoder 22→**28**) and **one new
+action**, **SIGNAL**, with a decaying pheromone field (policy head 8→**9**).
+The attention/GRU/value core is unchanged; only the input and output layers
+grow (≈+289 params, <2%). An existing v3 genome migrates into v3.5 with
+**bit-identical** behaviour on the original actions (new weights zero-init).
+Part 1 of W4 is shipped (the genome-migration tool, agents-in-vision, tile
+collision — modes #13/#14); the Observation-v2 + SIGNAL break itself is
+designed in **[BRAIN_V3_PROPOSAL.md §8](docs/BRAIN_V3_PROPOSAL.md)** and not
+yet implemented.
+
+```
+v3 inputs/outputs ───────────────►  v3.5 inputs/outputs
+state encoder 22 → 40                state encoder 28 → 40   (+6 EXTRA senses)
+policy head   48 → 8                 policy head   48 → 9    (+SIGNAL action)
+                                     + PheromoneField (decaying signal grid)
+```
+
 #### v3 size presets — small / base / large
 
 There are no named presets in the config; the three sizes from

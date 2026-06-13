@@ -1,13 +1,30 @@
-# Brain v3 — Architecture Proposal
+# Brain v3 → v3.5 — Architecture Proposal
 
-**Status:** ALL phases implemented, including dream-based evolution
-(see §5 and ../CHANGELOG.md). Math-level architecture/learner comparison:
-BRAIN_V2_V3_COMPARISON.md
+**Status:**
+- **v3 — ALL phases implemented**, including dream-based evolution
+  (see §5 and ../CHANGELOG.md). Math-level architecture/learner comparison:
+  BRAIN_V2_V3_COMPARISON.md
+- **v3.5 — IN PROGRESS** (the World-upgrade **W4** social/observation break).
+  Part 1 shipped (genome-migration tool, agents-in-vision, tile collision —
+  see ../CHANGELOG.md "Phase W4 part 1/2"); **Part 2 — the Observation-v2
+  input block + SIGNAL action — is designed in §8 below and not yet built.**
+
 **Scope:** `agents/brain.py`, `utils/agents/brain_utils.py`, `agents/learning.py`,
 `utils/agents/perception.py`, plus new modules under `agents/brain/`
 **Inputs reviewed:** current codebase, `PROJECT_OVERVIEW_TECHNICAL.md`,
 `WORLD_MODEL_IMPLEMENTATION_GUIDE.md`, `SUGGESTIONS.md` §2, `guideline.md` §8,
-`ECOSYSTEM.md`, `todo.md`
+`ECOSYSTEM.md`, `WORLD_UPGRADE_PROPOSAL.md` (W4), `todo.md`
+
+> **What is v3.5?** A *minor* version bump of the v3 attention brain: the
+> architecture shape is unchanged (tokenised-vision attention, GRU memory,
+> `[z, h]` value MLP, optional latent dynamics head), but its **I/O grows so
+> agents can live in each other's world** — six new observation inputs
+> (time-of-day, tile temperature, nearest-agent proximity & signal, on-hazard)
+> and one new action output (**SIGNAL**, with a decaying pheromone field). It
+> is the brain that completes World-upgrade phase W4. Because the v3 genome
+> layout is append-only, an existing v3 genome migrates into v3.5 with
+> **bit-identical behaviour** on the original actions (see §8.4). Full design,
+> diagram, and the remaining implementation checklist are in **§8**.
 
 ---
 
@@ -344,3 +361,181 @@ the learned model with periodic grounding in the real environment.
    updates, sequence replay) — makes the Lamarckian experiment real.
 5. **Build the world model as a latent head sharing the encoder**, with the guide's
    observation-space model reserved for the population-level/offline role.
+
+---
+
+## 8. Brain v3.5 — the social / Observation-v2 upgrade (World phase W4)
+
+### 8.1 Why a v3.5 (and why now)
+
+Phases W1–W3 of the world upgrade gave the world a *climate*, *terrain*, and
+an *ecology*. The one structural gap left (proposal `WORLD_UPGRADE_PROPOSAL.md`
+P3) is that **agents cannot perceive or affect each other** — the simulation
+is effectively N independent single-agent worlds sharing a food budget. Every
+social research direction (kin selection, territory, communication,
+cooperation) is blocked behind this.
+
+Closing that gap needs the brain's **I/O to grow**: new senses (other agents,
+time of day, local hazard) and a new act (emit a signal). That is exactly the
+"single batched genome break" W4 was reserved for. Rather than mint a whole
+new architecture, **v3.5 keeps every v3 component and only widens the input
+and output layers** — the smallest change that unlocks the social layer while
+preserving v3's learned/evolved weights via migration (§8.4).
+
+v3 stays the controlled baseline (obs-v1, 8 actions); v3.5 is the brain you
+select when running the W4 social world.
+
+| Brain | Perception | Inputs | Actions | Role |
+|---|---|---|---|---|
+| v2 | dense vision MLP | 72 | 8 | legacy control |
+| v3 | tokenised-vision attention | 72 | 8 | attention baseline |
+| **v3.5** | **same attention + agent-aware vision** | **78** | **9 (+SIGNAL)** | **the social world (W4)** |
+
+### 8.2 Architecture diagram (v3.5)
+
+```
+        Observation v2 (78 = 72 v1 prefix ⧺ 6 new)  ── ObservationSpec(version=2)
+        │
+        ├─ vision 5×5×2 (50)  ── now AGENT-AWARE: a tile with another living
+        │        │               agent encodes (0.40, its energy)  [shipped W4·1]
+        │        ▼
+        │   per-tile embed (4→E, shared)  → 25 tile tokens (+ fixed pos-enc)
+        │        │
+        │        ├──────────────── keys / values ──────────┐
+        │                                                   │
+        ├─ STATE block (28)  = agent_state(8) ⧺ stimulus(8) ⧺ inventory(6)
+        │        │                              ⧺ EXTRA(6)  ◄── NEW v3.5 inputs
+        │        │      EXTRA = [ time_of_day_sin, time_of_day_cos,
+        │        │                tile_temperature, nearest_agent_proximity,
+        │        │                nearest_agent_signal, on_hazard ]
+        │        ▼
+        │   state encoder (28→S)  ── s ──► attention query ──► softmax pool ─► e (E)
+        │        │                                                            │
+        └────────┴──────────────── concat → latent  z = [s ‖ e]  (Z = S+E) ──┘
+                                            │
+                              Memory core:  GRU (H)
+                                            │ h
+            ┌──────────────────┬────────────┼─────────────────┬───────────────┐
+            ▼                  ▼             ▼                 ▼               ▼
+       Policy head        Value head    Dynamics head      (future)        SIGNAL
+       h → 9 logits       [z,h]→V       (h, onehot a9)     Gaussian        is action #8
+       (8 + SIGNAL),      MLP→1         → ẑ_{t+1}, r̂       action head     in the policy
+       masked                           latent WM                          head ↑
+
+   SIGNAL execution → writes a float onto the agent's tile → PheromoneField
+   decays each tick → re-sensed next tick as EXTRA[nearest_agent_signal].
+   Signals carry NO built-in meaning (emergence-first); any protocol must evolve.
+```
+
+Everything inside the dashed interior (tile embedding, attention, GRU, value
+MLP, dynamics head) is **byte-for-byte the v3 design**. v3.5 only:
+- widens the **state encoder input** 22 → 28 (the EXTRA block), and
+- widens the **policy head output** 8 → 9 (the SIGNAL column).
+
+### 8.3 The six new observation features (EXTRA block, indices 72–77)
+
+Appended *after* the v1 layout so the 0–71 prefix is unchanged. All in [0, 1].
+
+| Idx | Field | Meaning / source |
+|----|-------|------------------|
+| 72 | `time_of_day_sin` | `sin(2π · environment.time_of_day)` — phase of the day cycle (W1) |
+| 73 | `time_of_day_cos` | `cos(2π · environment.time_of_day)` — together a smooth clock |
+| 74 | `tile_temperature` | `environment.temperature` (W1); the agent feels the climate |
+| 75 | `nearest_agent_proximity` | `1 − dist/​R` to the nearest *other* agent in vision range (0 = none) |
+| 76 | `nearest_agent_signal` | strongest pheromone/SIGNAL value sensed on/around the tile |
+| 77 | `on_hazard` | `1.0` if the agent's tile carries `contact_damage` (W3 thorns) |
+
+Rationale: these are precisely the channels W1–W4 created but that the brain
+had no input wires for — climate (so day/night and seasons become learnable
+rather than just lethal), other agents (the P3 unblock, the spatial half of
+which already shows up in vision), the communication channel, and a direct
+danger sense. The vision grid already gained agent-awareness in W4 part 1;
+`nearest_agent_proximity` adds a compact scalar the attention query can use
+without spatial decoding.
+
+### 8.4 Genome layout & migration (already-built mechanism)
+
+v3.5 reuses `build_brain_v3_param_spec` with `state_inputs=28, output_size=9`.
+Only three tensors change shape, and each *grows by appending* — the old one
+sits in the new one's top-left corner:
+
+| Tensor | v3 shape | v3.5 shape | Δ params (base S=40,H=48) |
+|--------|----------|-----------|---------------------------|
+| `state_enc.W` | (22, S) | (28, S) | +6·S = **+240** |
+| `policy.W` | (H, 8) | (H, 9) | +H = **+48** |
+| `policy.b` | (8,) | (9,) | **+1** |
+| `dyn.W1` (if WM on) | (Z+8, hid) | (Z+9, hid) | +hid |
+
+So **v3.5-base ≈ 17,626 params** (v3-base 17,337 + 289; +hid more with the
+world model). v3.5-small / v3.5-large scale identically. The cost of the whole
+social upgrade is <2% more weights.
+
+Migration is the **already-shipped** `migrate_genome(old_flat, old_spec,
+new_spec)` (W4 part 1, `agents/brain/spec.py`): a generic top-left copy. New
+`state_enc.W` rows (the EXTRA features) and the new `policy.W`/`b` SIGNAL column
+are zero, which means a migrated v3 genome produces **bit-identical logits for
+actions 0–7 and a bit-identical value** — the EXTRA inputs and SIGNAL do
+nothing until mutation/learning fills those weights in. This is the W4
+"old populations load and behave identically" acceptance criterion, and its
+unit test for the migration mechanism is already green.
+
+### 8.5 SIGNAL action & the pheromone field
+
+- **Action 8 = SIGNAL.** Executing it writes a fixed (or graded) float onto
+  the agent's current tile in a new `PheromoneField` (a `float` grid).
+- The field **decays geometrically each tick** (`signal_decay`, e.g. ×0.9) and
+  optionally diffuses to neighbours — a stigmergic medium, like ant trails.
+- Agents sense it through `EXTRA[nearest_agent_signal]`. Signals have **no
+  built-in semantics**: whether they come to mean "food here", "danger", or
+  "kin" must *emerge* (guideline §8). DROP-able zero-cost marker objects (W0
+  registry) give a complementary, persistent channel for free.
+- SIGNAL is gated by `signal.enabled` (default off). When off it is always
+  masked, so a migrated genome's sampled behaviour is **exactly** v3's
+  (softmax over the original 8). When on, the zero-init policy column starts
+  neutral and can be learned/evolved.
+
+### 8.6 What's left to implement (v3.5 / W4 part 2)
+
+Part 1 (✅ shipped): `migrate_genome`, agents-in-vision (`world.agents_visible`),
+tile collision (`world.agent_collision`). Remaining, in dependency order:
+
+1. **ObservationSpec v2** — `build_observation_spec(vision_radius, version=2)`
+   adds the `extra` slice (72:78) + named field indices; a module-level
+   *active observation version* (config-driven) that perception and brain both
+   read, so they always agree. `get_observation_size()` returns 78 under v2.
+2. **Perception** — `build_observation` appends the EXTRA block (computing the
+   six features from `world.environment`, neighbour scan, pheromone field,
+   tile `contact_damage`) when the active version is 2. v1 path untouched.
+3. **Action space** — add `Action.SIGNAL = 8`; make `get_action_mask` size by
+   the brain's `output_size` (not `len(Action)`) and mask SIGNAL unless
+   `signal.enabled`. Audit the mask-shape consumers: brain masked-softmax,
+   `InstinctModule` (no SIGNAL bias), PPO replay (stored mask width), the
+   dream model (`n_actions`), the planner, and the world-model logger's
+   action one-hot.
+4. **BrainV3 in v3.5 mode** — derive `state_inputs` (28) from the active spec,
+   include the `extra` slice in the state-path concat, set `output_size=9`;
+   `create_brain` selects v3.5 via `brain.version: 3.5` (or
+   `observation.version: 2`).
+5. **PheromoneField + SIGNAL execution** — a per-world float grid with
+   decay/diffusion each tick; `execute_signal` writes to it; perception reads
+   it. Config: `signal.enabled`, `signal.strength`, `signal.decay`.
+6. **Migration on load** — when `--load-weights` (or evolution) supplies a
+   genome whose length matches the v3 spec but the config is v3.5, call
+   `migrate_genome` automatically (the function exists; this wires it in).
+7. **Analyzer** — `scripts/analyze_logs.py`: SIGNAL-usage rate & signal
+   entropy, and an agent-proximity-response section (action distribution vs
+   `nearest_agent_proximity`) — the W4 measurement acceptance criterion.
+8. **Config + docs + tests** — `brain.version: 3.5`, `signal.*`,
+   `observation.version`; size presets refreshed (v3.5-small/base/large);
+   migration bit-identity test (v3→v3.5), feature-presence tests, SIGNAL
+   masking/pheromone-decay tests; update `BRAIN_V2_V3_COMPARISON.md` with the
+   I/O delta and refresh README's Neural Architecture section.
+
+### 8.7 Risks specific to v3.5
+
+| Risk | Mitigation |
+|---|---|
+| Action-count change silently corrupts a learning path (mask/onehot width) | Single source of truth = `brain.output_size`; add shape asserts at the mask/replay/logger boundaries; SIGNAL gated off by default so every existing path keeps running at 8 until explicitly enabled |
+| New EXTRA inputs destabilise evolved foragers | Migration zero-inits their rows → bit-identical start; they only matter once selection finds them useful; `observation.version` is an ablation switch |
+| Pheromone field cost at thousands of agents | One `float` grid, vectorised decay; sensing is an O(1) tile read (or a tiny local max); diffusion optional |
+| "Two genome breaks" if obs-v2 and SIGNAL ship separately | They are deliberately bundled into v3.5 as a *single* break, exactly as W4 intended |

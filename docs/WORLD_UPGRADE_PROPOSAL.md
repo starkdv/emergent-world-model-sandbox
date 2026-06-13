@@ -317,12 +317,15 @@ new analyzer sections.
 > migration bit-identity acceptance criterion is met for the append-only
 > growth mechanism.
 >
-> **Staged (W4 part 2/2):** the single batched **Observation v2** block +
-> **SIGNAL** action / pheromone field (`output_size` 8→9). Deferred from
-> part 1 because the action-count change ripples through the action mask,
-> instincts, PPO replay, the dream model, and the world-model logger's
-> one-hot — it deserves its own validated increment, now that the migration
-> tool it depends on is in place.
+> **Staged (W4 part 2/2) — now formalised as Brain v3.5.** The single batched
+> **Observation v2** block + **SIGNAL** action / pheromone field
+> (`output_size` 8→9) is a minor brain version bump: same v3 attention
+> architecture, widened I/O. Full design, architecture diagram, genome/param
+> deltas, migration story, and the remaining implementation checklist live in
+> **`BRAIN_V3_PROPOSAL.md` §8 (Brain v3.5)**. Deferred from part 1 because the
+> action-count change ripples through the action mask, instincts, PPO replay,
+> the dream model, and the world-model logger's one-hot — it deserves its own
+> validated increment, now that the migration tool it depends on is in place.
 
 **W5 — Social dynamics & open-endedness instruments.**
 Kin-similarity observation feature, inventory transfer (trade via USE on
