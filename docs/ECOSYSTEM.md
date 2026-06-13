@@ -13,6 +13,16 @@
 > [BRAIN_V3_PROPOSAL.md](BRAIN_V3_PROPOSAL.md) (phase status): brain v2/v3
 > versions, fading instincts, PPO full-network learning, and the learned
 > world model (curiosity + latent planning).
+>
+> **World upgrade (June 2026):** the world is now being upgraded in phases
+> (see [WORLD_UPGRADE_PROPOSAL.md](WORLD_UPGRADE_PROPOSAL.md)). **W0**
+> hardened the object registry / custom-object authoring, and **W1** added
+> an opt-in **environment engine** (day/night, seasons, weather) plus three
+> verified dynamics-bug fixes (B1 moisture, B2 sand germination, B5 plant
+> carrying capacity). Where this document's physics differs from the
+> upgraded behaviour it is annotated inline, and the
+> [World Upgrade (W0–W1)](#world-upgrade-w0w1--june-2026) section at the end
+> is the authoritative summary.
 
 ---
 
@@ -29,7 +39,8 @@
 9. [Configuration Reference](#configuration-reference)
 10. [Testing & Validation](#testing--validation)
 11. [Reinforcement Learning System](#reinforcement-learning-system)
-12. [Recent Updates](#recent-updates---november-17-2025)
+12. [World Upgrade (W0–W1)](#world-upgrade-w0w1--june-2026)
+13. [Recent Updates](#recent-updates---november-17-2025)
 
 ---
 
@@ -84,9 +95,14 @@ class Tile:
 
 | Type | Ratio | Plantable | Properties |
 |------|-------|-----------|------------|
-| **Soil** | 70% | ✅ Yes | Variable fertility (0.3-1.0), moisture (0.2-0.8) |
+| **Soil** | 65% | ✅ Yes | Variable fertility (0.3-1.0), moisture (0.2-0.8) |
 | **Rock** | 20% | ❌ No | Impassable, zero fertility, zero moisture |
-| **Water** | 10% | ❌ No | Zero fertility, maximum moisture (1.0) |
+| **Water** | 10% | ❌ No | Zero fertility, maximum moisture (1.0); with the environment engine, adjacent soil recovers moisture (see W1) |
+| **Sand** | 5% | ⚠️ Barely | Passable; a spreading terrain hazard that clamps fertility/moisture and slows growth/germination 10× (see W0/B2) |
+
+> The default terrain mix is now soil 0.65 / rock 0.20 / water 0.10 /
+> sand 0.05 (`terrain.*_ratio` in config). Sand is a built-in
+> `TileEffectSpec` object, not a bare terrain enum.
 
 ### Entity-Component System (ECS)
 
@@ -148,8 +164,13 @@ max_age: int             # Maximum age before rot (200)
 2. `time_in_soil >= grow_time` (50 ticks)
 3. `soil.fertility >= 0.3`
 4. `soil.moisture >= 0.2`
-5. Pass 75% probability check
-6. `time_in_soil < max_age` (not rotted)
+5. Not blocked by an object with `blocks_growth=True`
+6. **Neighbourhood not saturated**: fewer than `max_neighbor_plants` (default 3)
+   plants within `neighbor_radius` (default 2 → a 5×5 window). This is the
+   carrying-capacity check added by the **B5** fix; without it the plant
+   population grew unbounded (see W1).
+7. Pass 75% probability check (× temperature window when the environment engine is on)
+8. `time_in_soil < max_age` (not rotted)
 
 **Lifecycle:**
 - **Fresh Seed** (0-49 ticks): Aging, waiting for conditions
@@ -555,14 +576,24 @@ tile.moisture -= 0.0002
 tile.moisture += 0.0008
 ```
 
-#### Balance Analysis
+#### Balance Analysis (legacy, environment **disabled**)
 
 | Scenario | Consumption | Evaporation | Recovery | Net Change |
 |----------|-------------|-------------|----------|------------|
-| Empty soil | 0 | -0.0002 | +0.0008 | +0.0006 ✅ |
-| With plant | -0.0005 | -0.0002 | +0.0008 | +0.0001 ✅ |
+| Empty soil | 0 | -0.0002 | +0.0008 | +0.0006 ⚠️ |
+| With plant | -0.0005 | -0.0002 | +0.0008 | +0.0001 ⚠️ |
 
-**Result:** Net positive moisture in all scenarios - sustainable forever!
+> ⚠️ **This was bug B1, not a feature.** "Net positive moisture in all
+> scenarios" means moisture only ever *climbs* — it saturates at 1.0 within
+> ~1.5k ticks, so the moisture dimension carries no information and every
+> germination check passes. This legacy arithmetic is preserved bit-for-bit
+> only when `environment.enabled: false`.
+>
+> **With the environment engine on (W1)** moisture becomes a real,
+> time-varying constraint: evaporation scales with temperature and light
+> (and doubles during droughts), and recovery arrives **only** during rain
+> events or on tiles adjacent to water. See the
+> [World Upgrade](#world-upgrade-w0w1--june-2026) section.
 
 ### Probabilistic Germination
 
@@ -604,18 +635,29 @@ if seed.time_in_soil >= seed.max_age:  # 200 ticks
 
 ## System Dynamics
 
-The simulation runs 6 independent systems each tick in a specific order:
+The simulation runs the world systems each tick in a specific order. With
+the **environment engine** (W1) the `EnvironmentSystem` runs *first*, before
+any other system, so the multipliers it publishes (light, temperature,
+weather) are seen by everything downstream that tick.
 
 ### System Execution Order
 
 ```
-1. PlantGrowthSystem      → Ages plants, handles death
-2. SeedGerminationSystem  → Converts seeds to plants
-3. DecaySystem            → Degrades berries, spawns seeds
+0. EnvironmentSystem      → (W1, opt-in) advances clock + weather, publishes
+                            light/temperature/rain multipliers (no-op when
+                            environment.enabled is false)
+1. PlantGrowthSystem      → Ages plants (× growth multiplier), handles death
+2. SeedGerminationSystem  → Converts seeds to plants (× germination multiplier,
+                            carrying-capacity check)
+3. DecaySystem            → Degrades berries (× decay multiplier), spawns seeds
 4. FertilizerSystem       → Boosts nearby soil
-5. SoilDynamicsSystem     → Updates fertility/moisture
-6. ResourceSpawnSystem    → Produces berries from mature plants
+5. SoilDynamicsSystem     → Updates fertility/moisture (evaporation/recovery
+                            model depends on environment.enabled)
+6. ResourceSpawnSystem    → Produces berries from mature plants (× light)
 ```
+
+> Agent metabolism is also scaled by the environment temperature multiplier
+> (in both the serial and parallel agent paths) — extremes cost more energy.
 
 ### 1. PlantGrowthSystem
 
@@ -655,10 +697,14 @@ for each seed:
     if time_in_soil >= grow_time (50):
         if soil.fertility >= 0.3:
             if soil.moisture >= 0.2:
-                if random() < 0.75:  # Success check
-                    convert_to_plant()
-                else:
-                    remove_seed()  # Failed
+                if not blocks_growth(tile):
+                    # B5 carrying capacity: competition for space/light
+                    if plants_in_radius(x, y, neighbor_radius) < max_neighbor_plants:
+                        if random() < 0.75 * temp_window:  # success check
+                            convert_to_plant()
+                        else:
+                            remove_seed()  # Failed
+                    # else: seed waits (and eventually rots) — no new plant
 ```
 
 **Impact:**
@@ -666,6 +712,8 @@ for each seed:
 - Natural selection via probability
 - Soil requirements create spatial patterns
 - Seed rot prevents accumulation
+- **Carrying capacity (B5):** local crowding caps plant density, so the
+  population plateaus instead of tiling the world
 
 ### 3. DecaySystem
 
@@ -726,10 +774,14 @@ for each plant at (x, y):
 
 # Second pass: all soil tiles
 for each plantable tile:
-    # Moisture dynamics
-    tile.moisture -= 0.0002  # Evaporation
-    tile.moisture += 0.0008  # Recovery (rain)
-    
+    # Moisture dynamics — TWO models, selected by environment.enabled:
+    #   legacy (disabled): constant evaporation + constant unconditional
+    #                      recovery (the B1 bug — net always positive)
+    #   environment (W1):  evaporation scales with temperature/light (×2 in
+    #                      drought); recovery only during rain or next to water
+    tile.moisture -= evaporation
+    tile.moisture += recovery        # rain event and/or water-adjacency only when enabled
+
     # Fertility recovery (empty tiles only)
     if no plant at tile:
         tile.fertility += 0.0005
@@ -738,8 +790,8 @@ for each plantable tile:
 **Impact:**
 - Plants deplete soil resources
 - Empty soil recovers naturally
-- Moisture stays positive overall
-- Creates sustainable balance
+- Legacy mode: moisture only rises (bug B1); environment mode: moisture is
+  a real, weather-driven constraint that can fall to zero in a drought
 
 ### 6. ResourceSpawnSystem
 
@@ -1107,9 +1159,10 @@ world:
 ### Terrain Settings
 ```yaml
 terrain:
-  soil_ratio: 0.7              # 70% soil tiles
+  soil_ratio: 0.65             # 65% soil tiles
   rock_ratio: 0.2              # 20% rock tiles
   water_ratio: 0.1             # 10% water tiles
+  sand_ratio: 0.05             # 5% sand tiles (spreading hazard)
   fertility_range: [0.3, 1.0]  # Initial soil fertility
   moisture_range: [0.2, 0.8]   # Initial soil moisture
 ```
@@ -1127,6 +1180,10 @@ plants:
   fertility_consumption_per_tick: 0.001  # Plant fertility use
   moisture_consumption_per_tick: 0.0005  # Plant moisture use
   seed_max_age: 200             # Seed rot age
+  max_neighbor_plants: 3        # B5 carrying capacity: max plants in the
+                                # crowding window before germination is blocked
+                                # (0 = disabled / legacy unbounded growth)
+  neighbor_radius: 2            # Chebyshev radius of that window (2 = 5×5)
 ```
 
 ### Resource Settings
@@ -1149,6 +1206,66 @@ soil:
   max_moisture: 1.0                    # Maximum moisture cap
   min_moisture: 0.0                    # Minimum moisture floor
 ```
+
+> When `environment.enabled: true`, `moisture_evaporation_rate` and
+> `moisture_recovery_rate` above are **superseded** by the environment
+> engine's weather-driven model (see below); the fertility settings still
+> apply.
+
+### Environment Engine Settings (W1)
+```yaml
+environment:
+  enabled: false               # Master switch (false = legacy static climate)
+  day_length: 200              # Ticks per full day/night cycle
+  min_light: 0.25              # Light level at deepest night (1.0 = noon)
+  season_length: 2000          # Ticks per full seasonal cycle
+  season_temp_amplitude: 0.25  # Seasonal temperature swing around base
+  base_temperature: 0.5        # Yearly mean (0.5 = centre of comfort band)
+  daynight_temp_amplitude: 0.10  # Day-vs-night temperature swing
+  metabolism_temp_coef: 0.5    # Extra agent energy drain at temp extremes
+  base_evaporation: 0.0012     # Soil moisture loss/tick (× temperature & light)
+  water_adjacency_recovery: 0.002  # Moisture gain/tick next to WATER tiles
+  weather:
+    rain_start_chance: 0.01    # Per-tick chance rain begins (clear weather)
+    rain_duration: 60          # Ticks a rain event lasts
+    rain_recovery: 0.004       # Moisture gain/tick while raining
+    drought_start_chance: 0.002  # Per-tick chance a drought begins
+    drought_duration: 150      # Ticks a drought lasts
+    drought_evaporation_factor: 2.0  # Evaporation multiplier in drought
+```
+
+**What each multiplier feeds (all exactly 1.0 when disabled):**
+- **light** = `min_light + (1−min_light)·½(1+sin(2π·t/day_length))` → plant
+  growth, food production
+- **temperature** = `base + seasonal sin + day/night offset` (clamped to
+  [0,1]) → growth window, germination window, decay rate, agent metabolism
+- **temperature_response** = 1.0 in [0.3, 0.7], linear falloff to 0 at
+  0.1/0.9 (the "comfort band")
+- **rain / drought** → the only moisture recovery (rain) and amplified
+  evaporation (drought)
+
+### Sand / Tile-Effect Settings (W0 / B2)
+```yaml
+sand:
+  spread_interval: 200          # Ticks a neighbour must be unprotected before spread
+  spread_chance: 0.05           # Per-tick spread probability once interval met
+  spread_radius: 1              # Manhattan distance for spreading
+  spread_blocked_by: [plant]    # Object categories that block spreading
+  germination_multiplier: 0.1   # 10× harder to germinate on sand
+  growth_multiplier: 0.1        # 10× slower growth on sand
+  spawn_rate_multiplier: 0.3    # 70% less food production on sand
+  fertility_override: 0.30      # Clamp fertility on sand (B2: AT the seed
+                                # threshold so the ×0.1 multiplier is the difficulty)
+  moisture_override: 0.20       # Clamp moisture on sand (B2: AT the seed threshold)
+  reclaim_terrain: soil         # Terrain a plant on sand reclaims it back to
+  reclaim_interval: 150         # Ticks a plant must sit on sand to reclaim it
+```
+
+> **B2 fix:** sand previously clamped fertility/moisture to 0.05 — strictly
+> below the seed thresholds (0.3/0.2) — so its ×0.1 germination multiplier
+> never even applied and germination on sand was *impossible*. The clamps
+> now sit **at** the thresholds, so sand is genuinely 10× harder, not a
+> dead zone.
 
 ### Agent Settings
 ```yaml
@@ -1307,7 +1424,9 @@ agents:
 
 ### Test Suite
 
-**219 tests passing (Feb 2026)**
+**381 tests passing (June 2026)** — includes the W0 object-validation suite,
+the W1 environment suite (`test_environment.py`), and the B5 carrying-capacity
+regression tests in `test_systems.py`.
 
 Representative system tests include:
 
@@ -1592,6 +1711,84 @@ python analyze_energy_economics.py  # Energy flow
 - [ ] Meta-learning across generations
 - [ ] Transfer learning to new environments
 - [ ] Hierarchical policy learning
+
+---
+
+## World Upgrade (W0–W1) — June 2026
+
+The world is being modernised in config-gated phases so the brain stack has
+a richer, non-stationary environment to evolve against. Full plan:
+[WORLD_UPGRADE_PROPOSAL.md](WORLD_UPGRADE_PROPOSAL.md). Phases W0 and W1 are
+shipped; W2+ are in progress.
+
+### W0 — Registry hardening & custom-object UX
+
+The YAML object registry is the cheapest extension surface in the codebase,
+but defining a custom object used to fail silently (a typo'd section name
+registered a useless object; a wrong field crashed with a context-free
+error; a definition took ~60 lines of copying).
+
+- **Schema validation** (`world/object_validation.py`): unknown sections and
+  fields are now errors with *did-you-mean* suggestions, all collected and
+  reported together with the offending `type_id`.
+- **Cross-reference checking** at load time: `grows_into`, `produces`,
+  `decompose_into`, `spread_type_id` must name real types.
+- **`extends:` inheritance**: a new object deep-merges a parent definition
+  (builtin or earlier in the same file), so a new food is ~8 lines, not ~60.
+  Spawn counts are never inherited implicitly.
+- **`vision_encoding: auto`** allocates a free value inside per-category
+  bands; collisions (two types closer than 0.02 in encoding space) warn,
+  because agents literally cannot tell them apart.
+- **Respawn spec**: `spawn.respawn_rate` / `spawn.max_count` let custom
+  standalone foods replenish like builtin berries (they used to vanish
+  forever once eaten).
+- **Tooling**: `python scripts/objects.py {validate,list,preview} <file>`
+  and `docs/OBJECTS_GUIDE.md`. `main.py` refuses an invalid object file at
+  startup with the full report instead of running a broken world.
+
+### W1 — Environment engine (day/night, seasons, weather)
+
+One `EnvironmentSystem` (`world/environment.py`) runs first each tick and
+publishes global multipliers; every existing system consumes them. It is
+**off by default** — when disabled, every multiplier is exactly 1.0 and the
+legacy arithmetic is bit-reproducible.
+
+| Field | Drives | Formula (enabled) |
+|-------|--------|-------------------|
+| light | growth, food production | `min_light + (1−min_light)·½(1+sin(2π t/day_length))` |
+| temperature | growth/germination window, decay, metabolism | `base + season·sin + day/night offset`, clamped [0,1] |
+| temperature_response | the comfort band | 1.0 in [0.3,0.7], linear → 0 at 0.1/0.9 |
+| rain | the only moisture recovery | `rain_recovery` while a rain event is active |
+| drought | amplified evaporation | evaporation × `drought_evaporation_factor` |
+
+Consumption points: plant growth × light × temp window; germination × temp
+window; food production × light; freshness decay × (0.5 + temperature);
+agent metabolism × (1 + coef·2·|temp − 0.5|) in both serial and parallel
+paths; soil moisture via the weather-driven evaporation/recovery model.
+
+### Verified dynamics-bug fixes
+
+- **B1 — moisture only ever rose.** The legacy soil model added a constant
+  +0.0008/tick recovery against −0.0002/tick evaporation, so every tile
+  saturated at 1.0 and moisture constrained nothing. *Fixed (when the
+  environment is enabled):* evaporation scales with temperature/light (×2 in
+  drought) and recovery arrives only during rain or next to water. The old
+  arithmetic is preserved verbatim when disabled.
+- **B2 — germination on sand was impossible.** Sand clamped fertility/
+  moisture to 0.05, strictly below the seed requirements (0.3/0.2), so its
+  ×0.1 germination multiplier never even applied. *Fixed:* clamps now sit at
+  the thresholds (0.30/0.20) so the multiplier is what makes sand harder.
+- **B5 — runaway plant/food accumulation.** Each mature plant produced ~20
+  offspring over its life and germination never checked crowding, so plants
+  (and the berries they spawn) tiled the world (a small world saturated at
+  ~65% plant coverage). *Fixed:* density-dependent germination — a seed will
+  not establish where its neighbourhood already holds `max_neighbor_plants`
+  plants. Defaults (cap 3 in a 5×5 window) plateau coverage flat at ~24%
+  with food still abundant; `max_neighbor_plants: 0` restores legacy growth.
+
+*(B3 — water is cosmetic — is deferred to W2's elevation/water rework.
+B4 — "inventory is a stasis field" — was investigated and retracted: carried
+food does spoil.)*
 
 ---
 

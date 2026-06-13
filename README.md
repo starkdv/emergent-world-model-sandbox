@@ -595,6 +595,120 @@ the full enable/prerequisite/effect reference):
 - Learning scheduler (interval, budget, adaptive mode)
 - Visualisation and data collection settings
 
+## World & Ecosystem Parameters
+
+The world is a 2D grid of tiles (soil/rock/water/sand), each carrying
+`fertility` and `moisture`. A pipeline of systems runs every tick to grow
+plants, germinate seeds, decay food, cycle soil nutrients, and (optionally)
+drive a day/night/seasonal/weather climate. Every parameter below lives in
+`config/default.yaml`; deeper mechanics are documented in
+[docs/ECOSYSTEM.md](docs/ECOSYSTEM.md).
+
+### World & terrain (`world:`, `terrain:`)
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `world.width` / `world.height` | 100 / 100 | Grid dimensions in tiles |
+| `world.initial_resources` | 50 | Objects scattered at world start |
+| `world.resource_spawn_rate` | 0.01 | Safety-net berry spawn probability when food is depleted |
+| `world.allow_stacking` | false | If false, one object per tile (overflow placed nearby) |
+| `world.seed` | null | RNG seed (null = random each run) |
+| `terrain.soil_ratio` | 0.65 | Fraction of plantable soil tiles |
+| `terrain.rock_ratio` | 0.20 | Impassable rock (blocks movement) |
+| `terrain.water_ratio` | 0.10 | Water (not plantable; feeds moisture to adjacent soil when the environment engine is on) |
+| `terrain.sand_ratio` | 0.05 | Spreading hazard that slows growth/germination 10× |
+| `terrain.fertility_range` | [0.3, 1.0] | Initial fertility drawn per soil tile |
+| `terrain.moisture_range` | [0.2, 0.8] | Initial moisture drawn per soil tile |
+
+### Plants & seeds (`plants:`)
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `growth_time` | 50 | Ticks a seed must sit in soil before it can germinate |
+| `mature_age` | 100 | Plant age at which it starts producing berries |
+| `max_age` | 500 | Plant age at death (returns fertility to soil) |
+| `seed_spawn_rate` | 0.1 | Per-tick chance a mature plant spawns a berry |
+| `required_fertility` | 0.3 | Minimum tile fertility for germination |
+| `required_moisture` | 0.2 | Minimum tile moisture for germination |
+| `germination_success_rate` | 0.75 | Probability a ready seed germinates (× temperature window when the environment engine is on) |
+| `fertility_consumption_per_tick` | 0.001 | Fertility a plant draws from its tile |
+| `moisture_consumption_per_tick` | 0.0005 | Moisture a plant draws from its tile |
+| `seed_max_age` | 200 | Ticks before an ungerminated seed rots away |
+| `max_neighbor_plants` | 3 | **Carrying capacity (B5):** a seed will not germinate if this many plants are already within `neighbor_radius`. `0` disables it (legacy unbounded growth) |
+| `neighbor_radius` | 2 | Chebyshev radius of the crowding window (2 = a 5×5 area) |
+
+> **Why the carrying capacity matters:** without it, each mature plant
+> produces ~20 offspring over its life, so plants — and the berries they
+> spawn — accumulate until they tile the world (a small world saturates at
+> ~65% plant coverage). With the defaults, plant coverage plateaus flat at
+> ~24% of plantable tiles while food stays abundant.
+
+### Resources & soil (`resources:`, `soil:`)
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `resources.berry_calories` | 20.0 | Energy a fresh berry gives when eaten (× freshness) |
+| `resources.berry_freshness_decay` | 0.01 | Freshness lost per tick (≈100-tick shelf life) |
+| `resources.seed_drop_chance` | 0.7 | Chance a fully decayed berry drops a seed |
+| `soil.fertility_recovery_rate` | 0.0005 | Fertility regained per tick on empty soil |
+| `soil.fertility_return_on_death` | 0.15 | Fertility returned when a plant/berry decomposes |
+| `soil.moisture_evaporation_rate` | 0.0002 | Legacy moisture loss/tick (**superseded** by the environment engine when enabled) |
+| `soil.moisture_recovery_rate` | 0.0008 | Legacy moisture gain/tick (the old "rain" — this was bug B1; **superseded** when the environment engine is enabled) |
+
+### Environment engine (`environment:`) — opt-in (W1)
+
+Off by default; when `enabled: true` it computes a global climate each tick
+and feeds plain multipliers to the systems above. See
+[mode #9](#9-environment-engine--daynight-seasons-weather) for the full
+effect description.
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `enabled` | false | Master switch (false = legacy static climate, bit-compatible) |
+| `day_length` | 200 | Ticks per day/night cycle (drives `light`) |
+| `min_light` | 0.25 | Light floor at deepest night (1.0 = noon) |
+| `season_length` | 2000 | Ticks per seasonal cycle (drives the temperature baseline) |
+| `season_temp_amplitude` | 0.25 | Seasonal temperature swing around `base_temperature` |
+| `base_temperature` | 0.5 | Yearly mean temperature (0.5 = centre of the comfort band) |
+| `daynight_temp_amplitude` | 0.10 | Day-vs-night temperature swing |
+| `metabolism_temp_coef` | 0.5 | Extra agent energy drain at temperature extremes |
+| `base_evaporation` | 0.0012 | Soil moisture loss/tick, scaled by temperature & light |
+| `water_adjacency_recovery` | 0.002 | Moisture gain/tick on soil next to water tiles |
+| `weather.rain_start_chance` | 0.01 | Per-tick chance rain begins (rain is the only moisture recovery) |
+| `weather.rain_duration` | 60 | Length of a rain event |
+| `weather.rain_recovery` | 0.004 | Moisture gain/tick while raining |
+| `weather.drought_start_chance` | 0.002 | Per-tick chance a drought begins |
+| `weather.drought_duration` | 150 | Length of a drought |
+| `weather.drought_evaporation_factor` | 2.0 | Evaporation multiplier during drought |
+
+### Sand hazard (`sand:`) — W0 / B2
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `germination_multiplier` | 0.1 | Germination is 10× harder on sand |
+| `growth_multiplier` | 0.1 | Plant growth is 10× slower on sand |
+| `spawn_rate_multiplier` | 0.3 | 70% less food production on sand |
+| `fertility_override` | 0.30 | Clamps tile fertility on sand (B2: at the seed threshold, so the ×0.1 multiplier is the real difficulty) |
+| `moisture_override` | 0.20 | Clamps tile moisture on sand (B2: at the seed threshold) |
+| `spread_interval` / `spread_chance` / `spread_radius` | 200 / 0.05 / 1 | How fast unprotected soil turns to sand |
+| `spread_blocked_by` | [plant] | Categories that stop sand spreading |
+| `reclaim_terrain` / `reclaim_interval` | soil / 150 | A plant sitting on sand reclaims it back to soil |
+
+### Population pressure (`reproduction:`, `calamity:`)
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `reproduction.enabled` | false | Enable in-simulation asexual reproduction |
+| `reproduction.energy_threshold` | 0.60 | Fraction of max energy a parent needs to reproduce |
+| `reproduction.energy_split` | 0.40 | Fraction of energy the parent loses to the offspring |
+| `reproduction.min_age` / `cooldown_ticks` | 100 / 50 | Earliest reproduction age / ticks between births |
+| `reproduction.mutation_std` | 0.02 | Gaussian mutation applied to offspring weights |
+| `reproduction.max_population` | 100 | Hard cap on agent count (null = unlimited) |
+| `calamity.enabled` | true | Enable periodic resource-destroying disasters |
+| `calamity.interval` | 500 | Ticks between calamities |
+| `calamity.destruction_rate` | 0.70 | Fraction of targeted objects destroyed each event |
+| `calamity.affect_plants` / `affect_food` / `affect_seeds` | true / true / false | What a calamity destroys (seeds preserved by default for recovery) |
+
 ## Custom Objects
 
 Create new world objects entirely from YAML — no code changes required.
