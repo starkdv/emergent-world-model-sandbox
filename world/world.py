@@ -62,6 +62,8 @@ class World:
         safety_spawn_rate: float = 0.01,
         min_resources: int = 10,
         seed_max_age: int = 200,
+        max_neighbor_plants: int = 3,
+        neighbor_radius: int = 2,
         allow_stacking: bool = False,  # NEW: Controls object stacking
         learning_train_interval_ticks: int = 3,
         learning_max_updates_per_tick: int = 16,
@@ -204,6 +206,8 @@ class World:
             safety_spawn_rate=safety_spawn_rate,
             min_resources=min_resources,
             seed_max_age=seed_max_age,
+            max_neighbor_plants=max_neighbor_plants,
+            neighbor_radius=neighbor_radius,
         )
 
         # Generate terrain

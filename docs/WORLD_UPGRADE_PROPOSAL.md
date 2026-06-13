@@ -72,6 +72,7 @@ fading instincts just fixed on the brain side.
 | B2 ✅ fixed (W1) | **Germination on sand is impossible, not "10× harder".** Sand clamps moisture/fertility to 0.05, but germination requires moisture ≥ 0.2 and fertility ≥ 0.3 — the check fails before the 0.1 multiplier is ever consulted. | `TileEffectSpec` overrides vs `SeedGerminationSystem` thresholds | Sand's germination_multiplier is dead config; sand reclamation (which needs a plant ON sand) can only occur when sand spreads under an existing plant |
 | B3 | **Water is cosmetic.** Water tiles force their own moisture to 1.0 and block planting — nothing else. No drinking/thirst, no crossing cost, no moisture sharing with neighbours. | inventory §1/§6 | "Water" currently means "tile you can't plant on" |
 | ~~B4~~ | ~~Inventory is a stasis field~~ — **RETRACTED**: verified false. `DecaySystem` iterates `world.objects`, which includes carried items (pickup only removes the tile link), so carried food DOES spoil (measured: freshness 1.0 → 0.5 in 50 ticks while held). | empirical test | No fix needed |
+| B5 ✅ fixed | **Runaway plant/food accumulation (no carrying capacity).** Each mature plant drops ~40 berries over its life; 70% decompose into seeds that germinate at 75% — ~20 offspring per plant, with no crowding check anywhere. | Measured (no agents): a 100×100 world climbs past 2,600 objects at 8k ticks and is still rising; a small world plateaus only at ~65% plant coverage | Plants and the berries they spawn tile the world; food count is meaningless and the world saturates |
 
 These are first-class fix targets: **W1's weather model is the B1/B3 fix**
 (evaporation scaled by temperature/light *exceeding* base recovery, recovery
@@ -79,7 +80,11 @@ arriving via rain events and water-adjacency diffusion — moisture becomes a
 real, spatially structured constraint), **W2's elevation/water rework
 addresses B3**, B2 is corrected by aligning sand's clamps with germination
 thresholds (or vice versa) so the multiplier actually expresses "harder",
-and B4 turned out to already behave correctly (retracted above).
+and B4 turned out to already behave correctly (retracted above). **B5 is
+fixed by a density-dependent germination cap** (competition for
+space/light): a seed will not establish where its neighbourhood already
+holds `max_neighbor_plants` plants, giving the ecology a real carrying
+capacity instead of unbounded exponential growth.
 
 ---
 

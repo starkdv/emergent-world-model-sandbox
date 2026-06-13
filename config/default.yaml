@@ -109,6 +109,16 @@ plants:
   fertility_consumption_per_tick: 0.001  # How much fertility plants consume
   moisture_consumption_per_tick: 0.0005  # How much moisture plants consume
   seed_max_age: 200  # Maximum age before seed rots (in ticks)
+  # Carrying capacity — competition for space/light. A seed will not
+  # germinate if this many (or more) plants already sit within
+  # neighbor_radius of it. Without this the plant population grows
+  # unbounded (each mature plant produces ~20 offspring over its life),
+  # so plants — and the berries they spawn — tile the whole world.
+  # Set max_neighbor_plants: 0 to disable (legacy unbounded growth).
+  # Defaults (cap 3 in a 5x5 window) plateau plant coverage at ~24% of
+  # plantable tiles instead of saturating the world to ~65% and climbing.
+  max_neighbor_plants: 3   # cap within the crowding window
+  neighbor_radius: 2       # 2 = the 5x5 window around the seed
 
 # Resource Settings
 resources:

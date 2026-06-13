@@ -104,6 +104,8 @@ class SeedGerminationSystem:
         plant_mature_age: int = 100,
         plant_max_age: int = 500,
         germination_success_rate: float = 0.75,
+        max_neighbor_plants: int = 3,
+        neighbor_radius: int = 2,
     ):
         """
         Initialize germination system.
@@ -112,11 +114,21 @@ class SeedGerminationSystem:
             plant_mature_age: Age at which new plants mature
             plant_max_age: Maximum age for new plants
             germination_success_rate: Probability that a seed successfully germinates
+            max_neighbor_plants: Carrying-capacity cap — a seed will not
+                germinate if this many (or more) plants already occupy the
+                surrounding ``neighbor_radius`` window. This is competition
+                for space/light: it gives the plant ecology a real carrying
+                capacity instead of unbounded exponential growth.
+                Set to 0 to disable (legacy unbounded behaviour).
+            neighbor_radius: Chebyshev radius of the crowding window
+                (1 = the 3×3 neighbourhood around the seed)
 
         Author: Karan Vasa
         """
         self.plant_mature_age = plant_mature_age
         self.plant_max_age = plant_max_age
+        self.max_neighbor_plants = max_neighbor_plants
+        self.neighbor_radius = neighbor_radius
         self.germination_success_rate = germination_success_rate
 
     def update(self, world: "World") -> None:
@@ -176,6 +188,16 @@ class SeedGerminationSystem:
                 # Also check if any object on tile blocks growth
                 if _tile_blocks_growth(world, obj.x, obj.y):
                     # Growth is blocked — seed stays alive and keeps waiting
+                    continue
+                # Carrying capacity: a seed cannot establish where the
+                # neighbourhood is already saturated with plants (competition
+                # for space/light). The seed waits — and eventually rots at
+                # max_age — instead of stacking yet another plant. This is the
+                # fix for runaway plant/food accumulation.
+                elif self.max_neighbor_plants > 0 and (
+                    _count_plants_in_radius(world, obj.x, obj.y, self.neighbor_radius)
+                    >= self.max_neighbor_plants
+                ):
                     continue
                 elif random.random() < effective_rate:
                     seeds_to_germinate.append((obj_id, obj.x, obj.y, seed.plant_type))
@@ -817,6 +839,8 @@ class WorldSystemManager:
         safety_spawn_rate: float = 0.01,
         min_resources: int = 10,
         seed_max_age: int = 200,
+        max_neighbor_plants: int = 3,
+        neighbor_radius: int = 2,
     ):
         """
         Initialize system manager with all systems.
@@ -827,6 +851,9 @@ class WorldSystemManager:
             decay_rate: Freshness decay rate per tick
             seed_drop_chance: Chance for decomposed berries to drop seeds
             germination_success_rate: Probability that seeds successfully germinate
+            max_neighbor_plants: Plant carrying-capacity cap per neighbourhood
+                (0 disables — legacy unbounded growth)
+            neighbor_radius: Chebyshev radius of the crowding window
             fertility_consumption: Fertility consumed by plants per tick
             moisture_consumption: Moisture consumed by plants per tick
             fertility_recovery_rate: Fertility recovery for empty soil per tick
@@ -856,7 +883,11 @@ class WorldSystemManager:
         # Create systems with references to soil dynamics
         self.plant_growth = PlantGrowthSystem(self.soil_dynamics)
         self.seed_germination = SeedGerminationSystem(
-            plant_mature_age, plant_max_age, germination_success_rate
+            plant_mature_age,
+            plant_max_age,
+            germination_success_rate,
+            max_neighbor_plants=max_neighbor_plants,
+            neighbor_radius=neighbor_radius,
         )
         self.decay = DecaySystem(
             decay_rate, seed_drop_chance, self.soil_dynamics, seed_max_age
@@ -956,6 +987,25 @@ def _tile_blocks_growth(world: "World", x: int, y: int) -> bool:
         if interaction.blocks_growth:
             return True
     return False
+
+
+def _count_plants_in_radius(world: "World", x: int, y: int, radius: int) -> int:
+    """
+    Count living plants within a Chebyshev ``radius`` window centred on
+    (x, y), inclusive of the centre tile. Used by germination to enforce a
+    local carrying capacity (competition for space/light).
+    """
+    count = 0
+    for ny in range(y - radius, y + radius + 1):
+        for nx in range(x - radius, x + radius + 1):
+            tile = world.get_tile(nx, ny)
+            if tile is None:
+                continue
+            for obj_id in tile.object_ids:
+                obj = world.objects.get(obj_id)
+                if obj is not None and obj.has_component(PlantComponent):
+                    count += 1
+    return count
 
 
 # ---------------------------------------------------------------------------

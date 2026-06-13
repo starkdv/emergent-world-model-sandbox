@@ -23,6 +23,7 @@ from world.systems import (
     FertilizerSystem,
     ResourceSpawnSystem,
     WorldSystemManager,
+    _count_plants_in_radius,
 )
 
 
@@ -165,6 +166,140 @@ class TestSeedGerminationSystem:
         system.update(world)
         assert seed_id in world.objects
         assert seed.get_component(SeedComponent).time_in_soil == 1
+
+
+class TestGerminationCarryingCapacity:
+    """
+    Tests for the plant carrying-capacity fix (runaway accumulation bug).
+
+    A seed must not germinate where the surrounding neighbourhood already
+    holds ``max_neighbor_plants`` plants — competition for space/light.
+    """
+
+    def _prep_soil(self, world):
+        """Force the whole world to fertile, plantable soil."""
+        from world.tiles import TerrainType
+
+        for y in range(world.height):
+            for x in range(world.width):
+                tile = world.get_tile(x, y)
+                tile.terrain_type = TerrainType.SOIL
+                tile.fertility = 0.9
+                tile.moisture = 0.7
+
+    def _add_plant(self, world, x, y):
+        plant = WorldObject(x, y)
+        plant.add_component(
+            PlantComponent(
+                mature_age=100,
+                max_age=500,
+                spawn_resource_type="berry",
+                spawn_rate=0.1,
+            )
+        )
+        world.add_object(plant)
+        return plant
+
+    def _add_ready_seed(self, world, x, y):
+        seed = WorldObject(x, y)
+        comp = SeedComponent(plant_type="berry_plant", grow_time=1)
+        comp.time_in_soil = 5  # ready
+        seed.add_component(comp)
+        world.add_object(seed)
+        return seed
+
+    def test_count_plants_in_radius(self):
+        world = World(10, 10, seed=1)
+        self._prep_soil(world)
+        self._add_plant(world, 5, 5)
+        self._add_plant(world, 6, 5)
+        self._add_plant(world, 8, 8)  # outside radius-1 of (5,5)
+
+        assert _count_plants_in_radius(world, 5, 5, radius=1) == 2
+        assert _count_plants_in_radius(world, 5, 5, radius=0) == 1
+        assert _count_plants_in_radius(world, 5, 5, radius=2) == 2
+        assert _count_plants_in_radius(world, 0, 0, radius=1) == 0
+
+    def test_seed_blocked_when_neighborhood_full(self):
+        """A ready seed should NOT germinate in a saturated neighbourhood."""
+        world = World(10, 10, seed=1)
+        self._prep_soil(world)
+        # Cap of 2 within a 3x3 window; place 2 plants near the seed tile
+        self._add_plant(world, 4, 5)
+        self._add_plant(world, 6, 5)
+        seed = self._add_ready_seed(world, 5, 5)
+        seed_id = seed.id
+
+        system = SeedGerminationSystem(
+            germination_success_rate=1.0, max_neighbor_plants=2, neighbor_radius=1
+        )
+        system.update(world)
+
+        # Seed survives (waits) and did not become a plant
+        assert seed_id in world.objects
+        assert not world.get_objects_at(5, 5)[0].has_component(PlantComponent) or (
+            world.get_objects_at(5, 5)[0].id == seed_id
+        )
+
+    def test_seed_germinates_when_neighborhood_has_room(self):
+        """With one fewer neighbour than the cap, germination proceeds."""
+        world = World(10, 10, seed=1)
+        self._prep_soil(world)
+        self._add_plant(world, 4, 5)  # only 1 neighbour, cap is 2
+        seed = self._add_ready_seed(world, 5, 5)
+        seed_id = seed.id
+
+        system = SeedGerminationSystem(
+            germination_success_rate=1.0, max_neighbor_plants=2, neighbor_radius=1
+        )
+        system.update(world)
+
+        assert seed_id not in world.objects  # seed consumed → plant
+        objs = world.get_objects_at(5, 5)
+        assert any(o.has_component(PlantComponent) for o in objs)
+
+    def test_cap_zero_disables_carrying_capacity(self):
+        """max_neighbor_plants=0 restores legacy unbounded behaviour."""
+        world = World(10, 10, seed=1)
+        self._prep_soil(world)
+        # Crowd the neighbourhood heavily
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1)]:
+            self._add_plant(world, 5 + dx, 5 + dy)
+        seed = self._add_ready_seed(world, 5, 5)
+        seed_id = seed.id
+
+        system = SeedGerminationSystem(
+            germination_success_rate=1.0, max_neighbor_plants=0, neighbor_radius=2
+        )
+        system.update(world)
+
+        # With the cap disabled, the seed germinates despite the crowd
+        assert seed_id not in world.objects
+        objs = world.get_objects_at(5, 5)
+        assert any(o.has_component(PlantComponent) for o in objs)
+
+    def test_population_stays_bounded_over_long_run(self):
+        """
+        Regression for the accumulation bug: with the carrying cap on, the
+        plant population must NOT keep climbing toward world saturation.
+        """
+        world = World(24, 24, seed=3, parallel=False)
+        self._prep_soil(world)
+        plantable = world.width * world.height
+        # Seed a few starter plants
+        for i in range(6):
+            self._add_plant(world, 2 + i * 3, 2)
+
+        peak = 0
+        for t in range(4000):
+            world.update()
+            if (t + 1) % 1000 == 0:
+                plants = sum(
+                    1 for o in world.objects.values() if o.has_component(PlantComponent)
+                )
+                peak = max(peak, plants)
+        # Must stay well below tiling the world (legacy reaches ~65%)
+        assert peak < 0.45 * plantable, f"plants peaked at {peak}/{plantable}"
 
 
 class TestDecaySystem:

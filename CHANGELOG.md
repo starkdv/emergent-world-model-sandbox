@@ -4,6 +4,36 @@
 
 Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
 
+### Bug B5 fixed — runaway plant/food accumulation (plant carrying capacity)
+
+**In simple terms:** mature plants spawn berries, berries decay into
+seeds, seeds germinate into new plants — and nothing ever stopped a new
+plant from sprouting next to existing ones. Each plant produced ~20
+offspring over its life (a growth rate ~20× replacement), so plants — and
+the berries they spawn — kept accumulating until they tiled the world. A
+no-agent 100×100 world climbed past 2,600 objects at 8k ticks and was
+still rising; a smaller world plateaued only at ~65% plant coverage.
+
+- **Cause:** `SeedGerminationSystem` checked terrain, fertility, moisture,
+  and a success probability — but never local crowding. There was no
+  carrying capacity, so the lifecycle was a pure exponential bounded only
+  by the one-plant-per-tile rule (i.e. world saturation).
+- **Fix (a real pressure, not a script — `guideline.md` §8):**
+  competition for space/light. A seed will not germinate if the
+  surrounding window already holds `max_neighbor_plants` plants; it waits
+  and eventually rots, exactly like the existing `blocks_growth` path.
+  New helper `_count_plants_in_radius`.
+- **Config** (`plants:` in `config/default.yaml`): `max_neighbor_plants: 3`
+  and `neighbor_radius: 2` (a 5×5 window). With these defaults plant
+  coverage plateaus flat at ~24% of plantable tiles (food stays abundant)
+  instead of saturating to ~65% and climbing. `max_neighbor_plants: 0`
+  restores the legacy unbounded behaviour for A/B comparison.
+- **Threaded through** `World` → `WorldSystemManager` →
+  `SeedGerminationSystem` and read in `main.py`.
+- 5 new tests (`tests/test_systems.py::TestGerminationCarryingCapacity`),
+  including a long-run regression asserting the population stays well
+  below world saturation. Full suite: 381 passing.
+
 ### Phase W1 — Environment engine: day/night, seasons, weather (opt-in)
 
 **In simple terms:** the world had a frozen climate — eternal noon, no

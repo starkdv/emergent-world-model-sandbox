@@ -365,6 +365,8 @@ Examples:
             decay_rate=resource_cfg["berry_freshness_decay"],
             seed_drop_chance=resource_cfg["seed_drop_chance"],
             germination_success_rate=plant_cfg["germination_success_rate"],
+            max_neighbor_plants=plant_cfg.get("max_neighbor_plants", 3),
+            neighbor_radius=plant_cfg.get("neighbor_radius", 2),
             fertility_consumption=plant_cfg["fertility_consumption_per_tick"],
             moisture_consumption=plant_cfg["moisture_consumption_per_tick"],
             fertility_recovery_rate=soil_cfg["fertility_recovery_rate"],
