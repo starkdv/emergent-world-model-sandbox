@@ -79,6 +79,8 @@ class World:
         parallel: bool = True,
         environment_config: dict = None,
         fire_config: dict = None,
+        agents_visible: bool = False,
+        agent_collision: bool = False,
     ):
         """
         Initialize a new world with generated terrain.
@@ -131,6 +133,9 @@ class World:
         self.width = width
         self.height = height
         self.tick = 0
+        # W4: agents perceive each other in vision / contest tiles (opt-in)
+        self.agents_visible = bool(agents_visible)
+        self.agent_collision = bool(agent_collision)
         self.seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         self.allow_stacking = allow_stacking  # NEW: Store stacking configuration
         self.parallel = parallel  # Enable parallel agent updates

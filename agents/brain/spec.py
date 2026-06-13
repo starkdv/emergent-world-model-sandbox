@@ -97,6 +97,52 @@ class ParamSpec:
         return np.concatenate(parts).astype(dtype)
 
 
+def migrate_genome(
+    old_flat: np.ndarray,
+    old_spec: ParamSpec,
+    new_spec: ParamSpec,
+    dtype: np.dtype = np.float32,
+) -> np.ndarray:
+    """
+    Migrate a flat genome from ``old_spec`` to ``new_spec`` losslessly.
+
+    This is the mechanism behind the W4 "single batched genome break" (and
+    any future append-only growth). Because every spec extension is
+    *append-only* — new observation features become extra **rows** at the end
+    of the first weight matrix, a new action becomes an extra **column** at
+    the end of the policy head, the world-model head is appended last — each
+    new parameter tensor contains the old one in its **top-left corner**.
+    So the migration is: for every entry in the new spec, allocate zeros and
+    copy the overlapping top-left block from the old genome (when that entry
+    existed). New rows/columns stay zero, which means:
+
+      * new observation features contribute exactly 0 to the encoder, so a
+        migrated brain's encoder/GRU/value outputs and its logits for the
+        original actions are **bit-identical** to the old brain's, and
+      * a new action's policy column is 0 (a neutral logit) — it only starts
+        being used once mutation/learning fills it in.
+
+    Args:
+        old_flat: Flat genome laid out by ``old_spec``
+        old_spec: The genome's current layout
+        new_spec: The target layout (must be append-only-compatible)
+        dtype: Output dtype
+
+    Returns:
+        Flat genome laid out by ``new_spec``
+    """
+    old_named = old_spec.unpack(old_flat)
+    new_named: dict[str, np.ndarray] = {}
+    for name, shape in new_spec.entries:
+        arr = np.zeros(shape, dtype=dtype)
+        old = old_named.get(name)
+        if old is not None:
+            region = tuple(slice(0, min(o, n)) for o, n in zip(old.shape, shape))
+            arr[region] = old[region]
+        new_named[name] = arr
+    return new_spec.pack(new_named, dtype=dtype)
+
+
 def _dynamics_entries(
     latent_size: int, gru_hidden_size: int, output_size: int, hidden: int
 ) -> list[tuple[str, tuple[int, ...]]]:

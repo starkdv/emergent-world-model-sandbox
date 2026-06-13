@@ -9,6 +9,10 @@ world:
   resource_spawn_rate: 0.01
   seed: null  # null for random, or specify integer for reproducible runs
   allow_stacking: false  # If false, enforces one object per tile (prevents overlapping)
+  # Agents in each other's world (World upgrade W4). Both default off, so the
+  # baseline is unchanged; turning them on adds real selection pressure.
+  agents_visible: false   # Other agents appear in vision (encoding 0.40, value = energy)
+  agent_collision: false  # A living agent blocks a tile (space becomes contested)
 
 # Terrain Settings
 terrain:

@@ -119,6 +119,12 @@ def _encode_agent_state(agent: "Agent") -> list[float]:
 # ---------------------------------------------------------------------------
 
 
+# Vision encoding for "another agent occupies this tile" (W4 sub-step a).
+# Sits in the free gap between thorns (0.30) and soil (0.50), ≥0.10 from
+# every other terrain/object encoding so it is distinguishable.
+AGENT_VISION_ENCODING = 0.40
+
+
 def _encode_vision(agent: "Agent", world: "World") -> list[float]:
     """
     Encode the 5×5 vision grid around the agent.
@@ -126,6 +132,12 @@ def _encode_vision(agent: "Agent", world: "World") -> list[float]:
     Each tile produces (type_encoding, value_encoding).
     Terrain-layer objects (e.g. sand) are transparent — the
     agent perceives the real resource underneath.
+
+    When ``world.agents_visible`` is on (W4), a tile occupied by *another*
+    living agent is encoded as (AGENT_VISION_ENCODING, that agent's energy
+    ratio), overriding the terrain/object underneath — this is the P3
+    unblock that lets agents finally perceive each other. Off by default, so
+    the observation content is unchanged for existing runs.
     """
     features: list[float] = []
     vision_radius = 2  # 5×5
@@ -138,6 +150,13 @@ def _encode_vision(agent: "Agent", world: "World") -> list[float]:
     # Right vector (clockwise 90° rotation of facing)
     rx, ry = (-fy, fx)
 
+    # Other-agent occupancy map (only when the feature is enabled)
+    others: dict = {}
+    if getattr(world, "agents_visible", False):
+        for other in world.agents.values():
+            if other is not agent and getattr(other, "alive", True):
+                others[(other.x, other.y)] = other
+
     for dy in range(-vision_radius, vision_radius + 1):
         for dx in range(-vision_radius, vision_radius + 1):
             # dy < 0 is "ahead" in observation space
@@ -147,6 +166,14 @@ def _encode_vision(agent: "Agent", world: "World") -> list[float]:
             if not (0 <= wx < world.width and 0 <= wy < world.height):
                 features.append(0.0)  # Rock (out of bounds)
                 features.append(0.0)
+                continue
+
+            occupant = others.get((wx, wy))
+            if occupant is not None:
+                features.append(AGENT_VISION_ENCODING)
+                features.append(
+                    max(0.0, min(1.0, occupant.energy / occupant.max_energy))
+                )
                 continue
 
             tile = world.tiles[wy][wx]

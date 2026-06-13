@@ -208,6 +208,19 @@ def execute_move_forward(agent: "Agent", world: "World") -> ActionResult:
     if not dest.is_passable():
         return ActionResult(False, 0.22, "Tile blocked")
 
+    # Tile exclusivity (W4 sub-step b): when agent collision is on, another
+    # living agent blocks the tile, so space itself becomes contested. Off by
+    # default → agents may overlap exactly as before.
+    if getattr(world, "agent_collision", False):
+        for other in world.agents.values():
+            if (
+                other is not agent
+                and getattr(other, "alive", True)
+                and other.x == new_x
+                and other.y == new_y
+            ):
+                return ActionResult(False, 0.22, "Tile occupied")
+
     # Slope cost (W2): climbing uphill costs extra energy proportional to the
     # elevation gained. Flat terrain (legacy) → no change.
     src = world.tiles[agent.y][agent.x]
