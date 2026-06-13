@@ -169,6 +169,13 @@ def get_action_mask(agent: "Agent", world: "World") -> np.ndarray:
     return mask
 
 
+# Energy added per unit of uphill elevation gain when moving (W2). With the
+# legacy flat generator every elevation is 0.0, so this is always 0 and
+# movement cost is unchanged (bit-compatible). Downhill is never cheaper than
+# the base cost — gravity helps, but you still spend the step.
+SLOPE_CLIMB_COST = 0.6
+
+
 def execute_move_forward(agent: "Agent", world: "World") -> ActionResult:
     """Move one tile in current direction."""
     new_x = agent.x + agent.direction[0]
@@ -179,14 +186,22 @@ def execute_move_forward(agent: "Agent", world: "World") -> ActionResult:
         return ActionResult(False, 0.22, "Out of bounds")
 
     # Check if tile is passable
-    tile = world.tiles[new_y][new_x]
-    if not tile.is_passable():
+    dest = world.tiles[new_y][new_x]
+    if not dest.is_passable():
         return ActionResult(False, 0.22, "Tile blocked")
+
+    # Slope cost (W2): climbing uphill costs extra energy proportional to the
+    # elevation gained. Flat terrain (legacy) → no change.
+    src = world.tiles[agent.y][agent.x]
+    climb = dest.elevation - src.elevation
+    energy_cost = 0.20
+    if climb > 0.0:
+        energy_cost += SLOPE_CLIMB_COST * climb
 
     # Move agent
     agent.x = new_x
     agent.y = new_y
-    return ActionResult(True, 0.20, "Moved forward")
+    return ActionResult(True, round(energy_cost, 3), "Moved forward")
 
 
 def execute_turn_left(agent: "Agent") -> ActionResult:

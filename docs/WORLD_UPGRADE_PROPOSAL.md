@@ -1,7 +1,8 @@
 # World Upgrade — Architecture Proposal
 
 **Status:** In progress — W0 ✅ and W1 ✅ implemented (June 2026, see
-CHANGELOG); W2–W6 remain proposals
+CHANGELOG); W2 partially implemented (heightmap/rivers/biomes/slope shipped;
+moisture diffusion + erosion deferred); W3–W6 remain proposals
 **Branch:** `claude/world-upgrade`
 **Scope:** `world/` (tiles, systems, world, object registry), `utils/agents/`
 (perception, reward shaping, action execution), `config/default.yaml`
@@ -249,7 +250,8 @@ metabolism; calamity generalized into the event system.
 enabled defaults keep populations viable over 2,000-tick runs; each cycle
 visible in the world-state logs.
 
-**W2 — Living terrain (elevation becomes first-class).**
+**W2 — Living terrain (elevation becomes first-class).
+🟡 PARTIALLY DONE (June 2026 — see CHANGELOG "Phase W2").**
 Heightmap generator (smoothed noise): mountains = high rock, water settles
 and **flows downhill into actual rivers**, biomes derived from
 elevation × moisture (forest/plains/wetland/desert); slope movement cost;
@@ -260,6 +262,21 @@ elevation field is the bridge asset for the 3D track (§13) — the GPU
 isometric renderer is already built to display it.
 *Acceptance:* rivers connect high→low and create fertility corridors;
 slopes measurably shape movement; legacy flat generator still selectable.
+
+> **Shipped (W2, first increment):** `world/terrain_generation.py`
+> (pure-NumPy value-noise elevation; mountains from the elevation quantile;
+> lakes in basins + downhill steepest-descent rivers within the water
+> budget; moisture from elevation + distance-to-water; desert sand from the
+> driest land; **fertile river corridors**), `tile.elevation` as a
+> first-class field (legacy generator stays flat at 0.0 → bit-compatible),
+> slope-based movement energy cost, `terrain.generator: legacy|heightmap`
+> config, the `scripts/terrain.py preview` ASCII tool, and 15 tests. All
+> three acceptance criteria are met.
+>
+> **Deferred to a later W2 increment:** per-tick moisture *diffusion*, slow
+> *erosion*, and 3×3 nutrient return on death (the current nutrient return
+> stays single-tile). Elevation is deliberately **not** in the observation
+> vector yet — that is the W4 genome break.
 
 **W3 — Ecology & hazards (mostly data).**
 2–3 plant/food species (YAML), toxicity wired into EAT, invasive species,

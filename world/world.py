@@ -46,6 +46,8 @@ class World:
         sand_ratio: float = 0.05,
         fertility_range: Tuple[float, float] = (0.3, 1.0),
         moisture_range: Tuple[float, float] = (0.2, 0.8),
+        terrain_generator: str = "legacy",
+        heightmap_config: dict = None,
         # System configuration parameters
         plant_mature_age: int = 100,
         plant_max_age: int = 500,
@@ -210,15 +212,26 @@ class World:
             neighbor_radius=neighbor_radius,
         )
 
-        # Generate terrain
-        self._generate_terrain(
-            soil_ratio,
-            rock_ratio,
-            water_ratio,
-            sand_ratio,
-            fertility_range,
-            moisture_range,
-        )
+        # Generate terrain (legacy uniform shuffle, or W2 heightmap)
+        self.terrain_generator = terrain_generator
+        self.heightmap_config = heightmap_config or {}
+        if str(terrain_generator).lower() in ("heightmap", "biomes"):
+            self._generate_terrain_heightmap(
+                rock_ratio,
+                water_ratio,
+                sand_ratio,
+                fertility_range,
+                moisture_range,
+            )
+        else:
+            self._generate_terrain(
+                soil_ratio,
+                rock_ratio,
+                water_ratio,
+                sand_ratio,
+                fertility_range,
+                moisture_range,
+            )
 
     def _generate_terrain(
         self,
@@ -286,17 +299,89 @@ class World:
 
             self.tiles.append(row)
 
-        # Spawn sand objects on SAND terrain tiles so TileEffectSystem can
-        # track them (and they appear in the renderer/observation).
+        self._spawn_sand_objects()
+
+    def _spawn_sand_objects(self) -> None:
+        """
+        Spawn sand objects on SAND terrain tiles so TileEffectSystem can
+        track them (and they appear in the renderer/observation). Shared by
+        the legacy and heightmap generators.
+        """
         from world.object_registry import ObjectRegistry
 
-        if ObjectRegistry.get("sand") is not None:
-            for y in range(self.height):
-                for x in range(self.width):
-                    tile = self.tiles[y][x]
-                    if tile.terrain_type == TerrainType.SAND:
-                        sand_obj = ObjectRegistry.create("sand", x, y)
-                        self.add_object(sand_obj)
+        if ObjectRegistry.get("sand") is None:
+            return
+        for y in range(self.height):
+            for x in range(self.width):
+                tile = self.tiles[y][x]
+                if tile.terrain_type == TerrainType.SAND:
+                    sand_obj = ObjectRegistry.create("sand", x, y)
+                    self.add_object(sand_obj)
+
+    def _generate_terrain_heightmap(
+        self,
+        rock_ratio: float,
+        water_ratio: float,
+        sand_ratio: float,
+        fertility_range: Tuple[float, float],
+        moisture_range: Tuple[float, float],
+    ) -> None:
+        """
+        Generate coherent terrain from an elevation heightmap (W2).
+
+        Produces mountains (high elevation → rock), rivers that flow downhill
+        into basins, and biomes (soil/sand) derived from a geography-driven
+        moisture field — with fertile river corridors. Elevation is stored on
+        every tile. See ``world/terrain_generation.py``.
+
+        Args:
+            rock_ratio: Fraction of highest tiles that become mountain rock
+            water_ratio: Total water fraction (lakes + rivers)
+            sand_ratio: Fraction of the driest remaining land → desert sand
+            fertility_range: Min/max fertility for generated land
+            moisture_range: Min/max moisture for generated land
+        """
+        from world.terrain_generation import HeightmapConfig, generate_terrain
+
+        hc = self.heightmap_config
+        cfg = HeightmapConfig(
+            feature_scale=int(hc.get("feature_scale", 12)),
+            octaves=int(hc.get("octaves", 4)),
+            persistence=float(hc.get("persistence", 0.5)),
+            rock_ratio=rock_ratio,
+            water_ratio=water_ratio,
+            sand_ratio=sand_ratio,
+            river_sources=int(hc.get("river_sources", 6)),
+            fertility_range=tuple(fertility_range),
+            moisture_range=tuple(moisture_range),
+        )
+        result = generate_terrain(self.width, self.height, self.seed, cfg)
+        self.terrain_stats = result.stats
+
+        for y in range(self.height):
+            row = []
+            for x in range(self.width):
+                terrain_type = result.terrain[y][x]
+                fertility = float(result.fertility[y, x])
+                moisture = float(result.moisture[y, x])
+                elevation = float(result.elevation[y, x])
+                if terrain_type == TerrainType.ROCK:
+                    fertility = 0.0
+                elif terrain_type == TerrainType.WATER:
+                    moisture = 1.0
+                row.append(
+                    Tile(
+                        x,
+                        y,
+                        terrain_type,
+                        max(0.0, min(1.0, fertility)),
+                        max(0.0, min(1.0, moisture)),
+                        max(0.0, min(1.0, elevation)),
+                    )
+                )
+            self.tiles.append(row)
+
+        self._spawn_sand_objects()
 
     def get_tile(self, x: int, y: int) -> Optional[Tile]:
         """

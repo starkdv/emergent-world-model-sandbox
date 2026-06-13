@@ -95,14 +95,20 @@ class Tile:
 
 | Type | Ratio | Plantable | Properties |
 |------|-------|-----------|------------|
-| **Soil** | 65% | ✅ Yes | Variable fertility (0.3-1.0), moisture (0.2-0.8) |
+| **Soil** | ~69.5% | ✅ Yes | Variable fertility (0.3-1.0), moisture (0.2-0.8) |
 | **Rock** | 20% | ❌ No | Impassable, zero fertility, zero moisture |
 | **Water** | 10% | ❌ No | Zero fertility, maximum moisture (1.0); with the environment engine, adjacent soil recovers moisture (see W1) |
-| **Sand** | 5% | ⚠️ Barely | Passable; a spreading terrain hazard that clamps fertility/moisture and slows growth/germination 10× (see W0/B2) |
+| **Sand** | 0.5% | ⚠️ Barely | Passable; a spreading terrain hazard that clamps fertility/moisture and slows growth/germination 10× (see W0/B2) |
 
-> The default terrain mix is now soil 0.65 / rock 0.20 / water 0.10 /
-> sand 0.05 (`terrain.*_ratio` in config). Sand is a built-in
+> The default terrain mix is soil 0.695 / rock 0.20 / water 0.10 /
+> sand 0.005 (`terrain.*_ratio` in config). Sand is a built-in
 > `TileEffectSpec` object, not a bare terrain enum.
+>
+> **Elevation (W2):** every tile also has an `elevation` field (0–1). The
+> default `legacy` generator leaves it flat at 0.0; the opt-in `heightmap`
+> generator (`terrain.generator: heightmap`) fills it with a real surface so
+> mountains, downhill rivers, and biomes emerge and uphill movement costs
+> energy. See the [World Upgrade](#world-upgrade-w0w1--june-2026) section.
 
 ### Entity-Component System (ECS)
 
@@ -1159,12 +1165,18 @@ world:
 ### Terrain Settings
 ```yaml
 terrain:
-  soil_ratio: 0.65             # 65% soil tiles
+  soil_ratio: 0.695            # plantable soil tiles
   rock_ratio: 0.2              # 20% rock tiles
   water_ratio: 0.1             # 10% water tiles
-  sand_ratio: 0.05             # 5% sand tiles (spreading hazard)
+  sand_ratio: 0.005            # sand tiles (spreading hazard)
   fertility_range: [0.3, 1.0]  # Initial soil fertility
   moisture_range: [0.2, 0.8]   # Initial soil moisture
+  generator: legacy            # legacy (flat shuffle) | heightmap (W2: elevation, rivers, biomes)
+  heightmap:                   # tunables used only when generator: heightmap
+    feature_scale: 12          # coarse-noise cell size (bigger = smoother)
+    octaves: 4                 # layered noise detail levels
+    persistence: 0.5           # amplitude falloff per octave
+    river_sources: 6           # downhill rivers traced from the peaks
 ```
 
 ### Plant Settings
@@ -1765,6 +1777,31 @@ Consumption points: plant growth × light × temp window; germination × temp
 window; food production × light; freshness decay × (0.5 + temperature);
 agent metabolism × (1 + coef·2·|temp − 0.5|) in both serial and parallel
 paths; soil moisture via the weather-driven evaporation/recovery model.
+
+### W2 — Living terrain (heightmap, mountains, rivers, biomes)
+
+The legacy generator scatters terrain by uniform random shuffle — no
+elevation, no rivers, no biomes. W2 adds an **elevation-first** generator
+(`terrain.generator: heightmap`, `world/terrain_generation.py`) built on
+pure-NumPy fractal value-noise (no new dependencies). It is opt-in; the
+legacy flat generator stays the default.
+
+- **Elevation** is now a first-class per-tile field (`tile.elevation`, 0–1).
+  Legacy leaves it flat at 0.0 (bit-compatible); it is **not** in the agent
+  observation yet (reserved for the W4 genome break).
+- **Mountains**: the highest `rock_ratio` of tiles become rock ridges.
+- **Rivers**: water settles into the lowest basins (lakes), then rivers are
+  traced by **steepest descent from the peaks** into water/edges (within the
+  water budget) — they connect high→low.
+- **Biomes & corridors**: a moisture field is derived from elevation + BFS
+  distance to water; the driest land becomes desert **sand**; **fertility is
+  highest in river corridors**.
+- **Slope movement cost**: moving uphill costs extra energy proportional to
+  the elevation climbed (flat terrain unchanged).
+- **Tooling**: `python scripts/terrain.py preview --seed N` renders a seed's
+  world as ASCII (terrain or raw height field).
+- *Deferred to a later W2 increment:* per-tick moisture diffusion, slow
+  erosion, and 3×3 nutrient return.
 
 ### Verified dynamics-bug fixes
 

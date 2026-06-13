@@ -359,6 +359,8 @@ Examples:
             sand_ratio=terrain_cfg.get("sand_ratio", 0.05),
             fertility_range=tuple(terrain_cfg["fertility_range"]),
             moisture_range=tuple(terrain_cfg["moisture_range"]),
+            terrain_generator=terrain_cfg.get("generator", "legacy"),
+            heightmap_config=terrain_cfg.get("heightmap", None),
             # System configuration parameters
             plant_mature_age=plant_cfg["mature_age"],
             plant_max_age=plant_cfg["max_age"],

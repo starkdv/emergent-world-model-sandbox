@@ -53,6 +53,7 @@ class Tile:
         terrain_type: TerrainType,
         fertility: float = 0.5,
         moisture: float = 0.5,
+        elevation: float = 0.0,
     ):
         """
         Initialize a tile with position and properties.
@@ -63,20 +64,28 @@ class Tile:
             terrain_type: Type of terrain for this tile
             fertility: Initial fertility level (0.0-1.0)
             moisture: Initial moisture level (0.0-1.0)
+            elevation: Height of the tile (0.0-1.0). 0.0 = flat default used
+                by the legacy generator (keeps it bit-compatible); the
+                heightmap generator (W2) fills this with a real surface so
+                water flows downhill and slopes cost movement energy.
 
         Raises:
-            ValueError: If fertility or moisture is outside [0.0, 1.0] range
+            ValueError: If fertility, moisture, or elevation is outside
+                the [0.0, 1.0] range
         """
         if not 0.0 <= fertility <= 1.0:
             raise ValueError(f"Fertility must be between 0.0 and 1.0, got {fertility}")
         if not 0.0 <= moisture <= 1.0:
             raise ValueError(f"Moisture must be between 0.0 and 1.0, got {moisture}")
+        if not 0.0 <= elevation <= 1.0:
+            raise ValueError(f"Elevation must be between 0.0 and 1.0, got {elevation}")
 
         self.x = x
         self.y = y
         self.terrain_type = terrain_type
         self.fertility = fertility
         self.moisture = moisture
+        self.elevation = elevation
         self.object_ids: Set[int] = set()
 
     def add_object(self, object_id: int) -> None:
@@ -139,5 +148,6 @@ class Tile:
         """String representation of the tile."""
         return (
             f"Tile(x={self.x}, y={self.y}, terrain={self.terrain_type.value}, "
-            f"fertility={self.fertility:.2f}, moisture={self.moisture:.2f})"
+            f"fertility={self.fertility:.2f}, moisture={self.moisture:.2f}, "
+            f"elevation={self.elevation:.2f})"
         )

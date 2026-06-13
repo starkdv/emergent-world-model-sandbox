@@ -156,6 +156,7 @@ can be run as a controlled experiment. Quick map:
 | 7 | Latent planner | `brain.world_model.planner.enabled` | off | world model |
 | 8 | Dream evolution | `python scripts/dream_evolve.py` | — | torch + `--world-model-log` data |
 | 9 | Environment engine | `environment.enabled` | off | — |
+| 10 | Terrain generator | `terrain.generator: legacy\|heightmap` | `legacy` | — |
 
 All YAML keys live in `config/default.yaml` (heavily commented). CLI flags
 override config.
@@ -316,6 +317,31 @@ scripts the agents, but day/night rhythms, seasonal scarcity, and
 weather shocks become real pressures their brains can discover and
 exploit. Disabled (the default), every multiplier is exactly 1.0 and
 the simulation is bit-compatible with the pre-upgrade baseline.
+
+### 10. Terrain generator — `legacy` vs `heightmap`
+
+**Enable:** `terrain.generator: heightmap` in `config/default.yaml`
+(with an optional `terrain.heightmap:` block of tunables).
+**Prerequisites:** none (pure NumPy; works in every mode).
+**What happens:** instead of the legacy uniform random shuffle, terrain is
+built from an **elevation heightmap**: the high ground becomes mountain
+**rock**, water settles into basins and **flows downhill into rivers**
+(steepest-descent tracing from the peaks), and soil/desert-**sand** fall out
+of a geography-driven moisture field — with **fertile river corridors**.
+Elevation becomes a first-class per-tile field, so **moving uphill costs
+extra energy** (slope cost). The rock/water/sand ratios you already set are
+honoured via elevation quantiles. Elevation is *not* in the agent
+observation yet (that genome break is reserved for a later phase), so old
+genomes run unchanged; `legacy` (the default) keeps the flat world exactly
+as before.
+
+Preview any seed as ASCII before running a simulation:
+
+```bash
+python scripts/terrain.py preview --seed 42                  # terrain map
+python scripts/terrain.py preview --seed 42 --elevation      # height field (0–9)
+python scripts/terrain.py preview --config config/default.yaml
+```
 
 ### Supporting flags & settings
 
@@ -613,12 +639,17 @@ drive a day/night/seasonal/weather climate. Every parameter below lives in
 | `world.resource_spawn_rate` | 0.01 | Safety-net berry spawn probability when food is depleted |
 | `world.allow_stacking` | false | If false, one object per tile (overflow placed nearby) |
 | `world.seed` | null | RNG seed (null = random each run) |
-| `terrain.soil_ratio` | 0.65 | Fraction of plantable soil tiles |
+| `terrain.soil_ratio` | 0.695 | Fraction of plantable soil tiles |
 | `terrain.rock_ratio` | 0.20 | Impassable rock (blocks movement) |
 | `terrain.water_ratio` | 0.10 | Water (not plantable; feeds moisture to adjacent soil when the environment engine is on) |
-| `terrain.sand_ratio` | 0.05 | Spreading hazard that slows growth/germination 10× |
+| `terrain.sand_ratio` | 0.005 | Spreading hazard that slows growth/germination 10× |
 | `terrain.fertility_range` | [0.3, 1.0] | Initial fertility drawn per soil tile |
 | `terrain.moisture_range` | [0.2, 0.8] | Initial moisture drawn per soil tile |
+| `terrain.generator` | legacy | `legacy` (uniform shuffle, flat) or `heightmap` (elevation: mountains, rivers, biomes, slope cost — see [mode #10](#10-terrain-generator--legacy-vs-heightmap)) |
+| `terrain.heightmap.feature_scale` | 12 | Heightmap: coarse-noise cell size (bigger = smoother, broader features) |
+| `terrain.heightmap.octaves` | 4 | Heightmap: layered noise detail levels |
+| `terrain.heightmap.persistence` | 0.5 | Heightmap: amplitude falloff per octave (lower = smoother) |
+| `terrain.heightmap.river_sources` | 6 | Heightmap: how many downhill rivers to trace from the peaks |
 
 ### Plants & seeds (`plants:`)
 

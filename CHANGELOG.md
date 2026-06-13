@@ -1,8 +1,49 @@
 # Changelog
 
-## [Unreleased] — World upgrade, Phases W0–W1
+## [Unreleased] — World upgrade, Phases W0–W2
 
 Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
+
+### Phase W2 — Living terrain: heightmap, mountains, rivers, biomes (opt-in)
+
+**In simple terms:** terrain used to be a uniform random shuffle — no
+elevation, no rivers, no biomes; just scattered tiles. W2 adds an
+elevation-first generator: a smooth height surface where the high ground
+becomes mountains, water settles in basins and **flows downhill into
+rivers**, and soil/sand fall out of a geography-driven moisture field with
+**fertile river corridors**. It is opt-in (`terrain.generator: heightmap`);
+the legacy flat generator stays the default and is unchanged.
+
+- **New `world/terrain_generation.py`**: pure-NumPy fractal value-noise
+  elevation (no new dependencies); mountains = the highest `rock_ratio` of
+  tiles; lakes settle in the lowest basins; **rivers** are traced by
+  steepest descent from the peaks into water/edges (within the water
+  budget); a moisture field is derived from elevation + BFS distance to
+  water; the driest land becomes desert **sand**; **fertility is highest in
+  river corridors**. Fully deterministic for a given (width, height, seed).
+- **Elevation is now a first-class tile field** (`tile.elevation`, [0,1]).
+  The legacy generator leaves it at 0.0 (flat), so existing worlds are
+  bit-compatible. It is **not** added to the agent observation yet — that
+  genome break is reserved for W4 (Observation v2).
+- **Slope movement cost**: moving uphill costs extra energy proportional to
+  the elevation climbed (`SLOPE_CLIMB_COST`); flat terrain is unchanged, so
+  movement is identical under the legacy generator.
+- **Config** (`terrain:` in `config/default.yaml`): `generator:
+  legacy|heightmap` plus a `heightmap:` block (`feature_scale`, `octaves`,
+  `persistence`, `river_sources`). The existing rock/water/sand ratios are
+  reused by the heightmap generator (honoured via elevation/moisture
+  quantiles).
+- **New `scripts/terrain.py preview`**: one-second ASCII preview of a seed's
+  world (terrain or raw height field) before running a full simulation.
+- **Tests**: 15 new in `tests/test_terrain_generation.py` (elevation range/
+  smoothness/determinism, mountains-high/water-low, downhill rivers,
+  spatial coherence, fertile corridors, World integration, legacy flatness,
+  slope cost). End-to-end heightmap run verified through `main.py`. Full
+  suite: 396 passing.
+- **Deferred to a later W2 increment** (noted in the proposal): per-tick
+  moisture diffusion, slow erosion, and 3×3 nutrient return. The current
+  increment delivers the headline geography (mountains/rivers/biomes,
+  elevation, slope cost) and meets the W2 acceptance criteria.
 
 ### Bug B5 fixed — runaway plant/food accumulation (plant carrying capacity)
 
