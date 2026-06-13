@@ -171,11 +171,22 @@ def cmd_preview(path: str) -> int:
                 if d.physics.decay_rate > 0
                 else "∞ (no decay)"
             )
-            print(
-                f"  EAT: +{d.edible.calories} energy × freshness"
-                + (f", toxicity {d.edible.toxicity}" if d.edible.toxicity else "")
-                + f" | spoils in ~{life} ticks"
-            )
+            # Net energy when fresh: calories − toxicity × TOXICITY_DAMAGE (W3)
+            from utils.agents.agent_utils import TOXICITY_DAMAGE
+
+            net_fresh = d.edible.calories - d.edible.toxicity * TOXICITY_DAMAGE
+            if d.edible.toxicity:
+                print(
+                    f"  EAT: +{d.edible.calories} cal − {d.edible.toxicity} toxicity "
+                    f"→ net {net_fresh:+.1f} energy when fresh"
+                    + ("  ⚠ POISON (net loss)" if net_fresh < 0 else "")
+                    + f" | spoils in ~{life} ticks"
+                )
+            else:
+                print(
+                    f"  EAT: +{d.edible.calories} energy × freshness"
+                    f" | spoils in ~{life} ticks"
+                )
             if d.physics.decompose_into:
                 print(
                     f"  on full decay: {d.physics.decompose_chance:.0%} chance "

@@ -1,0 +1,97 @@
+# =========================================================================
+# Ecology pack (World upgrade W3) — multiple food species + a toxic look-alike
+# =========================================================================
+#
+#   python scripts/objects.py validate config/ecology.yaml   # check it
+#   python scripts/objects.py preview  config/ecology.yaml   # see behaviour
+#   python main.py --gui --objects config/ecology.yaml       # run it
+#
+# Three real food species with distinct nutrition (so v3's attention has
+# something to discriminate on), plus a poisonous look-alike that is the
+# first real *discrimination task*: nothing labels it "bad" — the agent must
+# learn from the energy hit (toxicity is wired into EAT in W3).
+#
+#   shrub_berry  fast,  cheap   (+10 energy)   — the abundant weed
+#   tree_fruit   slow,  rich    (+45 energy)   — worth the wait
+#   nightshade   looks edible, NET NEGATIVE    — the poison to avoid
+#
+# Every type has a distinct vision_encoding (foods 0.86–1.0, plants
+# 0.70–0.80, seeds 0.50–0.55 — all ≥0.04 apart, well clear of the builtins).
+# `extends:` inherits a builtin so each species is a handful of lines.
+# =========================================================================
+
+objects:
+
+  # ---- Fast, low-calorie shrub (abundant, quick-cycling "weed") ----
+  shrub_berry:
+    extends: berry
+    display_name: "Shrub Berry"
+    edible: { calories: 10.0 }
+    physics:
+      { decay_rate: 0.02, decompose_into: "shrub_seed", decompose_chance: 0.6,
+        nutrient_return: 0.1 }
+    observation: { vision_encoding: 0.90 }
+    render: { char: "v", color: [60, 200, 90] }
+
+  shrub_seed:
+    extends: berry_seed
+    display_name: "Shrub Seed"
+    seed:
+      { grows_into: "shrub", grow_time: 30, required_fertility: 0.25,
+        required_moisture: 0.15, max_age: 150 }
+    observation: { vision_encoding: 0.55 }
+    render: { char: ",", color: [120, 180, 120] }
+    spawn: { initial_count: 10, terrain: "plantable" }
+
+  shrub:
+    extends: berry_plant
+    display_name: "Shrub"
+    plant: { mature_age: 50, max_age: 300, produces: "shrub_berry", spawn_rate: 0.15 }
+    observation: { vision_encoding: 0.70 }
+    render: { char: "w", color: [80, 170, 80] }
+    spawn: { initial_count: 12, terrain: "plantable" }
+
+  # ---- Slow, high-calorie fruit tree (rich reward, long maturation) ----
+  tree_fruit:
+    extends: berry
+    display_name: "Tree Fruit"
+    edible: { calories: 45.0 }
+    physics:
+      { decay_rate: 0.006, decompose_into: "tree_seed", decompose_chance: 0.7,
+        nutrient_return: 0.2 }
+    observation: { vision_encoding: 0.95 }
+    render: { char: "f", color: [230, 140, 30] }
+
+  tree_seed:
+    extends: berry_seed
+    display_name: "Tree Seed"
+    seed:
+      { grows_into: "fruit_tree", grow_time: 120, required_fertility: 0.45,
+        required_moisture: 0.35, max_age: 400 }
+    observation: { vision_encoding: 0.50 }
+    render: { char: ".", color: [150, 100, 40] }
+    spawn: { initial_count: 5, terrain: "plantable" }
+
+  fruit_tree:
+    extends: berry_plant
+    display_name: "Fruit Tree"
+    plant: { mature_age: 300, max_age: 2000, produces: "tree_fruit", spawn_rate: 0.04 }
+    physics: { nutrient_return: 0.25 }
+    observation: { vision_encoding: 0.80 }
+    render: { char: "Y", color: [0, 110, 0] }
+    spawn: { initial_count: 4, terrain: "plantable" }
+
+  # ---- Toxic look-alike: the discrimination task ----
+  # Edible with decent calories, BUT toxicity makes the net energy negative
+  # (calories 12 − toxicity 0.7 × 30 = net −9 when fresh). Nothing flags it —
+  # the agent must learn to avoid it from the energy hit alone.
+  nightshade:
+    extends: berry
+    display_name: "Nightshade Berry"
+    edible: { calories: 12.0, toxicity: 0.7 }
+    physics:
+      { decay_rate: 0.004, decompose_into: "", decompose_chance: 0.0,
+        nutrient_return: 0.05 }
+    observation: { vision_encoding: 0.86 }
+    render: { char: "x", color: [90, 0, 120] }
+    spawn: { initial_count: 8, terrain: "soil", respawn_rate: 0.01, max_count: 12 }

@@ -26,6 +26,24 @@ def _get_object_type(obj) -> str:
     return ObjectRegistry.get_category(obj)
 
 
+def _tile_contact_damage(world: "World", x: int, y: int) -> float:
+    """Total contact damage from hazard objects on a tile (W3, e.g. thorns)."""
+    from world.object_registry import ObjectRegistry
+
+    tile = world.tiles[y][x]
+    if not tile.object_ids:
+        return 0.0
+    total = 0.0
+    for obj_id in tile.object_ids:
+        obj = world.objects.get(obj_id)
+        if obj is None:
+            continue
+        defn = ObjectRegistry.get(getattr(obj, "type_id", ""))
+        if defn is not None and defn.tile_effect is not None:
+            total += max(0.0, defn.tile_effect.contact_damage)
+    return total
+
+
 def get_action_mask(agent: "Agent", world: "World") -> np.ndarray:
     """
     Create binary mask over actions (1 = valid, 0 = invalid).
@@ -201,6 +219,19 @@ def execute_move_forward(agent: "Agent", world: "World") -> ActionResult:
     # Move agent
     agent.x = new_x
     agent.y = new_y
+
+    # Contact hazard (W3): stepping onto a tile with a damaging object (e.g.
+    # thorns) costs extra energy. Folded into the move's energy_cost so it
+    # flows through the normal energy/reward path. Harmless tiles → 0.
+    damage = _tile_contact_damage(world, new_x, new_y)
+    if damage > 0.0:
+        energy_cost += damage
+        return ActionResult(
+            True,
+            round(energy_cost, 3),
+            f"Moved onto hazard (−{damage:.1f} energy)",
+        )
+
     return ActionResult(True, round(energy_cost, 3), "Moved forward")
 
 
@@ -351,8 +382,23 @@ def execute_drop(agent: "Agent", world: "World") -> ActionResult:
     return ActionResult(False, 0.05, "No space to drop (tile occupied)")
 
 
+# Energy lost when eating, per unit of (toxicity × freshness). Tuned so a
+# fully-toxic, fully-fresh food (toxicity 1.0) inflicts a large loss — enough
+# that a low-calorie poison is net-negative and a discrimination pressure
+# emerges (W3). Non-toxic food (toxicity 0.0) is unaffected → bit-compatible.
+TOXICITY_DAMAGE = 30.0
+
+
 def execute_eat(agent: "Agent", world: "World") -> ActionResult:
-    """Consume edible object from inventory."""
+    """Consume edible object from inventory.
+
+    Net energy = calories × freshness − toxicity × freshness × TOXICITY_DAMAGE
+    (W3): the dormant toxicity field is now a real physical consequence, so
+    poisonous food can cost more energy than it gives. Nothing labels a food
+    "good" or "bad" — the agent must discover it through the energy/survival
+    signal (guideline §8). ``object_type`` records the eaten *species* so the
+    analyzer can break consumption down per species.
+    """
     from world.objects import EdibleComponent
 
     if not agent.inventory:
@@ -366,23 +412,36 @@ def execute_eat(agent: "Agent", world: "World") -> ActionResult:
 
         edible = obj.get_component(EdibleComponent)
         if edible is not None:
-            # Consume the food
-            energy_gained = edible.calories * edible.freshness
-            agent.energy = min(agent.max_energy, agent.energy + energy_gained)
+            # Net energy: calories minus a toxicity penalty (W3)
+            gain = edible.calories * edible.freshness
+            toxic_loss = edible.toxicity * edible.freshness * TOXICITY_DAMAGE
+            energy_delta = gain - toxic_loss
+            # Cap at max energy; net loss can drive energy below 0 (the death
+            # check handles fatal poisoning on the next tick).
+            agent.energy = min(agent.max_energy, agent.energy + energy_delta)
 
             # Remove from inventory and world
             agent.inventory.remove(obj_id)
             world.remove_object(obj_id)
 
-            # Fitness reward for eating
-            agent.fitness += energy_gained * 0.1
+            # Fitness tracks the realised energy outcome (poison hurts)
+            agent.fitness += energy_delta * 0.1
+
+            species = getattr(obj, "type_id", "") or "food"
+            if toxic_loss > 0:
+                msg = (
+                    f"Ate {species} {obj_id}: +{gain:.1f} −{toxic_loss:.1f} "
+                    f"toxic = {energy_delta:+.1f} energy"
+                )
+            else:
+                msg = f"Ate {species} {obj_id}, gained {energy_delta:.1f} energy"
 
             return ActionResult(
                 True,
                 0.1,
-                f"Ate food {obj_id}, gained {energy_gained:.1f} energy",
+                msg,
                 object_id=obj_id,
-                object_type="food",
+                object_type=species,
                 target_x=agent.x,
                 target_y=agent.y,
                 interaction_kind="eat",

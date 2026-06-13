@@ -516,6 +516,42 @@ def _compute_efficiency_metrics(df: pd.DataFrame) -> dict:
     }
 
 
+def _compute_species_consumption(df: pd.DataFrame) -> dict:
+    """
+    Per-species consumption (W3). Successful EAT rows record the eaten
+    species in ``object_type``; this groups them so multi-species worlds and
+    the toxic-food discrimination task are measurable.
+
+    Reports, per species: number eaten, mean net energy gained (negative for
+    a poison), and a crude "preference" share of all eats. With the energy
+    columns present it also flags toxic species (mean net energy < 0).
+    """
+    eats = df[(df["action"] == "EAT") & (df["success"] == True)]  # noqa: E712
+    if len(eats) == 0:
+        return {"total_eats": 0, "by_species": []}
+
+    has_energy = "energy_before" in df.columns and "energy_after" in df.columns
+    total = len(eats)
+    rows = []
+    for species, g in eats.groupby(eats["object_type"].fillna("").replace("", "food")):
+        count = len(g)
+        mean_net = None
+        if has_energy:
+            net = g["energy_after"] - g["energy_before"] + g.get("energy_cost", 0)
+            mean_net = float(net.mean())
+        rows.append(
+            {
+                "species": str(species),
+                "eaten": count,
+                "share_pct": round(100.0 * count / total, 1),
+                "mean_net_energy": round(mean_net, 2) if mean_net is not None else None,
+                "toxic": (mean_net is not None and mean_net < 0),
+            }
+        )
+    rows.sort(key=lambda r: r["eaten"], reverse=True)
+    return {"total_eats": total, "distinct_species": len(rows), "by_species": rows}
+
+
 def _compute_action_sequences(df: pd.DataFrame, top_n: int = 10) -> dict:
     """Most common 2-gram and 3-gram action sequences."""
     from collections import Counter
@@ -926,6 +962,25 @@ if farm_m:
     print(f"  Food picked up:         {farm_m['total_food_pickups']}")
     print(f"  Food eaten:             {farm_m['total_eats']}")
     print(f"  Food pickups per eat:   {farm_m['food_per_eat']:.2f}")
+
+# ── NEW: PER-SPECIES CONSUMPTION (W3) ────────────────────────────────
+
+species_m = _compute_species_consumption(df)
+if species_m.get("by_species"):
+    print("\n🍽️  PER-SPECIES CONSUMPTION")
+    print(f"  Distinct species eaten: {species_m.get('distinct_species', 0)}")
+    print(f"  {'species':<16}{'eaten':>8}{'share':>8}{'net energy':>12}  note")
+    for r in species_m["by_species"]:
+        net = (
+            f"{r['mean_net_energy']:+.1f}"
+            if r["mean_net_energy"] is not None
+            else "   n/a"
+        )
+        note = "⚠ toxic (net loss)" if r["toxic"] else ""
+        print(
+            f"  {r['species']:<16}{r['eaten']:>8}{r['share_pct']:>7.1f}%"
+            f"{net:>12}  {note}"
+        )
 
 # ── NEW: BEHAVIORAL DIVERSITY ────────────────────────────────────────
 

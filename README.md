@@ -157,6 +157,8 @@ can be run as a controlled experiment. Quick map:
 | 8 | Dream evolution | `python scripts/dream_evolve.py` | — | torch + `--world-model-log` data |
 | 9 | Environment engine | `environment.enabled` | off | — |
 | 10 | Terrain generator | `terrain.generator: legacy\|heightmap` | `legacy` | — |
+| 11 | Wildfire | `fire.enabled` | off | — (hotter/drier = more fire) |
+| 12 | Ecology species pack | `--objects config/ecology.yaml` | — | — |
 
 All YAML keys live in `config/default.yaml` (heavily commented). CLI flags
 override config.
@@ -341,6 +343,43 @@ Preview any seed as ASCII before running a simulation:
 python scripts/terrain.py preview --seed 42                  # terrain map
 python scripts/terrain.py preview --seed 42 --elevation      # height field (0–9)
 python scripts/terrain.py preview --config config/default.yaml
+```
+
+### 11. Wildfire — `fire.enabled`
+
+**Enable:** `fire.enabled: true` in `config/default.yaml` (tunables under
+`fire:`). Most dramatic with the environment engine on and a warm
+`base_temperature`.
+**Prerequisites:** none (reads the W1 climate if present; otherwise uses a
+moderate constant heat).
+**What happens:** plants on **hot, dry** tiles can ignite; fire spreads to
+adjacent plants and burns them out, returning ash (fertility) to the soil.
+Heat comes from `environment.temperature` and dryness from each tile's
+moisture, so fire is rare in the wet/cold and dangerous in the hot/dry — and
+it **self-extinguishes at water/wet boundaries** (a damp strip of vegetation
+is a firebreak). This is a real, learnable disturbance rather than the blunt
+periodic calamity. Disabled (default) → no-op.
+
+### 12. Ecology species pack — `--objects config/ecology.yaml`
+
+**Enable:** `python main.py --objects config/ecology.yaml` (combine with any
+mode/renderer).
+**Prerequisites:** none.
+**What happens:** the single-berry food web becomes an ecology with
+trade-offs: a fast/cheap **shrub berry** (+10 energy), a slow/rich **tree
+fruit** (+45), and a **nightshade** look-alike that is *net-negative* to eat.
+Toxicity is now a real physical consequence of EAT (net energy =
+`calories × freshness − toxicity × freshness × 30`), so the nightshade is the
+first **discrimination task**: nothing flags it as poison — agents must learn
+to avoid it from the energy hit. Each species has a distinct `vision_encoding`
+so the v3 attention brain can tell them apart, and `scripts/analyze_logs.py`
+reports **per-species consumption** (with a toxic flag) so preference and
+poison-avoidance are measurable. Built-in **thorns** (`contact_damage`) add a
+crossable-but-costly terrain hazard. Validate/preview any pack first:
+
+```bash
+python scripts/objects.py validate config/ecology.yaml
+python scripts/objects.py preview  config/ecology.yaml   # shows net energy + ⚠ POISON
 ```
 
 ### Supporting flags & settings
@@ -739,6 +778,29 @@ effect description.
 | `calamity.interval` | 500 | Ticks between calamities |
 | `calamity.destruction_rate` | 0.70 | Fraction of targeted objects destroyed each event |
 | `calamity.affect_plants` / `affect_food` / `affect_seeds` | true / true / false | What a calamity destroys (seeds preserved by default for recovery) |
+
+### Wildfire (`fire:`) — W3, opt-in
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `fire.enabled` | false | Master switch (no-op when off) |
+| `fire.ignite_chance` | 0.0004 | Base per-tick chance a hot, dry plant ignites |
+| `fire.spread_chance` | 0.30 | Per-tick chance a burning plant ignites an adjacent plant |
+| `fire.burn_duration` | 6 | Ticks a plant burns before it is consumed |
+| `fire.moisture_threshold` | 0.4 | Tile moisture above this is a firebreak (won't ignite/spread) |
+| `fire.nutrient_return` | 0.25 | Fertility (ash) returned to a burned tile |
+
+> Ignition/spread scale with heat (`environment.temperature`) and dryness
+> (tile moisture), so fire needs the environment engine (or a warm constant)
+> to be common. See [mode #11](#11-wildfire--fireenabled).
+
+### Edible / toxicity (per-object, W3)
+
+Edible objects (built-ins and custom) carry `edible.calories`,
+`edible.toxicity`, and `edible.freshness`. Eating yields **net energy =
+`calories × freshness − toxicity × freshness × 30`** — so a toxic food can be
+net-negative. Set `toxicity` on any food (e.g. in a `--objects` pack) to
+create a discrimination task. See [mode #12](#12-ecology-species-pack--objects-configecologyyaml).
 
 ## Custom Objects
 

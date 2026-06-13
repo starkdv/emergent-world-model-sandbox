@@ -352,24 +352,32 @@ class RewardShaper:
                 # Reset failed eat counter on success
                 self.consecutive_failed_eats = 0
 
-                # Base eating reward
-                reward += 5.0
-
-                # ENERGY-LEVEL MULTIPLIER for eating
-                energy_ratio = energy_before / agent.max_energy
-
-                if energy_ratio < 0.2:  # Critical (red) - HUGE reward
-                    reward += 20.0
-                elif energy_ratio < 0.4:  # Low (orange/red)
-                    reward += 15.0
-                elif energy_ratio < 0.6:  # Medium (yellow)
-                    reward += 10.0
-                elif energy_ratio < 0.8:  # Good (green)
+                # The eating bonuses are keyed off the *realised* energy gain,
+                # not the food's identity: a successful eat that nets energy is
+                # rewarded; eating something that nets zero/negative energy
+                # (e.g. a toxic food, W3) only gets the proportional energy
+                # term — which is negative — so the discrimination pressure is
+                # emergent, never a scripted "poison = bad" rule (guideline §8).
+                if energy_gain > 0:
+                    # Base eating reward
                     reward += 5.0
-                else:  # Full - still reward but less
-                    reward += 2.0
 
-                # Additional reward proportional to energy gained
+                    # ENERGY-LEVEL MULTIPLIER for eating
+                    energy_ratio = energy_before / agent.max_energy
+
+                    if energy_ratio < 0.2:  # Critical (red) - HUGE reward
+                        reward += 20.0
+                    elif energy_ratio < 0.4:  # Low (orange/red)
+                        reward += 15.0
+                    elif energy_ratio < 0.6:  # Medium (yellow)
+                        reward += 10.0
+                    elif energy_ratio < 0.8:  # Good (green)
+                        reward += 5.0
+                    else:  # Full - still reward but less
+                        reward += 2.0
+
+                # Additional reward proportional to energy gained (negative
+                # when the food was a net loss)
                 reward += energy_gain * 0.2
             else:
                 # FAILED EAT - Track and heavily penalize spam

@@ -1,8 +1,47 @@
 # Changelog
 
-## [Unreleased] — World upgrade, Phases W0–W2
+## [Unreleased] — World upgrade, Phases W0–W3
 
 Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
+
+### Phase W3 — Ecology & hazards: toxicity, species, thorns, wildfire
+
+**In simple terms:** the world had one food and one viable strategy. W3 adds
+real ecological trade-offs and disturbances — multiple food species, a
+poisonous look-alike you must learn to avoid, thorn hazards, and wildfire —
+mostly as data on the W0 registry plus three small mechanics. The default
+world is unchanged; the new content is opt-in or shipped as a loadable pack.
+
+- **Toxicity wired into EAT.** The dormant `toxicity` field is now a physical
+  consequence: net energy = `calories × freshness − toxicity × freshness ×
+  30` (`TOXICITY_DAMAGE`). Poisonous food can cost more energy than it gives
+  and can be fatal. Nothing labels a food good/bad — the agent discovers it
+  from the energy/survival signal (`guideline.md` §8). EAT now records the
+  eaten **species** in the action log, and the reward shaper only pays the
+  survival bonus when the eat actually netted energy (poison is never
+  rewarded — emergent discrimination, not a scripted rule).
+- **Food species pack** — new `config/ecology.yaml` (load with `--objects`):
+  a fast/cheap **shrub berry** (+10), a slow/rich **tree fruit** (+45), and a
+  net-negative **nightshade** look-alike (the discrimination task), each with
+  a distinct `vision_encoding`. Built with W0 `extends:` (a few lines each).
+- **Contact hazards** — new `TileEffectSpec.contact_damage` field and a
+  built-in **thorns** object that costs energy to step onto (a pressure, not
+  a wall), applied through the normal movement energy/reward path.
+- **Wildfire** — new `FireSystem` (opt-in `fire.enabled`). Plants on hot, dry
+  tiles ignite (heat from the W1 `environment.temperature`, dryness from tile
+  moisture), fire spreads to adjacent plants and burns them out (returning
+  ash/fertility), and it **self-extinguishes at water/wet boundaries**. The
+  dramatic, learnable disturbance the blunt calamity never was. Disabled =
+  no-op. New `fire:` config block.
+- **Analyzer** — `scripts/analyze_logs.py` gains a per-species consumption
+  section (counts, share, mean net energy, toxic flag); `scripts/objects.py
+  preview` shows each food's net energy and flags poisons.
+- **Tests** — 14 new in `tests/test_ecology.py` (toxicity math, species
+  logging, poison-not-rewarded, thorns contact damage, fire ignite/spread/
+  self-extinguish/nutrient-return/disabled, and the ecology pack). Full
+  suite: 410 passing. End-to-end run verified with fire + ecology enabled.
+- *Deferred:* a dedicated invasive-species mechanic (the fast shrub already
+  fills that niche) and a flood event.
 
 ### Phase W2 — Living terrain: heightmap, mountains, rivers, biomes (opt-in)
 

@@ -848,8 +848,8 @@ class TestEdgeCases:
         register_builtin_objects()
         register_builtin_objects()
         assert (
-            len(ObjectRegistry.all_definitions()) == 5
-        )  # berry, berry_seed, berry_plant, fertilizer, sand
+            len(ObjectRegistry.all_definitions()) == 6
+        )  # berry, berry_seed, berry_plant, fertilizer, sand, thorns
 
     def test_create_at_zero_zero(self, builtins):
         obj = builtins.create("berry", 0, 0)

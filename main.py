@@ -361,6 +361,7 @@ Examples:
             moisture_range=tuple(terrain_cfg["moisture_range"]),
             terrain_generator=terrain_cfg.get("generator", "legacy"),
             heightmap_config=terrain_cfg.get("heightmap", None),
+            fire_config=config.get("fire", None),
             # System configuration parameters
             plant_mature_age=plant_cfg["mature_age"],
             plant_max_age=plant_cfg["max_age"],

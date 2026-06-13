@@ -194,6 +194,11 @@ toxicity: float    # Poison level (0.0 = safe)
 freshness: float   # Quality level, 1.0 = fresh, 0.0 = spoiled
 ```
 
+**Eating (W3 toxicity):** net energy = `calories × freshness − toxicity ×
+freshness × 30`. A non-toxic food (the default) gives `calories × freshness`
+exactly as before; a toxic food can be net-negative and even fatal. See the
+[World Upgrade](#world-upgrade-w0w1--june-2026) section.
+
 **Decay Mechanics:**
 - Freshness decreases by **0.01 per tick**
 - Takes **100 ticks** to completely spoil (1.0 → 0.0)
@@ -660,10 +665,14 @@ weather) are seen by everything downstream that tick.
 5. SoilDynamicsSystem     → Updates fertility/moisture (evaporation/recovery
                             model depends on environment.enabled)
 6. ResourceSpawnSystem    → Produces berries from mature plants (× light)
+7. FireSystem             → (W3, opt-in) ignite/spread/burn-out plants on hot,
+                            dry tiles; self-extinguishes at wet boundaries
 ```
 
 > Agent metabolism is also scaled by the environment temperature multiplier
 > (in both the serial and parallel agent paths) — extremes cost more energy.
+> Eating applies the W3 toxicity penalty, and stepping onto a hazard tile
+> (e.g. thorns, `contact_damage`) costs energy through the movement path.
 
 ### 1. PlantGrowthSystem
 
@@ -1279,6 +1288,24 @@ sand:
 > now sit **at** the thresholds, so sand is genuinely 10× harder, not a
 > dead zone.
 
+### Wildfire Settings (W3) — opt-in
+```yaml
+fire:
+  enabled: false             # Master switch (no-op when false)
+  ignite_chance: 0.0004      # Base per-tick ignition chance for a hot, dry plant
+  spread_chance: 0.30        # Per-tick chance a burning plant ignites a neighbour
+  burn_duration: 6           # Ticks a plant burns before it is consumed
+  moisture_threshold: 0.4    # Tile moisture above this = firebreak (won't ignite/spread)
+  nutrient_return: 0.25      # Fertility (ash) returned to a burned tile
+```
+
+> Fire reads the W1 climate: heat from `environment.temperature`, dryness
+> from each tile's moisture. It is rare in the wet/cold and dangerous in the
+> hot/dry, and **self-extinguishes** wherever moisture exceeds
+> `moisture_threshold`. Multi-species ecology (food trade-offs + a toxic
+> look-alike) ships in `config/ecology.yaml` — load it with
+> `--objects config/ecology.yaml`.
+
 ### Agent Settings
 ```yaml
 agents:
@@ -1802,6 +1829,44 @@ legacy flat generator stays the default.
   world as ASCII (terrain or raw height field).
 - *Deferred to a later W2 increment:* per-tick moisture diffusion, slow
   erosion, and 3×3 nutrient return.
+
+### W3 — Ecology & hazards (multi-species, toxicity, fire, thorns)
+
+W3 turns the one-food, one-strategy world into an ecology with real
+trade-offs and disturbances — mostly *data* on the W0 registry, plus three
+small mechanics. Everything new is opt-in or shipped as a loadable pack, so
+the default world is unchanged.
+
+- **Toxicity wired into EAT.** The long-dormant `toxicity` field is now a
+  physical consequence: net energy = `calories × freshness − toxicity ×
+  freshness × 30`. A poisonous food can cost more energy than it gives.
+  Nothing labels a food "good" or "bad" — agents must discover it through
+  the energy/survival signal (guideline §8). The eaten *species* is recorded
+  in the action log so consumption is measurable per species, and the reward
+  shaper only pays the survival bonus when the eat actually *netted* energy
+  (so poison is never rewarded — emergent discrimination, not a scripted
+  rule).
+- **Food species pack** (`config/ecology.yaml`, load with `--objects`): a
+  fast/cheap **shrub berry** (+10), a slow/rich **tree fruit** (+45), and a
+  **nightshade** look-alike that is net-negative (the first discrimination
+  task). Each has a distinct `vision_encoding` so v3's attention can tell
+  them apart. Built with W0 `extends:`, so each species is a few lines.
+- **Contact hazards (`contact_damage`).** A new `TileEffectSpec` field; the
+  built-in **thorns** object costs energy to step onto (a pressure, not a
+  wall — agents can cross it but learn to route around). Applied through the
+  normal movement energy/reward path.
+- **Wildfire (`FireSystem`, opt-in `fire.enabled`).** Plants on hot, dry
+  tiles ignite (heat from the W1 `environment.temperature`, dryness from
+  tile moisture), fire spreads to adjacent plants and burns them out,
+  returning ash (fertility) to the soil. It **self-extinguishes at water/wet
+  boundaries** — a damp strip of vegetation stops it dead — so fire is the
+  dramatic, learnable disturbance the blunt calamity never was. Disabled =
+  no-op.
+- **Analyzer**: `scripts/analyze_logs.py` gains a **per-species
+  consumption** section (counts, share, mean net energy, and a toxic flag),
+  so species preference and poison-avoidance are measurable.
+- *Deferred:* a dedicated invasive-species mechanic (the fast shrub already
+  fills that niche through sheer reproduction) and a flood event.
 
 ### Verified dynamics-bug fixes
 

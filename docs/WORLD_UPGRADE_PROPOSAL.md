@@ -2,7 +2,9 @@
 
 **Status:** In progress — W0 ✅ and W1 ✅ implemented (June 2026, see
 CHANGELOG); W2 partially implemented (heightmap/rivers/biomes/slope shipped;
-moisture diffusion + erosion deferred); W3–W6 remain proposals
+moisture diffusion + erosion deferred); W3 partially implemented (toxicity,
+species pack, thorns, wildfire shipped; invasive-species + flood deferred);
+W4–W6 remain proposals
 **Branch:** `claude/world-upgrade`
 **Scope:** `world/` (tiles, systems, world, object registry), `utils/agents/`
 (perception, reward shaping, action execution), `config/default.yaml`
@@ -278,12 +280,25 @@ slopes measurably shape movement; legacy flat generator still selectable.
 > stays single-tile). Elevation is deliberately **not** in the observation
 > vector yet — that is the W4 genome break.
 
-**W3 — Ecology & hazards (mostly data).**
+**W3 — Ecology & hazards (mostly data).
+🟡 PARTIALLY DONE (June 2026 — see CHANGELOG "Phase W3").**
 2–3 plant/food species (YAML), toxicity wired into EAT, invasive species,
 thorn hazards (`contact_damage`), `FireSystem`, flood event.
 *Acceptance:* analyzer shows per-species consumption; agents' species
 preference is measurable (the first discrimination result); fire spreads
 and self-extinguishes at water/moisture boundaries.
+
+> **Shipped (W3):** toxicity wired into EAT (net = calories − toxicity ×
+> freshness × 30) with species recorded per eat and the reward shaper gated
+> on realised energy gain; a 3-species food pack (`config/ecology.yaml`:
+> shrub berry / tree fruit / toxic nightshade) via W0 `extends`;
+> `TileEffectSpec.contact_damage` + a built-in `thorns` hazard; `FireSystem`
+> (opt-in `fire.enabled`) consuming the W1 climate, spreading and
+> self-extinguishing at wet boundaries; a per-species consumption section in
+> `scripts/analyze_logs.py`; 14 tests. All three acceptance criteria met.
+>
+> **Deferred:** a dedicated invasive-species mechanic (the fast shrub fills
+> that niche through reproduction) and the flood event.
 
 **W4 — Agents in the world + Observation v2 (the one genome break).**
 Agents visible in vision; optional tile exclusivity; pheromone field +

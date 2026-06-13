@@ -78,6 +78,7 @@ class World:
         learning_budget_low_frame_factor: float = 0.80,
         parallel: bool = True,
         environment_config: dict = None,
+        fire_config: dict = None,
     ):
         """
         Initialize a new world with generated terrain.
@@ -210,6 +211,7 @@ class World:
             seed_max_age=seed_max_age,
             max_neighbor_plants=max_neighbor_plants,
             neighbor_radius=neighbor_radius,
+            fire_config=fire_config,
         )
 
         # Generate terrain (legacy uniform shuffle, or W2 heightmap)

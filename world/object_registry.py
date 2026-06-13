@@ -205,6 +205,8 @@ class TileEffectSpec:
             plant growing on sand can turn it back to soil.
         reclaim_interval: Ticks a blocking object must be present on
             the same tile before reclamation triggers (0 = disabled).
+        contact_damage: Energy an agent loses when it ends a move on a tile
+            holding this object (W3 hazard, e.g. thorns). 0.0 = harmless.
     """
 
     germination_multiplier: float = 1.0
@@ -220,6 +222,7 @@ class TileEffectSpec:
     moisture_override: float = -1.0
     reclaim_terrain: str = ""
     reclaim_interval: int = 0
+    contact_damage: float = 0.0
 
 
 @dataclass
@@ -1080,6 +1083,37 @@ def register_builtin_objects() -> None:
             render=RenderSpec(
                 char=":",
                 color=[210, 180, 120],
+            ),
+        )
+    )
+
+    # ---- Thorns (contact hazard) ----
+    # A passable, immovable terrain object that costs energy to step onto
+    # (W3). It is a *pressure*, not a wall: agents can cross it, but learn to
+    # route around it. Not spawned by default — opt in via spawn config or a
+    # custom-object file.
+    ObjectRegistry.register(
+        ObjectDefinition(
+            type_id="thorns",
+            display_name="Thorns",
+            category="terrain",
+            interaction=InteractionSpec(
+                pickable=False,
+                usable=False,
+                passable=True,  # crossable, just painful
+                blocks_growth=False,
+            ),
+            tile_effect=TileEffectSpec(
+                contact_damage=8.0,  # energy lost when an agent steps on it
+            ),
+            physics=PhysicsSpec(),
+            observation=ObservationSpec(
+                vision_encoding=0.30,  # distinct terrain-band encoding
+                value_source="none",
+            ),
+            render=RenderSpec(
+                char="*",
+                color=[120, 90, 60],
             ),
         )
     )

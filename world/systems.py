@@ -813,6 +813,111 @@ class ResourceSpawnSystem:
         return False
 
 
+class FireSystem:
+    """
+    Wildfire dynamics (World upgrade W3) — opt-in via ``fire.enabled``.
+
+    A *pressure*, not a script (guideline §8): plants on hot, dry tiles can
+    ignite; fire spreads to adjacent plants and burns them out, returning
+    nutrients (ash) to the soil. It consumes the W1 climate — heat comes from
+    ``world.environment.temperature`` and dryness from each tile's moisture —
+    so fire is rare in the wet/cold and dangerous in the hot/dry.
+
+    Self-extinguishing at water/moisture boundaries (the W3 acceptance
+    criterion): ignition and spread are both blocked where tile moisture is
+    above ``moisture_threshold`` (and water tiles hold no plants), so a moist
+    strip of vegetation stops a fire dead.
+
+    Disabled (the default) → ``update`` is a no-op and nothing changes.
+    """
+
+    def __init__(self, config: dict = None):
+        cfg = config or {}
+        self.enabled: bool = bool(cfg.get("enabled", False))
+        self.ignite_chance: float = float(cfg.get("ignite_chance", 0.0004))
+        self.spread_chance: float = float(cfg.get("spread_chance", 0.30))
+        self.burn_duration: int = int(cfg.get("burn_duration", 6))
+        self.moisture_threshold: float = float(cfg.get("moisture_threshold", 0.4))
+        self.nutrient_return: float = float(cfg.get("nutrient_return", 0.25))
+        # obj_id -> ticks of burning remaining
+        self.burning: Dict[int, int] = {}
+        self.total_burned: int = 0
+
+    def _can_burn(self, world: "World", obj) -> bool:
+        """A plant can catch only on a dry-enough, plantable tile."""
+        tile = world.get_tile(obj.x, obj.y)
+        if tile is None or not tile.is_plantable():
+            return False
+        return tile.moisture <= self.moisture_threshold
+
+    def update(self, world: "World") -> None:
+        if not self.enabled:
+            return
+
+        heat = getattr(world.environment, "temperature", 0.5)
+
+        # Drop any burning ids whose object no longer exists
+        self.burning = {
+            oid: t for oid, t in self.burning.items() if oid in world.objects
+        }
+
+        # --- Spread from currently burning plants to dry neighbours ---
+        newly_lit: Dict[int, int] = {}
+        for oid in list(self.burning):
+            obj = world.objects.get(oid)
+            if obj is None:
+                continue
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    tile = world.get_tile(obj.x + dx, obj.y + dy)
+                    if tile is None:
+                        continue
+                    if tile.moisture > self.moisture_threshold:
+                        continue  # damp firebreak — fire cannot cross
+                    for nid in list(tile.object_ids):
+                        if nid in self.burning or nid in newly_lit:
+                            continue
+                        n = world.objects.get(nid)
+                        if n is not None and n.has_component(PlantComponent):
+                            if random.random() < self.spread_chance * (0.5 + heat):
+                                newly_lit[nid] = self.burn_duration
+        self.burning.update(newly_lit)
+
+        # --- New ignitions: dry plants under heat ---
+        ignite_p = self.ignite_chance * (0.5 + heat)
+        for oid, obj in list(world.objects.items()):
+            if oid in self.burning:
+                continue
+            if not obj.has_component(PlantComponent):
+                continue
+            if self._can_burn(world, obj) and random.random() < ignite_p:
+                self.burning[oid] = self.burn_duration
+
+        # --- Burn down: consume plants, return ash, extinguish when wet ---
+        burned_out = []
+        for oid in list(self.burning):
+            obj = world.objects.get(oid)
+            if obj is None:
+                burned_out.append(oid)
+                continue
+            tile = world.get_tile(obj.x, obj.y)
+            # Rain/wet tiles put the fire out without consuming the plant
+            if tile is not None and tile.moisture > self.moisture_threshold:
+                burned_out.append(oid)
+                continue
+            self.burning[oid] -= 1
+            if self.burning[oid] <= 0:
+                if tile is not None and tile.is_plantable():
+                    tile.fertility = min(1.0, tile.fertility + self.nutrient_return)
+                world.remove_object(oid)
+                self.total_burned += 1
+                burned_out.append(oid)
+        for oid in burned_out:
+            self.burning.pop(oid, None)
+
+
 class WorldSystemManager:
     """
     Manager for all world update systems.
@@ -841,6 +946,7 @@ class WorldSystemManager:
         seed_max_age: int = 200,
         max_neighbor_plants: int = 3,
         neighbor_radius: int = 2,
+        fire_config: dict = None,
     ):
         """
         Initialize system manager with all systems.
@@ -897,6 +1003,8 @@ class WorldSystemManager:
         self.resource_spawn = ResourceSpawnSystem(
             berry_calories, safety_spawn_rate, min_resources, seed_max_age
         )
+        # Wildfire dynamics (W3) — no-op unless fire.enabled
+        self.fire = FireSystem(fire_config)
 
     def update(self, world: "World") -> None:
         """
@@ -929,6 +1037,8 @@ class WorldSystemManager:
         self.soil_dynamics.update(world)
         self.tile_effect.update(world)
         self.resource_spawn.update(world)
+        # Wildfire (W3) — runs after soil/moisture so it reads current values
+        self.fire.update(world)
 
 
 # ---------------------------------------------------------------------------

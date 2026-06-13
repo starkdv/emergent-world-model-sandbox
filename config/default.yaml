@@ -294,6 +294,20 @@ calamity:
   affect_food: true  # Whether to destroy berries/food
   affect_seeds: false  # Whether to destroy seeds (false = seeds survive for recovery)
 
+# Wildfire Settings (World upgrade W3) — opt-in
+# A pressure, not a script: plants on hot, dry tiles can ignite, fire spreads
+# to adjacent plants and burns them out (returning ash to the soil), and it
+# self-extinguishes at water/wet boundaries. It reads the W1 climate — heat
+# from environment.temperature, dryness from each tile's moisture — so fire is
+# rare in the wet/cold and dangerous in the hot/dry. Disabled = no-op.
+fire:
+  enabled: false             # Master switch
+  ignite_chance: 0.0004      # Base per-tick ignition chance for a hot, dry plant
+  spread_chance: 0.30        # Per-tick chance a burning plant ignites an adjacent plant
+  burn_duration: 6           # Ticks a plant burns before it is consumed
+  moisture_threshold: 0.4    # Above this tile moisture, plants won't ignite/spread (wet = firebreak)
+  nutrient_return: 0.25      # Fertility (ash) returned to a burned tile
+
 # Logging Settings
 logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR
