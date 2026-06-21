@@ -818,6 +818,7 @@ Examples:
             for _ in range(total_ticks):
                 world.update()
                 if stream_server is not None and world.tick % stream_every == 0:
+                    print("publish stream")
                     stream_server.publish(build_frame(world))
 
                 if world.tick % progress_every == 0:

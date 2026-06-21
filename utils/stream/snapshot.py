@@ -31,6 +31,9 @@ from world.objects import (
 if TYPE_CHECKING:
     from world.world import World
 
+terrain: List[List[str]] = []
+fertility: List[List[float]] = []
+moisture: List[List[float]] = []
 
 def _object_category(obj) -> str:
     """
@@ -64,7 +67,6 @@ def _object_category(obj) -> str:
     return "object"
 
 
-
 def build_init(world: "World") -> Dict:
     """
     Build the one-time scene-description message for a newly connected client.
@@ -78,9 +80,9 @@ def build_init(world: "World") -> Dict:
         type strings; ``fertility`` / ``moisture`` hold rounded scalars so the
         client can shade the ground plane.
     """
-    terrain: List[List[str]] = []
-    fertility: List[List[float]] = []
-    moisture: List[List[float]] = []
+    terrain = []
+    fertility = []
+    moisture = []
     for row in world.tiles:
         terrain.append([t.terrain_type.value for t in row])
         fertility.append([round(t.fertility, 3) for t in row])
@@ -128,27 +130,26 @@ def build_frame(world: "World") -> Dict:
     ]
     objects = [
             {
-                    "id": val.id,
-                    "x": val.x,
-                    "y": val.y,
-                    "id": key,
-                    "name": _object_category(val)
+                    "id": o.id,
+                    "x": o.x,
+                    "y": o.y,
+                    "name": _object_category(o)
             }
-            for key, val in world.objects.items()
+            for o in world.objects.values()
         ]        
     
-  
-  
-    tiles = [  
-        {
-            "x": i.x,
-            "y": i.y,
-            "terrain": i.terrain_type,
-            "fertility": i.fertility,
-            "moisture": i.moisture
-        }
-        for t in world.tiles for i in t 
-    ]
+
+    for row in world.tiles:
+        terrain.append([
+            {
+                "terrain_type": t.terrain_type.value,
+                "x": t.x,
+                "y": t.y,
+                "fertility": round(t.fertility, 3),
+                "moisture": round(t.moisture, 3),
+            } 
+            for t in row
+        ])
 
     world_options = [
         {
@@ -163,5 +164,5 @@ def build_frame(world: "World") -> Dict:
         "tick": world.tick,
         "agents": agents,
         "objects": objects,
-        "tiles": tiles
+        "terrain": terrain
     }
