@@ -124,6 +124,9 @@ class Agent:
         self._previous_action: Optional[Action] = None
         self._consecutive_turns = 0
         self._consecutive_waits = 0
+        # Tool type used this tick (e.g. "seed"/"fertilizer"), else None. Read by
+        # the snapshot stream to show a "using {tool}" label above the agent.
+        self.last_tool_use: Optional[str] = None
         # Apply trait-based modifications
         self.metabolism_rate = metabolism_rate * self.traits.get("metabolism_rate", 1.0)
         self.vision_radius = int(self.traits.get("vision_radius", 5.0))
@@ -405,6 +408,13 @@ class Agent:
 
         # Track action for next-step energy shaping
         self._previous_action = action
+
+        # Surface tool use to the stream/UI: the USE action "uses" the held item
+        # (a seed or fertilizer). Latch the tool type on a successful USE; the
+        # snapshot clears it once streamed, so each use shows exactly once even
+        # when frames are sampled every Nth tick.
+        if action == Action.USE and result.success:
+            self.last_tool_use = result.object_type or "tool"
 
         # Update fitness based on action outcomes.
         # Successful turns should not be penalized; otherwise the policy
