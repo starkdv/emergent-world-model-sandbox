@@ -105,13 +105,19 @@ A live voxel view of the world, rendered in the browser with Three.js. The
 Python sim streams its state **read-only** (it never affects the simulation)
 over Server-Sent Events; the browser builds the world as voxel columns from the
 W2 `elevation` field, with biome blocks, water, a W1 day/night sky, per-lineage
-agents grounded on the terrain, distinct per-category object models, and a
-pheromone-signal glow.
+agents grounded on the terrain, distinct per-category object models (trees,
+berries, …), and a pheromone-signal glow. **Click anything** — an agent, a tree,
+or a tile — to inspect its properties.
+
+By default the world is built **from `config/default.yaml`** (size, heightmap
+biomes, climate, population), with learning agents and reproduction on so the
+population sustains itself.
 
 ```bash
 # live view — stdlib only, no extra Python dependencies
-python -m render.server                       # → http://127.0.0.1:8000
-python -m render.server --width 100 --height 100 --agents 30 --tps 15
+python -m render.server                       # → http://127.0.0.1:8000 (config-driven)
+python -m render.server --config config/training_easy.yaml
+python -m render.server --demo                # fixed self-contained scene
 python -m render.server --checkpoint data/states/run.pkl   # fly around a saved run (W6b)
 
 # record a run's render stream, then replay it on a loop (no re-simulation)
@@ -124,9 +130,10 @@ python -m render.voxel_export --checkpoint data/states/run.pkl --out run.ply
 ```
 
 **Controls:** drag = orbit · scroll = zoom · WASD/QE = free-fly · **F** = follow
-the next agent (chase cam) · **R** = reset camera · **click an agent** to inspect
-(id, energy, lineage, generation). Lifecycle events show as particle bursts
-(birth/death/consume).
+the next agent (chase cam) · **R** = reset camera · **click anything** to inspect
+— an agent (energy, lineage, generation), a tree/berry (category, type), or a
+tile (terrain, elevation, fertility, moisture). Lifecycle events show as
+particle bursts (birth/death/consume); wildfire glows and flickers.
 
 Architecture (the bridge is read-only, so determinism/checkpointing are
 untouched), full design + roadmap in

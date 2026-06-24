@@ -211,6 +211,17 @@ def main(argv=None):
         default=None,
         help="Play back a recording (JSONL from render.recorder) on a loop",
     )
+    p.add_argument(
+        "--config",
+        default="config/default.yaml",
+        help="Build the world from this config file (size, terrain/biomes, "
+        "population, learning). Use --demo for the fixed self-contained scene.",
+    )
+    p.add_argument(
+        "--demo",
+        action="store_true",
+        help="Use the fixed demo world instead of --config",
+    )
     args = p.parse_args(argv)
 
     if args.replay:
@@ -222,12 +233,17 @@ def main(argv=None):
         from render.sim_session import session_from_checkpoint
 
         session = session_from_checkpoint(args.checkpoint)
-    else:
+    elif args.demo:
         from render.sim_session import build_demo_world
 
         session = build_demo_world(
             width=args.width, height=args.height, n_agents=args.agents, seed=args.seed
         )
+    else:
+        from render.sim_session import session_from_config
+
+        session = session_from_config(args.config)
+        print(f"World from config: {args.config}")
     serve(session, host=args.host, port=args.port, tps=args.tps)
 
 

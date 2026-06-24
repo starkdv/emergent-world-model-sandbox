@@ -12,7 +12,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-const MAX_H = 18; // voxel column height for elevation == 1.0
+const MAX_H = 10; // voxel column height for elevation == 1.0 (gentle hills)
 const TERRAIN = { SOIL: 0, ROCK: 1, WATER: 2, SAND: 3 };
 
 // ---- scene -----------------------------------------------------------------
@@ -68,6 +68,9 @@ let gridW = 0;
 let gridH = 0;
 let elevation = null; // Uint8Array [h*w]
 let terrainCodes = null; // Uint8Array [h*w]
+let fertilityGrid = null; // Uint8Array [h*w] (for tile inspection)
+let moistureGrid = null; // Uint8Array [h*w]
+const TERRAIN_NAME = { 0: "soil", 1: "rock", 2: "water", 3: "sand" };
 const agents = new Map(); // id -> { group, target:THREE.Vector3, energyBar }
 const objects = new Map(); // id -> THREE.Object3D
 let burning = new Set(); // object ids currently on fire (W3)
@@ -130,26 +133,59 @@ const hud = {
 };
 
 const inspectorEl = document.getElementById("inspector");
-const ins = {
-  id: document.getElementById("ins-id"),
-  energy: document.getElementById("ins-energy"),
-  lineage: document.getElementById("ins-lineage"),
-  gen: document.getElementById("ins-gen"),
-  pos: document.getElementById("ins-pos"),
-};
-let selectedId = null;
+const inspectTitle = document.getElementById("inspect-title");
+const inspectBody = document.getElementById("inspect-body");
+// selection: {kind:'agent'|'object'|'tile', id?, x?, y?}
+let selected = null;
+let selectedId = null; // back-compat alias for agent following
 
-function updateInspector(d) {
-  if (!d) {
-    inspectorEl.classList.add("hidden");
-    return;
-  }
+function showInspector(title, rows) {
   inspectorEl.classList.remove("hidden");
-  ins.id.textContent = d.id;
-  ins.energy.textContent = (d.energy * 100).toFixed(0) + "%";
-  ins.lineage.textContent = d.lineage;
-  ins.gen.textContent = d.generation;
-  ins.pos.textContent = `${d.x},${d.y}`;
+  inspectTitle.textContent = title;
+  inspectBody.innerHTML = rows
+    .map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`)
+    .join("");
+}
+
+function clearInspector() {
+  selected = null;
+  selectedId = null;
+  inspectorEl.classList.add("hidden");
+}
+
+function renderInspector() {
+  if (!selected) return;
+  if (selected.kind === "agent") {
+    const rec = agents.get(selected.id);
+    if (!rec) return clearInspector();
+    const d = rec.data;
+    showInspector(`agent #${d.id}`, [
+      ["energy", (d.energy * 100).toFixed(0) + "%"],
+      ["lineage", d.lineage],
+      ["generation", d.generation],
+      ["position", `${d.x}, ${d.y}`],
+    ]);
+  } else if (selected.kind === "object") {
+    const m = objects.get(selected.id);
+    if (!m || !m.userData.objData) return clearInspector();
+    const o = m.userData.objData;
+    showInspector(`${o.type_id || o.category} #${o.id}`, [
+      ["category", o.category],
+      ["type", o.type_id || "—"],
+      ["position", `${o.x}, ${o.y}`],
+      ["on fire", burning.has(o.id) ? "yes" : "no"],
+    ]);
+  } else if (selected.kind === "tile") {
+    const { x, y } = selected;
+    if (!terrainCodes) return;
+    const i = y * gridW + x;
+    showInspector(`tile ${x}, ${y}`, [
+      ["terrain", TERRAIN_NAME[terrainCodes[i]] || "?"],
+      ["elevation", (elevation[i] / 255).toFixed(2)],
+      ["fertility", (fertilityGrid[i] / 255).toFixed(2)],
+      ["moisture", (moistureGrid[i] / 255).toFixed(2)],
+    ]);
+  }
 }
 
 // ---- helpers ---------------------------------------------------------------
@@ -202,7 +238,9 @@ function buildTerrain(pack) {
   gridH = pack.height;
   elevation = decodeGrid(pack.elevation);
   terrainCodes = decodeGrid(pack.terrain);
-  const fertility = decodeGrid(pack.fertility);
+  fertilityGrid = decodeGrid(pack.fertility);
+  moistureGrid = decodeGrid(pack.moisture);
+  const fertility = fertilityGrid;
 
   if (terrainMesh) {
     scene.remove(terrainMesh);
@@ -216,7 +254,10 @@ function buildTerrain(pack) {
   }
 
   const box = new THREE.BoxGeometry(1, 1, 1);
-  const landMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  // No vertexColors: per-instance color comes from instanceColor (set via
+  // setColorAt). Enabling vertexColors would look for geometry colors the box
+  // doesn't have and render every tile black.
+  const landMat = new THREE.MeshLambertMaterial({});
   const n = gridW * gridH;
   terrainMesh = new THREE.InstancedMesh(box, landMat, n);
 
@@ -327,8 +368,21 @@ function makeObjectModel(o) {
     const toxic = tid.includes("night") || tid.includes("toxic");
     mat = new THREE.MeshLambertMaterial({ color: toxic ? 0x9b30c0 : 0xe23b3b });
   } else if (cat.includes("plant") || tid.includes("tree") || tid.includes("shrub")) {
-    geo = new THREE.ConeGeometry(0.3, 0.7, 6);
-    mat = new THREE.MeshLambertMaterial({ color: 0x2f8f3a });
+    // a proper little tree: brown trunk + green foliage, tall enough to read
+    const tree = new THREE.Group();
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.16, 0.7, 5),
+      new THREE.MeshLambertMaterial({ color: 0x6b4a2b }),
+    );
+    trunk.position.y = 0.35;
+    tree.add(trunk);
+    const foliage = new THREE.Mesh(
+      new THREE.ConeGeometry(0.5, 1.0, 7),
+      new THREE.MeshLambertMaterial({ color: 0x2f8f3a }),
+    );
+    foliage.position.y = 1.1;
+    tree.add(foliage);
+    return tree;
   } else if (cat.includes("seed")) {
     geo = new THREE.BoxGeometry(0.18, 0.18, 0.18);
     mat = new THREE.MeshLambertMaterial({ color: 0xcdb079 });
@@ -392,6 +446,7 @@ function upsertObject(o) {
     objects.set(o.id, mesh);
     scene.add(mesh);
   }
+  mesh.userData.objData = o; // for click-to-inspect
   placeOnSurface(mesh, o.x, o.y, 0.3);
 }
 
@@ -431,7 +486,9 @@ function upsertAgent(a) {
     x: a.x,
     y: a.y,
   };
-  if (selectedId === a.id) updateInspector(rec.data);
+  if (selected && selected.kind === "agent" && selected.id === a.id) {
+    renderInspector();
+  }
 }
 
 function applyDelta(d) {
@@ -451,9 +508,8 @@ function applyDelta(d) {
       spawnBurst(r.group.position, 0x9aa0a6, 12, 2.2); // death puff
       scene.remove(r.group);
       agents.delete(id);
-      if (selectedId === id) {
-        selectedId = null;
-        updateInspector(null);
+      if (selected && selected.kind === "agent" && selected.id === id) {
+        clearInspector();
       }
     }
   }
@@ -530,10 +586,14 @@ function cycleFollow() {
   if (followIds.length === 0) return;
   followIdx = (followIdx + 1) % (followIds.length + 1);
   if (followIdx === followIds.length) followIdx = -1; // wrap to free cam
-  if (followIdx >= 0) selectedId = followIds[followIdx];
+  if (followIdx >= 0) {
+    selected = { kind: "agent", id: followIds[followIdx] };
+    selectedId = followIds[followIdx];
+    renderInspector();
+  }
 }
 
-// click-to-inspect (raycast against agent meshes)
+// click-to-inspect: raycast agents → objects → terrain (in that priority)
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 let dragMoved = false;
@@ -544,27 +604,51 @@ canvas.addEventListener("pointerup", (e) => {
   pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
   pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const meshes = [];
-  for (const rec of agents.values()) rec.group.traverse((o) => o.isMesh && meshes.push(o));
-  const hits = raycaster.intersectObjects(meshes, false);
-  if (hits.length > 0) {
+
+  // agents (their child meshes carry a back-reference)
+  const agentMeshes = [];
+  for (const rec of agents.values())
+    rec.group.traverse((o) => o.isMesh && agentMeshes.push(o));
+  let hits = raycaster.intersectObjects(agentMeshes, false);
+  if (hits.length) {
     let g = hits[0].object;
     while (g && !g.userData.agentGroup) g = g.parent;
-    const grp = g && g.userData.agentGroup;
-    if (grp) {
-      // find the rec for this group
-      for (const rec of agents.values()) {
-        if (rec.group === grp) {
-          selectedId = rec.id;
-          updateInspector(rec.data);
-          break;
-        }
+    for (const rec of agents.values()) {
+      if (rec.group === g.userData.agentGroup) {
+        selected = { kind: "agent", id: rec.id };
+        selectedId = rec.id;
+        renderInspector();
+        return;
       }
+    }
+  }
+
+  // objects (trees, berries, …)
+  const objMeshes = [];
+  for (const m of objects.values()) m.traverse((o) => o.isMesh && objMeshes.push(o));
+  hits = raycaster.intersectObjects(objMeshes, false);
+  if (hits.length) {
+    let g = hits[0].object;
+    while (g && !(g.userData && g.userData.objData) && g.parent) g = g.parent;
+    if (g.userData && g.userData.objData) {
+      selected = { kind: "object", id: g.userData.objData.id };
+      renderInspector();
       return;
     }
   }
-  selectedId = null;
-  updateInspector(null);
+
+  // terrain (InstancedMesh) → tile via instanceId
+  if (terrainMesh) {
+    hits = raycaster.intersectObject(terrainMesh, false);
+    if (hits.length && hits[0].instanceId != null) {
+      const idx = hits[0].instanceId;
+      selected = { kind: "tile", x: idx % gridW, y: Math.floor(idx / gridW) };
+      renderInspector();
+      return;
+    }
+  }
+
+  clearInspector();
 });
 
 function applyFreeFly(dt) {

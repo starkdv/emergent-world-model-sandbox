@@ -29,11 +29,13 @@ terrain:
   #               geography-driven moisture field with fertile river
   #               corridors. Honours the ratios above via elevation quantiles.
   # The rock/water/sand ratios above are reused by the heightmap generator.
-  generator: legacy
+  # Default is heightmap so the world has real biomes (soil/grass, sand, water,
+  # rock) and elevation; set generator: legacy for the original flat shuffle.
+  generator: heightmap
   heightmap:
-    feature_scale: 12     # coarse-noise cell size in tiles (bigger = smoother, broader features)
+    feature_scale: 18     # coarse-noise cell size in tiles (bigger = smoother, broader features)
     octaves: 4            # layered noise detail levels
-    persistence: 0.5      # amplitude falloff per octave (lower = smoother)
+    persistence: 0.45     # amplitude falloff per octave (lower = smoother, fewer jagged peaks)
     river_sources: 6      # how many downhill rivers to trace from the peaks
 
 # Agent Settings

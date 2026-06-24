@@ -1,6 +1,32 @@
 # Changelog
 
-## [Unreleased] — config default + 3D viewer fixes
+## [Unreleased] — 3D viewer: config-driven world, clickable, visual fixes
+
+Addresses the Codespace report (dark surfaces, no trees, no day/night,
+mountainous, agents dying, nothing clickable):
+
+- **Config-driven world** (`render/sim_session.session_from_config`,
+  `render.server --config`, default `config/default.yaml`): the viewer now
+  builds the *configured* world — size, heightmap **biomes**, climate,
+  population — instead of a fixed demo. Initial resources are populated
+  (trees/berries/seeds) and agents spawn with **lifetime learning** and
+  **reproduction on**, so they forage and breed instead of dying out (verified
+  20 → 39 agents over 150 ticks). `--demo` keeps the old fixed scene.
+- **Dark surfaces fixed**: the terrain material had `vertexColors: true` but a
+  box has no vertex colors, so every tile rendered black. Removed it →
+  per-instance biome colors show, and the W1 **day/night** lighting is visible.
+- **Less mountainous**: voxel column height `MAX_H` 18 → 10 (gentler hills),
+  and `config/default.yaml` now defaults `terrain.generator: heightmap`
+  (biomes) with broader/smoother features (`feature_scale` 12→18,
+  `persistence` 0.5→0.45).
+- **Trees**: plants now render as an actual tree (trunk + foliage) instead of a
+  small cone, so vegetation is visible.
+- **Click-to-inspect everything**: raycasting now covers agents, objects
+  (trees/berries — category/type/on-fire), and **terrain tiles** (terrain,
+  elevation, fertility, moisture) via the InstancedMesh `instanceId`; the
+  inspector panel is now generic.
+
+## config default + 3D viewer fixes (earlier)
 
 - **Default brain is now v3** (the attention brain) in `config/default.yaml`
   — was v2. Set `brain.version: 2` for the legacy baseline, `3.5` for the

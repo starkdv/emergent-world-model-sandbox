@@ -8,17 +8,24 @@ browser client (Three.js) renders it live — phases F0/F3a/F3b of
 ## Run
 
 ```bash
-# from the repo root — builds a heightmap world (elevation + day/night sky +
-# agents) and serves the viewer; stdlib only, no extra Python deps
+# from the repo root — builds the world FROM config/default.yaml (size, biomes,
+# population, learning) and serves the viewer; stdlib only, no extra Python deps
 python -m render.server
 # then open http://127.0.0.1:8000
 ```
 
+By default the world is **config-driven**: it uses `config/default.yaml` for the
+map size, terrain generator (heightmap → biomes), climate, and population, then
+spawns learning agents with reproduction on so the population sustains itself
+(agents forage and breed instead of dying out).
+
 Useful flags:
 
 ```bash
-python -m render.server --width 100 --height 100 --agents 30 --tps 15
-python -m render.server --checkpoint data/states/run.pkl   # fly around a saved run (W6b)
+python -m render.server --config config/training_easy.yaml   # a different world
+python -m render.server --demo                               # fixed self-contained scene
+python -m render.server --checkpoint data/states/run.pkl     # fly around a saved run (W6b)
+python -m render.server --tps 15
 
 # record a run, then replay it on a loop (no re-simulation)
 python -m render.recorder --out run.jsonl --ticks 600
@@ -34,7 +41,7 @@ python -m render.server --replay run.jsonl
 | WASD / Q,E | free-fly (move / down,up) |
 | F | follow the next agent (chase cam; cycles, then back to free cam) |
 | R | reset camera |
-| click an agent | open the inspector (id, energy, lineage, generation, pos); click empty space to clear |
+| click anything | inspect it — **agent** (energy, lineage, generation), **tree/berry** (category, type, on-fire), or **tile** (terrain, elevation, fertility, moisture); click empty space to clear |
 
 ## What you see
 
