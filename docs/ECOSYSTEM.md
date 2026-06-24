@@ -1868,6 +1868,24 @@ the default world is unchanged.
 - *Deferred:* a dedicated invasive-species mechanic (the fast shrub already
   fills that niche through sheer reproduction) and a flood event.
 
+### W4 — Agents in each other's world (Brain v3.5)
+
+The last structural gap (proposal P3) was that agents could neither perceive
+nor affect one another. W4 closes it, opt-in and bit-compatible by default:
+
+- **Agents visible in vision** (`world.agents_visible`): another living agent
+  on a vision tile reads as encoding `0.40` + its energy ratio.
+- **Tile exclusivity** (`world.agent_collision`): a living agent blocks a
+  tile, so space becomes a contested resource.
+- **SIGNAL action + pheromone field** (`signal.enabled`): an agent can deposit
+  a value onto its tile in a decaying `world.pheromones` grid; others sense it
+  nearby. Signals carry no built-in meaning — any protocol must emerge.
+- **Brain v3.5** (`brain.version: 3.5`) is the brain that uses all this: the
+  observation grows to 78 with six social/climate senses (day/night, tile
+  temperature, nearest-agent proximity & signal, on-hazard) and the policy
+  head gains the SIGNAL action (9 outputs). A v3 genome auto-migrates into
+  v3.5 on load. Full design: `BRAIN_V3_PROPOSAL.md` §8.
+
 ### Verified dynamics-bug fixes
 
 - **B1 — moisture only ever rose.** The legacy soil model added a constant

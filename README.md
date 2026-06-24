@@ -148,7 +148,8 @@ can be run as a controlled experiment. Quick map:
 | # | Mode | Switch | Default | Requires |
 |---|------|--------|---------|----------|
 | 1 | Evolution mode | `--mode rl\|neuroevolution` / `evolution.mode` | `rl` | — |
-| 2 | Brain version | `brain.version: 2\|3` | `2` | — |
+| 2 | Brain version | `brain.version: 2\|3\|3.5` | `2` | 3.5 adds social senses + SIGNAL |
+| 2b | Signalling (v3.5) | `signal.enabled` | off | `brain.version: 3.5` |
 | 3 | Fading instincts | `brain.instincts` | on, fade at 150 | — |
 | 4 | Learning algorithm | `learning.algorithm: a2c\|ppo` | `a2c` | RL mode; PPO needs torch |
 | 5 | World model | `brain.world_model.enabled` | off | — (training needs PPO) |
@@ -402,10 +403,10 @@ value where agents stand.
 physical space becomes a contested resource (territory, crowding, blocking).
 Off by default, agents may overlap exactly as before.
 
-> **W4 status:** these two toggles plus the genome-migration tool
-> (`migrate_genome`) are shipped; the batched **Observation v2 + SIGNAL**
-> genome break is staged next. See the CHANGELOG and
-> [docs/WORLD_UPGRADE_PROPOSAL.md](docs/WORLD_UPGRADE_PROPOSAL.md).
+> **W4 status:** these two toggles, the genome-migration tool, **and** the
+> batched **Observation v2 + SIGNAL** genome break are all shipped — the break
+> landed as **Brain v3.5** (`brain.version: 3.5`; see the Neural Architecture
+> section and [BRAIN_V3_PROPOSAL.md §8](docs/BRAIN_V3_PROPOSAL.md)).
 
 ### Supporting flags & settings
 
@@ -499,18 +500,23 @@ brain:
     value_hidden: 16
 ```
 
-**v3.5 — the social brain (in design; World phase W4):** a *minor* bump of v3
-that widens its I/O so agents can live in each other's world — **six new
-observation inputs** (time-of-day sin/cos, tile temperature, nearest-agent
-proximity & signal, on-hazard → state encoder 22→**28**) and **one new
-action**, **SIGNAL**, with a decaying pheromone field (policy head 8→**9**).
-The attention/GRU/value core is unchanged; only the input and output layers
-grow (≈+289 params, <2%). An existing v3 genome migrates into v3.5 with
-**bit-identical** behaviour on the original actions (new weights zero-init).
-Part 1 of W4 is shipped (the genome-migration tool, agents-in-vision, tile
-collision — modes #13/#14); the Observation-v2 + SIGNAL break itself is
-designed in **[BRAIN_V3_PROPOSAL.md §8](docs/BRAIN_V3_PROPOSAL.md)** and not
-yet implemented.
+**v3.5 — the social brain (`brain.version: 3.5`, World phase W4):** a *minor*
+bump of v3 that widens its I/O so agents can live in each other's world —
+**six new observation inputs** (time-of-day sin/cos, tile temperature,
+nearest-agent proximity & signal, on-hazard → state encoder 22→**28**) and
+**one new action**, **SIGNAL**, with a decaying pheromone field (policy head
+8→**9**). The attention/GRU/value core is unchanged; only the input and output
+layers grow (**+289 params, <2%**, v3.5-base ≈ 17 626). An existing v3 genome
+auto-migrates into v3.5 on `--load-weights` with the same behaviour on the
+original actions (to float tolerance; new weights zero-init). Enable SIGNAL +
+the pheromone field with `signal.enabled: true`, and combine with
+`world.agents_visible` so agents both see and signal each other. Full design +
+as-built notes: **[BRAIN_V3_PROPOSAL.md §8](docs/BRAIN_V3_PROPOSAL.md)**.
+
+```bash
+python main.py --gui --config config/default.yaml \
+  # set brain.version: 3.5, signal.enabled: true, world.agents_visible: true
+```
 
 ```
 v3 inputs/outputs ───────────────►  v3.5 inputs/outputs

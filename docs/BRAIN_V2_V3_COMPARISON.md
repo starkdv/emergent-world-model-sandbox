@@ -4,13 +4,13 @@
 basic probability. Every formula used by the actual code is derived or
 explained here; file references point at the implementation.
 
-> **Note:** a planned **Brain v3.5** keeps the v3 maths below unchanged and
-> only *widens its I/O* for the World-upgrade W4 social layer — the
-> observation vector grows from 72 to 78 (six new senses) and the action set
-> from 8 to 9 (a SIGNAL action with a pheromone field). Every derivation here
-> still holds for v3.5 with **x** ∈ ℝ⁷⁸ and 9 action logits; only the state
-> encoder input (22→28) and the policy head output (8→9) change size. Full
-> design and architecture diagram: `BRAIN_V3_PROPOSAL.md` §8.
+> **Note:** **Brain v3.5** (implemented; `brain.version: 3.5`) keeps the v3
+> maths below unchanged and only *widens its I/O* for the World-upgrade W4
+> social layer — the observation vector grows from 72 to 78 (six new senses)
+> and the action set from 8 to 9 (a SIGNAL action with a pheromone field).
+> Every derivation here still holds for v3.5 with **x** ∈ ℝ⁷⁸ and 9 action
+> logits; only the state encoder input (22→28) and the policy head output
+> (8→9) change size. Full design + as-built notes: `BRAIN_V3_PROPOSAL.md` §8.
 
 ---
 

@@ -4,6 +4,42 @@
 
 Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
 
+### Phase W4 (part 2/2) — Brain v3.5: Observation v2 + SIGNAL (the genome break)
+
+**In simple terms:** the batched genome break from part 1's plan is now built,
+as **Brain v3.5** — the v3 attention brain with widened I/O so agents can live
+in each other's world. Opt-in (`brain.version: 3.5`); the default world is
+unchanged and bit-compatible.
+
+- **Observation v2 (78-dim).** A six-feature EXTRA block is appended after the
+  legacy 72 (so the prefix is identical): `time_of_day` sin/cos, tile
+  temperature, nearest-agent proximity, nearest signal, on-hazard. The layout
+  lives in `ObservationSpec` (`build_observation_spec(version=2)`,
+  `OBSERVATION_SPEC_V2`) behind a module-level *active spec*
+  (`set_observation_version`) that perception and the brain both read.
+- **SIGNAL action + pheromone field.** `Action.SIGNAL` (id 8) deposits a value
+  onto the agent's tile in a decaying (optionally diffusing) float field
+  (`world.pheromones`); other agents sense it via the EXTRA block. Signals
+  carry no built-in meaning — any protocol must emerge. Gated by
+  `signal.enabled`; when off, SIGNAL is masked so an 8-action brain is
+  untouched. `get_action_mask` now sizes by the brain's `output_size`.
+- **Brain v3.5.** `BrainV3` resolves the active spec, derives `state_inputs`
+  (28 under v2) and includes the EXTRA slice in the state path;
+  `create_brain`/`calculate_weight_count` select v3.5 with `output_size` fixed
+  at 9. **v3.5-base = 17,626 params** (v3 + 289, <2%).
+- **Migration.** `adapt_loaded_genome` migrates a v3 genome into v3.5 on
+  `--load-weights` via the part-1 `migrate_genome` (top-left copy): same
+  original-action logits and value to floating-point tolerance; the EXTRA rows
+  and SIGNAL column start at zero. The A2C-v3 and PPO-torch batched forwards
+  were updated to include the EXTRA slice (without which v3.5 RL runs crashed).
+- **Config**: `brain.version: 3.5` documented; new `signal:` block; `main.py`
+  activates the v2 observation layout and migrates loaded weights for v3.5.
+- **Tests**: 19 new (`tests/test_brain_v35.py`) — spec, perception features,
+  weight count, migration bit-identity (v3→v3.5), SIGNAL masking, pheromone
+  decay, end-to-end. A2C + PPO end-to-end runs verified. Full suite: 439.
+- **Follow-up (not blocking):** a dedicated analyzer section for signal entropy
+  / agent-proximity response (SIGNAL already appears in the action distribution).
+
 ### Phase W4 (part 1/2) — Agents in each other's world + genome-migration tool
 
 **In simple terms:** agents have been blind to each other and unable to
@@ -34,16 +70,9 @@ default world is unchanged.
   agents-in-vision enabled/disabled/self-excluded, collision). Full suite:
   420 passing.
 
-**Staged next (W4 part 2/2) — now scoped as Brain v3.5.** The single batched
-genome break — Observation-v2 feature block (`time_of_day` sin/cos, tile
-temperature, nearest-agent proximity/signal, on-hazard) + the **SIGNAL**
-action and pheromone field (`output_size` 8→9) — is a minor bump of the v3
-attention brain with widened I/O. Designed in full (architecture diagram,
-genome/param deltas, migration, implementation checklist) in
-`docs/BRAIN_V3_PROPOSAL.md` §8. Deferred deliberately: the action-count change
-ripples through the action mask, instincts, PPO replay, the dream model, and
-the world-model logger's one-hot, and warrants its own carefully validated
-increment on top of the migration tool landed here.
+**W4 part 2/2 (Brain v3.5) followed** — see the entry above; this part-1
+increment shipped the migration tool and the agent-awareness toggles that
+part 2 built on.
 
 ### Phase W3 — Ecology & hazards: toxicity, species, thorns, wildfire
 

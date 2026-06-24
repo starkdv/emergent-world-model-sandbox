@@ -4,8 +4,9 @@
 CHANGELOG); W2 partially implemented (heightmap/rivers/biomes/slope shipped;
 moisture diffusion + erosion deferred); W3 partially implemented (toxicity,
 species pack, thorns, wildfire shipped; invasive-species + flood deferred);
-W4 partially implemented (agents-in-vision, tile collision, genome-migration
-tool shipped; Observation-v2 + SIGNAL break staged); W5–W6 remain proposals
+W4 implemented as Brain v3.5 (agents-in-vision, tile collision, genome
+migration, Observation-v2 senses, SIGNAL + pheromone field); W5–W6 remain
+proposals
 **Branch:** `claude/world-upgrade`
 **Scope:** `world/` (tiles, systems, world, object registry), `utils/agents/`
 (perception, reward shaping, action execution), `config/default.yaml`
@@ -302,7 +303,7 @@ and self-extinguishes at water/moisture boundaries.
 > that niche through reproduction) and the flood event.
 
 **W4 — Agents in the world + Observation v2 (the one genome break).
-🟡 PARTIALLY DONE (June 2026 — see CHANGELOG "Phase W4 part 1/2").**
+✅ DONE (June 2026 — see CHANGELOG "Phase W4"; implemented as Brain v3.5).**
 Agents visible in vision; optional tile exclusivity; pheromone field +
 SIGNAL action; Observation v2 block + `output_size` 9 with zero-init
 spec migration (old populations load and behave identically).
@@ -310,22 +311,18 @@ spec migration (old populations load and behave identically).
 old genomes; signal entropy and agent-proximity response measurable in
 new analyzer sections.
 
-> **Shipped (W4 part 1/2):** the genome-migration tool `migrate_genome`
-> (generic top-left copy; bit-identical original-action logits + value,
-> tested for v2 and v3), **agents visible in vision** (`world.agents_visible`,
-> the P3 unblock), and **tile exclusivity** (`world.agent_collision`). The
-> migration bit-identity acceptance criterion is met for the append-only
-> growth mechanism.
+> **Shipped (W4 part 1):** the genome-migration tool `migrate_genome`
+> (generic top-left copy), **agents visible in vision** (`world.agents_visible`,
+> the P3 unblock), and **tile exclusivity** (`world.agent_collision`).
 >
-> **Staged (W4 part 2/2) — now formalised as Brain v3.5.** The single batched
-> **Observation v2** block + **SIGNAL** action / pheromone field
-> (`output_size` 8→9) is a minor brain version bump: same v3 attention
-> architecture, widened I/O. Full design, architecture diagram, genome/param
-> deltas, migration story, and the remaining implementation checklist live in
-> **`BRAIN_V3_PROPOSAL.md` §8 (Brain v3.5)**. Deferred from part 1 because the
-> action-count change ripples through the action mask, instincts, PPO replay,
-> the dream model, and the world-model logger's one-hot — it deserves its own
-> validated increment, now that the migration tool it depends on is in place.
+> **Shipped (W4 part 2) — Brain v3.5.** The batched **Observation v2** block
+> (six social/climate senses, 78-dim) + the **SIGNAL** action and decaying
+> pheromone field (`output_size` 9), selected by `brain.version: 3.5` and
+> `signal.enabled`. A v3 genome auto-migrates into v3.5 with the same
+> original-action behaviour to float tolerance. Full design + as-built notes:
+> **`BRAIN_V3_PROPOSAL.md` §8 (Brain v3.5)**. Both acceptance criteria are met
+> (migration identity; per-agent senses/signal are observable — a dedicated
+> signal-entropy analyzer view is a small follow-up).
 
 **W5 — Social dynamics & open-endedness instruments.**
 Kin-similarity observation feature, inventory transfer (trade via USE on
