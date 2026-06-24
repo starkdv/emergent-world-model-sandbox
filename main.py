@@ -364,6 +364,7 @@ Examples:
             fire_config=config.get("fire", None),
             agents_visible=world_cfg.get("agents_visible", False),
             agent_collision=world_cfg.get("agent_collision", False),
+            signal_config=config.get("signal", None),
             # System configuration parameters
             plant_mature_age=plant_cfg["mature_age"],
             plant_max_age=plant_cfg["max_age"],
@@ -568,6 +569,13 @@ Examples:
         # [z, h] value head (agents/brain/v3.py).
         brain_cfg = config["brain"]
         Agent.brain_config = brain_cfg
+        # Brain v3.5 uses the Observation-v2 layout (78-dim) + SIGNAL action;
+        # activate it globally so perception and the brain agree before any
+        # agent is created.
+        from agents.brain import _is_v35
+        from agents.brain.spec import set_observation_version
+
+        set_observation_version(2 if _is_v35(brain_cfg.get("version", 2)) else 1)
         weight_count = calculate_weight_count_for_config(brain_cfg)
         _wm_cfg = brain_cfg.get("world_model", {}) or {}
         print(
@@ -614,7 +622,30 @@ Examples:
 
             pretrained_weights = BestAgentTracker.load_best_weights(args.load_weights)
             if pretrained_weights is not None:
-                print(f"Loaded pre-trained weights ({len(pretrained_weights)} values)")
+                # Migrate older-layout genomes onto the configured brain (e.g.
+                # a v3 champion loaded into a v3.5 run) — bit-identical on the
+                # original actions, new weights zero-filled.
+                from agents.brain import adapt_loaded_genome
+
+                adapted = adapt_loaded_genome(pretrained_weights, brain_cfg)
+                if adapted is None:
+                    print(
+                        f"⚠️  Loaded weights ({len(pretrained_weights)}) do not match "
+                        f"the configured brain ({weight_count}) and could not be "
+                        f"migrated — falling back to random genomes."
+                    )
+                    pretrained_weights = None
+                else:
+                    if len(adapted) != len(pretrained_weights):
+                        print(
+                            f"Migrated loaded weights "
+                            f"{len(pretrained_weights)} → {len(adapted)} "
+                            f"for brain v{brain_cfg.get('version', 2)}"
+                        )
+                    pretrained_weights = adapted
+                    print(
+                        f"Loaded pre-trained weights ({len(pretrained_weights)} values)"
+                    )
 
         # Initialize best agent tracker if saving weights
         best_agent_tracker = None

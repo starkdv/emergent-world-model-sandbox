@@ -26,7 +26,30 @@ from typing import TYPE_CHECKING, Tuple, Optional
 from agents.actions import Action
 from agents.brain import modules
 from agents.brain.instincts import InstinctModule
-from agents.brain.spec import build_brain_param_spec, build_nested_params
+from agents.brain.spec import (
+    OBSERVATION_SPEC_V2,
+    build_brain_param_spec,
+    build_brain_v3_param_spec,
+    build_nested_params,
+    migrate_genome,
+)
+
+
+def _is_v35(version) -> bool:
+    """True if the brain version selects the v3.5 (social) attention brain."""
+    return version == 3.5 or str(version) in ("3.5", "3_5")
+
+
+def _v35_state_inputs() -> int:
+    """Non-vision input count for the v3.5 observation layout (= 28)."""
+    s = OBSERVATION_SPEC_V2
+    return (
+        (s.agent_state.stop - s.agent_state.start)
+        + (s.stimulus.stop - s.stimulus.start)
+        + (s.inventory.stop - s.inventory.start)
+        + (s.extra.stop - s.extra.start)
+    )
+
 
 if TYPE_CHECKING:
     from agents.genome import Genome
@@ -372,7 +395,13 @@ class Brain:
         """
         probs, _, _ = self.forward(observation, h)
 
-        return {action.name: float(probs[action.value]) for action in Action}
+        # Only actions this brain can actually emit (SIGNAL is absent for the
+        # 8-wide v2/v3 policy heads).
+        return {
+            action.name: float(probs[action.value])
+            for action in Action
+            if action.value < len(probs)
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -420,7 +449,21 @@ def create_brain(
         Brain (version 2) or BrainV3 (version 3)
     """
     cfg = brain_config or {}
-    if cfg.get("version", 2) == 3:
+    version = cfg.get("version", 2)
+    if _is_v35(version):
+        # Brain v3.5 = v3 attention brain with the Observation-v2 input block
+        # (78-dim, state encoder 28→S) and the SIGNAL action (output 9).
+        from agents.brain.v3 import BrainV3
+
+        kwargs = _v3_kwargs(cfg)
+        # SIGNAL is definitional to v3.5 → always 9 actions (the legacy
+        # top-level ``output_size: 8`` is a v2 setting and is ignored here;
+        # SIGNAL availability is controlled by signal.enabled via masking).
+        kwargs["output_size"] = 9
+        return BrainV3(
+            genome, instincts=instincts, obs_spec=OBSERVATION_SPEC_V2, **kwargs
+        )
+    if version == 3:
         # Imported lazily: v3.py imports this module
         from agents.brain.v3 import BrainV3
 
@@ -448,16 +491,26 @@ def calculate_weight_count_for_config(brain_config: Optional[dict] = None) -> in
         Total number of weights (including biases)
     """
     cfg = brain_config or {}
-    if cfg.get("version", 2) == 3:
+    version = cfg.get("version", 2)
+    if _is_v35(version) or version == 3:
         from agents.brain.v3 import BrainV3
 
         kwargs = _v3_kwargs(cfg)
+        if _is_v35(version):
+            # v3.5: 28 non-vision inputs (Observation v2) + SIGNAL action (9).
+            # output_size is fixed at 9 (see create_brain).
+            state_inputs = _v35_state_inputs()
+            output_size = 9
+        else:
+            state_inputs = 22
+            output_size = kwargs["output_size"]
         return BrainV3.calculate_v3_weight_count(
+            state_inputs=state_inputs,
             embed_dim=kwargs["embed_dim"],
             state_dim=kwargs["state_dim"],
             gru_hidden_size=kwargs["gru_hidden_size"],
             value_hidden=kwargs["value_hidden"],
-            output_size=kwargs["output_size"],
+            output_size=output_size,
             world_model_hidden=kwargs["world_model_hidden"],
         )
 
@@ -468,3 +521,55 @@ def calculate_weight_count_for_config(brain_config: Optional[dict] = None) -> in
         output_size=cfg.get("output_size", 8),
         world_model_hidden=_world_model_hidden(cfg),
     )
+
+
+def _v3_spec_for(cfg: dict, state_inputs: int, output_size: int):
+    """Build a v3-family ParamSpec for the given cfg, inputs, and actions."""
+    k = _v3_kwargs(cfg)
+    return build_brain_v3_param_spec(
+        state_inputs=state_inputs,
+        embed_dim=k["embed_dim"],
+        state_dim=k["state_dim"],
+        gru_hidden_size=k["gru_hidden_size"],
+        value_hidden=k["value_hidden"],
+        output_size=output_size,
+        world_model_hidden=k["world_model_hidden"],
+    )
+
+
+def adapt_loaded_genome(flat, brain_config: Optional[dict] = None):
+    """
+    Make a loaded flat genome fit the configured brain, migrating if needed.
+
+    - If the length already matches the config, returns it unchanged.
+    - If the config is **v3.5** and the genome is a **v3** layout (the prior
+      version), it is migrated via ``migrate_genome`` (the EXTRA observation
+      rows and the SIGNAL policy column are zero-filled, so the loaded brain
+      behaves bit-identically on the original actions until those weights are
+      trained/evolved).
+    - Otherwise returns ``None`` so the caller can warn and fall back.
+
+    Args:
+        flat: Loaded flat weight vector
+        brain_config: Target ``brain`` config
+
+    Returns:
+        A flat genome of the configured length, or None if it can't be adapted
+    """
+    import numpy as np
+
+    cfg = brain_config or {}
+    flat = np.asarray(flat)
+    expected = calculate_weight_count_for_config(cfg)
+    if flat.shape == (expected,):
+        return flat
+
+    if _is_v35(cfg.get("version", 2)):
+        old_spec = _v3_spec_for(cfg, state_inputs=22, output_size=8)
+        if flat.shape == (old_spec.count(),):
+            new_spec = _v3_spec_for(
+                cfg, state_inputs=_v35_state_inputs(), output_size=9
+            )
+            return migrate_genome(flat, old_spec, new_spec)
+
+    return None

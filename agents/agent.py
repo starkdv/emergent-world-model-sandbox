@@ -486,6 +486,8 @@ class Agent:
             result = agent_utils.execute_use(self, world)
         elif action == Action.WAIT:
             result = agent_utils.execute_wait(self)
+        elif action == Action.SIGNAL:
+            result = agent_utils.execute_signal(self, world)
 
         # Dynamic energy shaping (behavior economics, not reward shaping)
         effective_energy_cost = result.energy_cost

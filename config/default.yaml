@@ -49,12 +49,18 @@ agents:
 # Neural Network Settings (GRU + Actor-Critic)
 brain:
   # Architecture version:
-  #   2 = legacy GRU-MLP (~8.9k params) — the controlled baseline
-  #   3 = attention perception + [z,h] value head (~17k params):
-  #       a small embedding shared by all vision tiles + an attention
-  #       pool driven by the agent's internal state, a larger GRU, and
-  #       a value head that sees the current state directly.
-  #       See agents/brain/v3.py and docs/BRAIN_V3_PROPOSAL.md §3.
+  #   2   = legacy GRU-MLP (~8.9k params) — the controlled baseline
+  #   3   = attention perception + [z,h] value head (~17k params):
+  #         a small embedding shared by all vision tiles + an attention
+  #         pool driven by the agent's internal state, a larger GRU, and
+  #         a value head that sees the current state directly.
+  #         See agents/brain/v3.py and docs/BRAIN_V3_PROPOSAL.md §3.
+  #   3.5 = v3 + the social/Observation-v2 upgrade (World phase W4):
+  #         six extra senses (day/night, temperature, nearest-agent
+  #         proximity & signal, on-hazard → state encoder 28) and the
+  #         SIGNAL action with a pheromone field (policy head 9). The
+  #         observation grows to 78; v3 genomes auto-migrate on load.
+  #         See docs/BRAIN_V3_PROPOSAL.md §8. Pair with signal.enabled.
   version: 2
 
   # --- v2 sizes (used when version: 2) ---
@@ -311,6 +317,18 @@ fire:
   burn_duration: 6           # Ticks a plant burns before it is consumed
   moisture_threshold: 0.4    # Above this tile moisture, plants won't ignite/spread (wet = firebreak)
   nutrient_return: 0.25      # Fertility (ash) returned to a burned tile
+
+# Signalling / pheromone field (Brain v3.5 / World phase W4) — opt-in
+# When enabled, the SIGNAL action (only present on a v3.5 brain) deposits a
+# value onto the agent's tile in a shared float field that decays each tick.
+# Other agents sense it through the Observation-v2 EXTRA block. Signals carry
+# NO built-in meaning — any protocol must emerge. Disabled = SIGNAL is masked
+# off and no field is allocated (v3.5 then behaves like v3 on the 8 actions).
+signal:
+  enabled: false   # Master switch (requires brain.version: 3.5 to matter)
+  strength: 1.0    # Value deposited per SIGNAL action
+  decay: 0.9       # Per-tick geometric decay of the field
+  diffuse: 0.0     # Fraction spread to the 4-neighbourhood each tick (0 = none)
 
 # Logging Settings
 logging:

@@ -81,6 +81,7 @@ class World:
         fire_config: dict = None,
         agents_visible: bool = False,
         agent_collision: bool = False,
+        signal_config: dict = None,
     ):
         """
         Initialize a new world with generated terrain.
@@ -136,6 +137,21 @@ class World:
         # W4: agents perceive each other in vision / contest tiles (opt-in)
         self.agents_visible = bool(agents_visible)
         self.agent_collision = bool(agent_collision)
+
+        # W4 / Brain v3.5: SIGNAL action + decaying pheromone field (opt-in).
+        sig = signal_config or {}
+        self.signal_enabled = bool(sig.get("enabled", False))
+        self.signal_strength = float(sig.get("strength", 1.0))
+        self.signal_decay = float(sig.get("decay", 0.9))
+        self.signal_diffuse = float(sig.get("diffuse", 0.0))
+        # The field is only allocated when signalling is on (None = no field,
+        # which perception reads as "no signal anywhere").
+        self.pheromones = None
+        if self.signal_enabled:
+            import numpy as _np
+
+            self.pheromones = _np.zeros((height, width), dtype=_np.float32)
+
         self.seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         self.allow_stacking = allow_stacking  # NEW: Store stacking configuration
         self.parallel = parallel  # Enable parallel agent updates
@@ -622,6 +638,9 @@ class World:
         # Environment first: every system this tick consumes its multipliers
         self.environment.update(self)
 
+        # Pheromone field decays (and optionally diffuses) each tick (W4)
+        self._update_pheromones()
+
         # Invalidate cached world counts (lazily recomputed on first use)
         self._cached_counts = None
         self._cached_soil_stats = None
@@ -653,6 +672,44 @@ class World:
                 )
             else:
                 Agent.logger.log_all_states(self.tick, self.agents)
+
+    def _update_pheromones(self) -> None:
+        """
+        Decay (and optionally diffuse) the SIGNAL pheromone field each tick.
+
+        No-op when signalling is disabled. Decay is geometric
+        (``signal_decay``); a small ``signal_diffuse`` fraction spreads to the
+        4-neighbourhood so trails blur over time (a stigmergic medium).
+        """
+        if self.pheromones is None:
+            return
+        if self.signal_diffuse > 0.0:
+            f = self.pheromones
+            blurred = f.copy()
+            blurred[1:, :] += self.signal_diffuse * f[:-1, :]
+            blurred[:-1, :] += self.signal_diffuse * f[1:, :]
+            blurred[:, 1:] += self.signal_diffuse * f[:, :-1]
+            blurred[:, :-1] += self.signal_diffuse * f[:, 1:]
+            blurred /= 1.0 + 4.0 * self.signal_diffuse
+            self.pheromones = blurred
+        self.pheromones *= self.signal_decay
+        # Drop negligible residue so the field doesn't carry float dust forever
+        self.pheromones[self.pheromones < 1e-3] = 0.0
+
+    def emit_signal(self, x: int, y: int, strength: float = None) -> bool:
+        """
+        Deposit a signal at (x, y) on the pheromone field (W4 SIGNAL action).
+
+        Returns False when signalling is disabled or the field is absent, so
+        the caller can treat SIGNAL as a no-op in that case.
+        """
+        if self.pheromones is None:
+            return False
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            return False
+        s = self.signal_strength if strength is None else strength
+        self.pheromones[y, x] = min(1.0, self.pheromones[y, x] + s)
+        return True
 
     @property
     def water_adjacent(self) -> set:

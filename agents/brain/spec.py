@@ -18,7 +18,7 @@ Author: Karan Vasa
 Date: June 2026
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
@@ -421,8 +421,9 @@ class ObservationSpec:
         vision      — egocentric grid, (side × side × 2) flattened
         stimulus    — pre-processed survival signals
         inventory   — inventory summary
+        extra       — Observation-v2 social/climate block (empty in v1)
 
-    Stimulus fields are exposed as absolute indices into the vector.
+    Stimulus (and v2 extra) fields are exposed as absolute indices.
     """
 
     agent_state: slice
@@ -442,6 +443,18 @@ class ObservationSpec:
     energy_urgency: int
     can_interact: int
 
+    # Observation version (1 = legacy 72-dim; 2 = +EXTRA block, Brain v3.5)
+    version: int = 1
+    # EXTRA block (empty slice in v1). Absolute field indices are -1 in v1.
+    # default_factory: slice is unhashable, so dataclass rejects a bare default.
+    extra: slice = field(default_factory=lambda: slice(0, 0))
+    time_of_day_sin: int = -1
+    time_of_day_cos: int = -1
+    tile_temperature: int = -1
+    nearest_agent_proximity: int = -1
+    nearest_agent_signal: int = -1
+    on_hazard: int = -1
+
     def vision_grid(self, observation: np.ndarray) -> np.ndarray:
         """
         Return the vision portion of an observation as a
@@ -453,12 +466,15 @@ class ObservationSpec:
         return np.asarray(observation)[self.vision].reshape(self.vision_shape)
 
 
-def build_observation_spec(vision_radius: int = 2) -> ObservationSpec:
+def build_observation_spec(vision_radius: int = 2, version: int = 1) -> ObservationSpec:
     """
     Build the ObservationSpec matching utils/agents/perception.py.
 
     Args:
         vision_radius: Vision grid radius (2 → 5×5 grid)
+        version: 1 = legacy 72-dim layout; 2 = append the 6-feature EXTRA
+            social/climate block (Brain v3.5 / World phase W4). The 0–71
+            prefix is identical between versions (append-only).
 
     Returns:
         ObservationSpec with derived slices and field indices
@@ -471,13 +487,30 @@ def build_observation_spec(vision_radius: int = 2) -> ObservationSpec:
     inventory = slice(stimulus.stop, stimulus.stop + 6)
 
     s = stimulus.start
+    if version >= 2:
+        extra = slice(inventory.stop, inventory.stop + 6)
+        e = extra.start
+        extra_idx = dict(
+            extra=extra,
+            time_of_day_sin=e + 0,
+            time_of_day_cos=e + 1,
+            tile_temperature=e + 2,
+            nearest_agent_proximity=e + 3,
+            nearest_agent_signal=e + 4,
+            on_hazard=e + 5,
+        )
+        size = extra.stop
+    else:
+        extra_idx = dict(extra=slice(inventory.stop, inventory.stop))
+        size = inventory.stop
+
     return ObservationSpec(
         agent_state=agent_state,
         vision=vision,
         stimulus=stimulus,
         inventory=inventory,
         vision_shape=(side, side, 2),
-        size=inventory.stop,
+        size=size,
         food_on_tile=s + 0,
         seed_on_tile=s + 1,
         food_ahead=s + 2,
@@ -486,8 +519,43 @@ def build_observation_spec(vision_radius: int = 2) -> ObservationSpec:
         food_dir_match=s + 5,
         energy_urgency=s + 6,
         can_interact=s + 7,
+        version=version,
+        **extra_idx,
     )
 
 
 # Default spec for the standard 72-feature observation (5×5 vision)
-DEFAULT_OBSERVATION_SPEC = build_observation_spec(vision_radius=2)
+DEFAULT_OBSERVATION_SPEC = build_observation_spec(vision_radius=2, version=1)
+
+# Observation-v2 spec (78-feature, Brain v3.5). Built once for reuse.
+OBSERVATION_SPEC_V2 = build_observation_spec(vision_radius=2, version=2)
+
+# ---------------------------------------------------------------------------
+# Active observation spec — the single switch perception and the brain both
+# read so they always agree. main.py sets it from the brain version at
+# startup; it defaults to the legacy v1 layout so existing runs are unchanged.
+# ---------------------------------------------------------------------------
+
+_ACTIVE_OBSERVATION_SPEC = DEFAULT_OBSERVATION_SPEC
+
+
+def get_active_observation_spec() -> ObservationSpec:
+    """Return the observation spec the simulation is currently using."""
+    return _ACTIVE_OBSERVATION_SPEC
+
+
+def set_active_observation_spec(spec: ObservationSpec) -> None:
+    """
+    Set the active observation spec (call once at startup, before agents are
+    created). Perception, the brain encoder, and genome length all derive
+    from this, so it must be set consistently with the brain version.
+    """
+    global _ACTIVE_OBSERVATION_SPEC
+    _ACTIVE_OBSERVATION_SPEC = spec
+
+
+def set_observation_version(version: int) -> None:
+    """Convenience: activate the v1 or v2 observation layout by number."""
+    set_active_observation_spec(
+        OBSERVATION_SPEC_V2 if version >= 2 else DEFAULT_OBSERVATION_SPEC
+    )

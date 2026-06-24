@@ -55,6 +55,8 @@ def build_observation(agent: "Agent", world: "World") -> np.ndarray:
     Returns:
         Normalised observation vector (72 dimensions)
     """
+    from agents.brain.spec import get_active_observation_spec
+
     obs: list[float] = []
 
     # 1. Agent internal state (8 features)
@@ -69,14 +71,19 @@ def build_observation(agent: "Agent", world: "World") -> np.ndarray:
     # 4. Inventory state (6 features)
     obs.extend(_encode_inventory(agent, world))
 
+    # 5. EXTRA block — Observation v2 (social/climate), Brain v3.5 (6 features).
+    #    Appended only under the v2 layout so the 0–71 prefix is unchanged.
+    if get_active_observation_spec().version >= 2:
+        obs.extend(_encode_extra(agent, world))
+
     return np.array(obs, dtype=np.float32)
 
 
 def get_observation_size() -> int:
-    """Return the size of the observation vector."""
-    from agents.brain.spec import DEFAULT_OBSERVATION_SPEC
+    """Return the size of the observation vector (active layout)."""
+    from agents.brain.spec import get_active_observation_spec
 
-    return DEFAULT_OBSERVATION_SPEC.size
+    return get_active_observation_spec().size
 
 
 # ---------------------------------------------------------------------------
@@ -464,3 +471,76 @@ def _encode_inventory(agent: "Agent", world: "World") -> list[float]:
     features.append(len(agent.inventory) / agent.inventory_size)
 
     return features
+
+
+# ---------------------------------------------------------------------------
+# 5. EXTRA block — Observation v2 / Brain v3.5  (6 social/climate features)
+# ---------------------------------------------------------------------------
+
+# Manhattan radius for the nearest-other-agent scan
+AGENT_SCAN_RADIUS = 5
+
+
+def _encode_extra(agent: "Agent", world: "World") -> list[float]:
+    """
+    The Observation-v2 social/climate block (Brain v3.5 / World phase W4).
+
+    Features (6), all normalised to [0, 1]:
+      [0] time_of_day_sin       — sin(2π · environment.time_of_day)*0.5+0.5
+      [1] time_of_day_cos       — cos(2π · environment.time_of_day)*0.5+0.5
+      [2] tile_temperature      — environment.temperature (climate felt here)
+      [3] nearest_agent_proximity — 1 − dist/R to the nearest OTHER agent
+      [4] nearest_agent_signal  — strongest pheromone in the 3×3 neighbourhood
+      [5] on_hazard             — 1.0 if this tile carries contact_damage
+
+    All six degrade gracefully when their subsystem is off: with the
+    environment disabled the clock is 0 and temperature is the base value;
+    with no pheromone field the signal is 0.
+    """
+    from world.object_registry import ObjectRegistry
+
+    env = world.environment
+    tod = float(getattr(env, "time_of_day", 0.0))
+    # Map sin/cos from [-1, 1] to [0, 1] to keep the whole vector non-negative
+    tod_sin = 0.5 * (1.0 + math.sin(2.0 * math.pi * tod))
+    tod_cos = 0.5 * (1.0 + math.cos(2.0 * math.pi * tod))
+    temperature = max(0.0, min(1.0, float(getattr(env, "temperature", 0.5))))
+
+    # Nearest other living agent (bounded Manhattan scan)
+    best = AGENT_SCAN_RADIUS + 1
+    for other in world.agents.values():
+        if other is agent or not getattr(other, "alive", True):
+            continue
+        d = abs(other.x - agent.x) + abs(other.y - agent.y)
+        if d < best:
+            best = d
+    agent_prox = 0.0
+    if best <= AGENT_SCAN_RADIUS:
+        agent_prox = max(0.0, 1.0 - best / AGENT_SCAN_RADIUS)
+
+    # Strongest signal in the 3×3 neighbourhood of the pheromone field
+    signal = 0.0
+    field = getattr(world, "pheromones", None)
+    if field is not None:
+        for ny in range(agent.y - 1, agent.y + 2):
+            for nx in range(agent.x - 1, agent.x + 2):
+                if 0 <= nx < world.width and 0 <= ny < world.height:
+                    v = float(field[ny, nx])
+                    if v > signal:
+                        signal = v
+        signal = min(1.0, signal)
+
+    # On a contact-damage hazard tile (e.g. thorns)?
+    on_hazard = 0.0
+    tile = world.tiles[agent.y][agent.x]
+    for oid in tile.object_ids:
+        o = world.objects.get(oid)
+        if o is None:
+            continue
+        defn = ObjectRegistry.get(getattr(o, "type_id", ""))
+        if defn is not None and defn.tile_effect is not None:
+            if defn.tile_effect.contact_damage > 0:
+                on_hazard = 1.0
+                break
+
+    return [tod_sin, tod_cos, temperature, agent_prox, signal, on_hazard]

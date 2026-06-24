@@ -61,7 +61,18 @@ def get_action_mask(agent: "Agent", world: "World") -> np.ndarray:
     from world.objects import EdibleComponent, SeedComponent, FertilizerComponent
     from world.object_registry import ObjectRegistry
 
-    mask = np.ones(len(Action), dtype=np.float32)
+    # Mask width = this brain's action count (8 for v2/v3, 9 for v3.5). Sizing
+    # by the brain — not len(Action) — keeps the mask aligned with the policy
+    # head, so adding SIGNAL never disturbs an 8-action brain.
+    n_actions = getattr(getattr(agent, "brain", None), "output_size", len(Action))
+    mask = np.ones(n_actions, dtype=np.float32)
+
+    # SIGNAL (v3.5): available only when the brain has the action AND the
+    # world's pheromone field is on. Otherwise mask it off → bit-identical to
+    # an 8-action brain (the logit is forced to -1e9 before softmax).
+    if n_actions > Action.SIGNAL.value:
+        if not getattr(world, "signal_enabled", False):
+            mask[Action.SIGNAL.value] = 0.0
 
     # MOVE_FORWARD: check bounds and passability
     nx = agent.x + agent.direction[0]
@@ -598,3 +609,23 @@ def execute_use(agent: "Agent", world: "World") -> ActionResult:
 def execute_wait(agent: "Agent") -> ActionResult:
     """Do nothing (conserve energy)."""
     return ActionResult(True, 0.18, "Waiting")
+
+
+def execute_signal(agent: "Agent", world: "World") -> ActionResult:
+    """
+    Emit a signal onto the current tile's pheromone field (Brain v3.5 / W4).
+
+    The signal carries no built-in meaning — any protocol must emerge. It is a
+    cheap action; the deposited value decays each tick (``world.signal_decay``)
+    and is sensed by nearby agents via the EXTRA observation block. If the
+    field is off (signalling disabled) this is a no-op success.
+    """
+    world.emit_signal(agent.x, agent.y)
+    return ActionResult(
+        True,
+        0.12,
+        "Signalled",
+        target_x=agent.x,
+        target_y=agent.y,
+        interaction_kind="signal",
+    )
