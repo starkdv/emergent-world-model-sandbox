@@ -1,5 +1,425 @@
 # Changelog
 
+## [Unreleased] — World upgrade, Phases W0–W6 (complete)
+
+Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
+
+> **▶ Open / next up:** **Brain v3.6 — kin-similarity sense (Observation v3).**
+> The one piece deferred from W5 because it touches the genome
+> (`nearest_agent_kin`, obs 78→79). Fully designed in `BRAIN_V3_PROPOSAL.md`
+> §9; this is the next work item. A **3D / voxel frontend** proposal
+> (`FRONTEND_3D_PROPOSAL.md`) is also queued for review.
+
+### Phase W6c — Substrate: reward-shaping diet + per-generation metrics CSV
+
+**In simple terms:** the reward the learner sees is now a choosable "diet," and
+a run can write a compact metrics CSV. The `minimal` diet is the world-side
+analogue of fading the brain's instincts — it lets us ask whether the world's
+own pressures (plus curiosity) are enough to learn from, instead of hand-built
+dense rewards.
+
+- **`reward.preset`** — `legacy` (default) keeps the full dense shaping tuned
+  across the Brain v2/v3 work, **bit-identical** (its inline constants are
+  untouched). `minimal` strips reward to **eat / death / energy-delta only**:
+  a successful net-positive EAT, the death penalty, and a small per-step
+  metabolism penalty — nothing else (no exploration/anti-loop/anti-spin/
+  turn-toward-food terms).
+- **`RewardConfig`** (`utils/agents/learning_utils.py`) holds the preset + the
+  headline magnitudes (`eat_base`, `eat_energy_gain_coef`,
+  `metabolism_penalty_coef`, `death_penalty`), behind a module-level active
+  config (`get/set_active_reward_config`) that `main.py` sets from
+  `config['reward']` — the same pattern as the observation active-spec.
+- **Per-generation metrics CSV** — `utils/agents/metrics.py` `MetricsWriter`,
+  wired as `--metrics-csv PATH`. One aggregate row per generation: population,
+  food/plant/seed counts, mean energy/age, max age, mean fitness, and the soil
+  fertility/moisture means. One O(agents) pass per generation.
+- **Config**: new `reward:` block; new `--metrics-csv` flag.
+- **Tests**: 11 new (`tests/test_w6c_reward_diet.py`) — `RewardConfig.from_dict`
+  fallback, the minimal diet's four-term behaviour (eat rewarded, no-gain eat
+  ignored, metabolism penalty, death penalty, no exploration/failed-eat terms),
+  legacy-richer-than-minimal sanity, and the metrics writer. CLI smoke-tested
+  (`minimal` + metrics CSV).
+
+This completes **W6** (and the W0–W6 world-upgrade arc).
+
+### Phase W6b — Substrate: full checkpointing (--save-state / --load-state)
+
+**In simple terms:** a long run can now be stopped and resumed *exactly* where
+it left off. Save a checkpoint; later, load it and the simulation continues on
+a bit-identical trajectory (in serial mode) — the prerequisite for the
+persistent-world track and for reproducible long experiments.
+
+- **`world/checkpoint.py`** — `save_state(world, path, config=…)` and
+  `load_state(path, config=…)`. Captured: world scalars + feature flags + the
+  config; the tile grid (terrain/fertility/moisture/elevation/occupancy);
+  every `WorldObject` and its components (plain Python — pickled directly); the
+  pheromone field; the environment-engine state; each agent's genome, physical
+  state, GRU hidden state, and anti-spin action-streak counters; the id
+  counters; and **both** RNG streams (Python `random` and NumPy global).
+- **Faithful resume** — brains/learners are rebuilt from the genome on load
+  (no RNG cost); RNG state is restored **last**, after every agent is
+  constructed (each draws one `np.random.randint` for facing), so the resumed
+  stream is byte-identical. The anti-spin counters are captured because they
+  drive the next action's energy cost — without them, energy diverged by ~0.2.
+- **CLI** — `--save-state PATH` writes a checkpoint at the end of a headless
+  run; `--load-state PATH` resumes from one (replacing the freshly-built world;
+  that build is harmless because RNG is restored last).
+- **Tests**: 4 new (`tests/test_checkpoint.py`) — save→continue vs
+  save→load→run **bit-identical equality** (the acceptance criterion),
+  tick/population restore, immediate-resume equality (RNG captured at the right
+  moment), and version rejection. CLI save→resume smoke-tested.
+- **Deferred (W6c)**: per-generation metrics CSV, reward-shaping config +
+  `minimal` preset.
+
+### Phase W6a — Substrate: spatial index for the nearest-food scans
+
+**In simple terms:** the single biggest tick-rate sink was three "where's the
+nearest food?" scans that walked up to 21×21 = 441 tiles each, several times
+per agent per tick, mostly over empty tiles. W6a replaces those walks with a
+coarse-cell index that only looks where food actually is — **~3.5× faster** on
+the radius-10 reward scan — with **bit-identical results**.
+
+- **`world/spatial_index.py`** — `SpatialIndex`, a coarse square-cell bucket
+  (`cell_size` default 8) of edible-object ids by position, with
+  add/remove/move/query_box. Tracks only edible objects (membership is stable
+  while they sit in the world), so maintenance is a few hooks, not a per-tile
+  mirror.
+- **Maintenance** — hooked into `World.add_object` / `remove_object` /
+  `move_object` and the two agent sites that move a berry between a tile and an
+  inventory (`execute_pick_up`, `execute_drop`). All system removals already
+  route through `remove_object`, so the index cannot go stale.
+- **`World.nearest_edible(ax, ay, scan_r)`** — one helper consolidating the
+  three duplicated scans (perception stimulus, RewardShaper distance +
+  direction). Uses the index when present (visits only objects in overlapping
+  cells) and an identical bounded tile scan otherwise. It is an *acceleration
+  structure, not a source of truth*: every candidate is verified against live
+  tile state and ties break row-major (min y, then x), so the nearest-food
+  result is identical with the index on or off.
+- **Call sites refactored** — `perception._encode_stimulus`,
+  `RewardShaper._find_nearest_food_distance`,
+  `RewardShaper._compute_food_dir_match` all delegate to `nearest_edible`.
+- **Config**: new `performance:` block (`spatial_index: true`,
+  `spatial_index_cell: 8`); wired through `World(performance_config=…)` and
+  `main.py`.
+- **Tests**: 11 new (`tests/test_spatial_index.py`) — index unit behaviour,
+  **index-on == index-off across 20 random worlds** (the contract),
+  row-major tie-break, maintenance through add/remove/move/pickup/drop, and an
+  end-to-end run with the index on and off. Full suite: **469 tests**.
+- **Deferred (W6b/c)**: full checkpointing (`--save-state/--load-state`),
+  per-generation metrics CSV, reward-shaping config + `minimal` preset.
+
+### Phase W5 — Social dynamics & open-endedness instruments
+
+**In simple terms:** agents can now hand inventory to each other ("give"),
+and the analyzer reports the division-of-labor metrics the project needs to
+*see* whether anything social has emerged. No genome change — these are
+capability + measurement, not new perception.
+
+- **Trade via USE (opt-in).** `execute_use` now checks for a living agent on
+  the tile in front *before* falling through to seed/fertilizer logic; with
+  `social.transfer_enabled: true` it transfers the first inventory item to
+  that agent (recipient must have space) and emits `interaction_kind="give"`.
+  The action mask exposes USE whenever a trade is possible, so an agent
+  carrying a non-plantable berry can still learn the give path. Gate stays
+  off by default — bit-compatible with W4 runs.
+- **🧬 SOCIETY / ROLES analyzer section.** A new
+  `_compute_society_metrics` in `scripts/analyze_logs.py` derives four
+  division-of-labor instruments from the existing log schema (no new
+  columns needed):
+  - **Role-entropy** — normalised Shannon entropy over agents' dominant
+    actions (1.0 = roles spread evenly across the action vocabulary; 0 =
+    one shared role). Also reports the role histogram (`EAT=4, WAIT=2 …`).
+  - **Behavioural novelty** — mean pairwise Jensen-Shannon divergence
+    (bits) between agents' action-frequency distributions, sample-capped
+    at 64 agents for runtime. 0 = identical strategies; high = strategies
+    diverged.
+  - **Territory** — per-agent centroid, bbox area, visited-cell count and
+    position entropy; aggregate mean bbox + mean Jaccard overlap over
+    visited-cell sets (overlap-rate proxy without paying for a spatial
+    index).
+  - **Trade** — count + rate of `give` actions, distinct givers + recipient
+    sites, give/signal ratio, plus a "blocked: recipient full" line when
+    that path fires.
+- **Config**: new top-level `social:` block (`transfer_enabled: false`),
+  wired through `World(social_config=…)` and `main.py`. `social.transfer_enabled`
+  is the only new switch; the analyzer metrics need no config.
+- **Tests**: 13 new (`tests/test_w5_society.py`) — trade path (off,
+  recipient-full, success, fall-through to plant), mask widens when only a
+  trade is possible, and society metrics (role-entropy high/low, novelty
+  zero/positive, territory bbox/overlap, give counting, missing-column
+  guards). Full suite: **458 tests** green.
+- **Deferred for the next batched genome bump (Brain v3.6 / Observation v3):**
+  a `nearest_agent_kin` similarity sense. Append-only and migration-safe,
+  but a break — queued instead of squeezed in mid-cycle.
+
+### Phase W4 (part 2/2) — Brain v3.5: Observation v2 + SIGNAL (the genome break)
+
+**In simple terms:** the batched genome break from part 1's plan is now built,
+as **Brain v3.5** — the v3 attention brain with widened I/O so agents can live
+in each other's world. Opt-in (`brain.version: 3.5`); the default world is
+unchanged and bit-compatible.
+
+- **Observation v2 (78-dim).** A six-feature EXTRA block is appended after the
+  legacy 72 (so the prefix is identical): `time_of_day` sin/cos, tile
+  temperature, nearest-agent proximity, nearest signal, on-hazard. The layout
+  lives in `ObservationSpec` (`build_observation_spec(version=2)`,
+  `OBSERVATION_SPEC_V2`) behind a module-level *active spec*
+  (`set_observation_version`) that perception and the brain both read.
+- **SIGNAL action + pheromone field.** `Action.SIGNAL` (id 8) deposits a value
+  onto the agent's tile in a decaying (optionally diffusing) float field
+  (`world.pheromones`); other agents sense it via the EXTRA block. Signals
+  carry no built-in meaning — any protocol must emerge. Gated by
+  `signal.enabled`; when off, SIGNAL is masked so an 8-action brain is
+  untouched. `get_action_mask` now sizes by the brain's `output_size`.
+- **Brain v3.5.** `BrainV3` resolves the active spec, derives `state_inputs`
+  (28 under v2) and includes the EXTRA slice in the state path;
+  `create_brain`/`calculate_weight_count` select v3.5 with `output_size` fixed
+  at 9. **v3.5-base = 17,626 params** (v3 + 289, <2%).
+- **Migration.** `adapt_loaded_genome` migrates a v3 genome into v3.5 on
+  `--load-weights` via the part-1 `migrate_genome` (top-left copy): same
+  original-action logits and value to floating-point tolerance; the EXTRA rows
+  and SIGNAL column start at zero. The A2C-v3 and PPO-torch batched forwards
+  were updated to include the EXTRA slice (without which v3.5 RL runs crashed).
+- **Config**: `brain.version: 3.5` documented; new `signal:` block; `main.py`
+  activates the v2 observation layout and migrates loaded weights for v3.5.
+- **Tests**: 19 new (`tests/test_brain_v35.py`) — spec, perception features,
+  weight count, migration bit-identity (v3→v3.5), SIGNAL masking, pheromone
+  decay, end-to-end. A2C + PPO end-to-end runs verified. Full suite: 439.
+- **Analyzer** — `scripts/analyze_logs.py` gained a **SOCIAL / SIGNAL** section:
+  SIGNAL usage rate, **signal entropy** (how evenly signalling is shared across
+  agents vs concentrated in specialists), and an **agent-proximity response**
+  breakdown (action mix / SIGNAL rate bucketed by nearest-agent proximity, and
+  mean proximity when signalling vs overall) — the W4 "signal entropy and
+  agent-proximity response measurable" criterion. The world-model logger now
+  sizes its `obs_*` columns *after* the v3.5 observation layout is active (so
+  the EXTRA features are logged), and a pre-existing crash on int-coded action
+  columns in transition logs was fixed. 6 tests (`tests/test_signal_analyzer.py`).
+
+### Phase W4 (part 1/2) — Agents in each other's world + genome-migration tool
+
+**In simple terms:** agents have been blind to each other and unable to
+contest space — every social research direction was blocked behind that
+(proposal P3). This first W4 increment lets agents *see* each other and
+optionally *block* each other, and ships the genome-migration utility the
+upcoming Observation-v2/SIGNAL break will use. Everything is opt-in; the
+default world is unchanged.
+
+- **`migrate_genome(old_flat, old_spec, new_spec)`** (`agents/brain/spec.py`):
+  a generic top-left-corner copy across any **append-only** spec change.
+  Because new observation features become extra rows at the end of the first
+  weight matrix and a new action becomes an extra policy column, the old
+  genome always sits in the new tensor's top-left corner; new rows/columns
+  stay zero. Result: a migrated brain's logits for the original actions and
+  its value are **bit-identical** to the old brain's (the W4 migration
+  guarantee), verified for both v2 and v3 layouts.
+- **Agents visible in vision** (`world.agents_visible`, default off): a tile
+  holding another living agent reads as `(0.40, energy-ratio)` in the vision
+  grid, overriding the terrain/object underneath. Self is excluded. This is
+  the P3 unblock — agents can finally perceive each other.
+- **Tile exclusivity** (`world.agent_collision`, default off): a living
+  agent blocks a tile, so space itself becomes a contested resource.
+- **Config**: `world.agents_visible` / `world.agent_collision` (wired via
+  `main.py`).
+- **Tests**: 10 new in `tests/test_agents_in_world.py` (migration top-left
+  copy for v2 obs/action growth and v3, behavioural bit-identity,
+  agents-in-vision enabled/disabled/self-excluded, collision). Full suite:
+  420 passing.
+
+**W4 part 2/2 (Brain v3.5) followed** — see the entry above; this part-1
+increment shipped the migration tool and the agent-awareness toggles that
+part 2 built on.
+
+### Phase W3 — Ecology & hazards: toxicity, species, thorns, wildfire
+
+**In simple terms:** the world had one food and one viable strategy. W3 adds
+real ecological trade-offs and disturbances — multiple food species, a
+poisonous look-alike you must learn to avoid, thorn hazards, and wildfire —
+mostly as data on the W0 registry plus three small mechanics. The default
+world is unchanged; the new content is opt-in or shipped as a loadable pack.
+
+- **Toxicity wired into EAT.** The dormant `toxicity` field is now a physical
+  consequence: net energy = `calories × freshness − toxicity × freshness ×
+  30` (`TOXICITY_DAMAGE`). Poisonous food can cost more energy than it gives
+  and can be fatal. Nothing labels a food good/bad — the agent discovers it
+  from the energy/survival signal (`guideline.md` §8). EAT now records the
+  eaten **species** in the action log, and the reward shaper only pays the
+  survival bonus when the eat actually netted energy (poison is never
+  rewarded — emergent discrimination, not a scripted rule).
+- **Food species pack** — new `config/ecology.yaml` (load with `--objects`):
+  a fast/cheap **shrub berry** (+10), a slow/rich **tree fruit** (+45), and a
+  net-negative **nightshade** look-alike (the discrimination task), each with
+  a distinct `vision_encoding`. Built with W0 `extends:` (a few lines each).
+- **Contact hazards** — new `TileEffectSpec.contact_damage` field and a
+  built-in **thorns** object that costs energy to step onto (a pressure, not
+  a wall), applied through the normal movement energy/reward path.
+- **Wildfire** — new `FireSystem` (opt-in `fire.enabled`). Plants on hot, dry
+  tiles ignite (heat from the W1 `environment.temperature`, dryness from tile
+  moisture), fire spreads to adjacent plants and burns them out (returning
+  ash/fertility), and it **self-extinguishes at water/wet boundaries**. The
+  dramatic, learnable disturbance the blunt calamity never was. Disabled =
+  no-op. New `fire:` config block.
+- **Analyzer** — `scripts/analyze_logs.py` gains a per-species consumption
+  section (counts, share, mean net energy, toxic flag); `scripts/objects.py
+  preview` shows each food's net energy and flags poisons.
+- **Tests** — 14 new in `tests/test_ecology.py` (toxicity math, species
+  logging, poison-not-rewarded, thorns contact damage, fire ignite/spread/
+  self-extinguish/nutrient-return/disabled, and the ecology pack). Full
+  suite: 410 passing. End-to-end run verified with fire + ecology enabled.
+- *Deferred:* a dedicated invasive-species mechanic (the fast shrub already
+  fills that niche) and a flood event.
+
+### Phase W2 — Living terrain: heightmap, mountains, rivers, biomes (opt-in)
+
+**In simple terms:** terrain used to be a uniform random shuffle — no
+elevation, no rivers, no biomes; just scattered tiles. W2 adds an
+elevation-first generator: a smooth height surface where the high ground
+becomes mountains, water settles in basins and **flows downhill into
+rivers**, and soil/sand fall out of a geography-driven moisture field with
+**fertile river corridors**. It is opt-in (`terrain.generator: heightmap`);
+the legacy flat generator stays the default and is unchanged.
+
+- **New `world/terrain_generation.py`**: pure-NumPy fractal value-noise
+  elevation (no new dependencies); mountains = the highest `rock_ratio` of
+  tiles; lakes settle in the lowest basins; **rivers** are traced by
+  steepest descent from the peaks into water/edges (within the water
+  budget); a moisture field is derived from elevation + BFS distance to
+  water; the driest land becomes desert **sand**; **fertility is highest in
+  river corridors**. Fully deterministic for a given (width, height, seed).
+- **Elevation is now a first-class tile field** (`tile.elevation`, [0,1]).
+  The legacy generator leaves it at 0.0 (flat), so existing worlds are
+  bit-compatible. It is **not** added to the agent observation yet — that
+  genome break is reserved for W4 (Observation v2).
+- **Slope movement cost**: moving uphill costs extra energy proportional to
+  the elevation climbed (`SLOPE_CLIMB_COST`); flat terrain is unchanged, so
+  movement is identical under the legacy generator.
+- **Config** (`terrain:` in `config/default.yaml`): `generator:
+  legacy|heightmap` plus a `heightmap:` block (`feature_scale`, `octaves`,
+  `persistence`, `river_sources`). The existing rock/water/sand ratios are
+  reused by the heightmap generator (honoured via elevation/moisture
+  quantiles).
+- **New `scripts/terrain.py preview`**: one-second ASCII preview of a seed's
+  world (terrain or raw height field) before running a full simulation.
+- **Tests**: 15 new in `tests/test_terrain_generation.py` (elevation range/
+  smoothness/determinism, mountains-high/water-low, downhill rivers,
+  spatial coherence, fertile corridors, World integration, legacy flatness,
+  slope cost). End-to-end heightmap run verified through `main.py`. Full
+  suite: 396 passing.
+- **Deferred to a later W2 increment** (noted in the proposal): per-tick
+  moisture diffusion, slow erosion, and 3×3 nutrient return. The current
+  increment delivers the headline geography (mountains/rivers/biomes,
+  elevation, slope cost) and meets the W2 acceptance criteria.
+
+### Bug B5 fixed — runaway plant/food accumulation (plant carrying capacity)
+
+**In simple terms:** mature plants spawn berries, berries decay into
+seeds, seeds germinate into new plants — and nothing ever stopped a new
+plant from sprouting next to existing ones. Each plant produced ~20
+offspring over its life (a growth rate ~20× replacement), so plants — and
+the berries they spawn — kept accumulating until they tiled the world. A
+no-agent 100×100 world climbed past 2,600 objects at 8k ticks and was
+still rising; a smaller world plateaued only at ~65% plant coverage.
+
+- **Cause:** `SeedGerminationSystem` checked terrain, fertility, moisture,
+  and a success probability — but never local crowding. There was no
+  carrying capacity, so the lifecycle was a pure exponential bounded only
+  by the one-plant-per-tile rule (i.e. world saturation).
+- **Fix (a real pressure, not a script — `guideline.md` §8):**
+  competition for space/light. A seed will not germinate if the
+  surrounding window already holds `max_neighbor_plants` plants; it waits
+  and eventually rots, exactly like the existing `blocks_growth` path.
+  New helper `_count_plants_in_radius`.
+- **Config** (`plants:` in `config/default.yaml`): `max_neighbor_plants: 3`
+  and `neighbor_radius: 2` (a 5×5 window). With these defaults plant
+  coverage plateaus flat at ~24% of plantable tiles (food stays abundant)
+  instead of saturating to ~65% and climbing. `max_neighbor_plants: 0`
+  restores the legacy unbounded behaviour for A/B comparison.
+- **Threaded through** `World` → `WorldSystemManager` →
+  `SeedGerminationSystem` and read in `main.py`.
+- 5 new tests (`tests/test_systems.py::TestGerminationCarryingCapacity`),
+  including a long-run regression asserting the population stays well
+  below world saturation. Full suite: 381 passing.
+
+### Phase W1 — Environment engine: day/night, seasons, weather (opt-in)
+
+**In simple terms:** the world had a frozen climate — eternal noon, no
+seasons, and "rain" that fell every tick forever. A new environment
+engine gives it a real clock: days and nights, a slow seasonal
+temperature wave, and rain/drought events. Plants, food, spoilage,
+soil moisture, and agent metabolism all now respond to it. It is off
+by default; switch it on with `environment.enabled: true`.
+
+- **New `world/environment.py`** — `EnvironmentSystem`, the single
+  source of climate. Each tick (before every other system) it computes:
+  - **light**: sinusoid over `day_length` ticks, floored at `min_light`;
+  - **temperature**: `base_temperature` + seasonal sinusoid
+    (`season_length`, `season_temp_amplitude`) + a day/night offset;
+  - **weather**: stochastic rain (`rain_start_chance`, `rain_duration`)
+    and drought events (droughts suppress rain and multiply evaporation).
+- **Existing systems consume plain multipliers** (all exactly 1.0 when
+  disabled, keeping the legacy baseline bit-compatible):
+  - plant growth × light × temperature comfort window
+    (`temperature_response`: full rate in [0.3, 0.7], zero past 0.1/0.9);
+  - germination × temperature window; food production × light;
+  - freshness decay × (0.5 + temperature) — heat spoils, cold preserves;
+  - agent metabolism × (1 + `metabolism_temp_coef` · 2·|temp − 0.5|) in
+    **both** the serial and parallel agent paths.
+- **Bug B1 fixed (soil moisture only ever rose).** The legacy soil model
+  added a constant +0.0008/tick "rain" against −0.0002/tick evaporation,
+  so every tile saturated at 1.0 and moisture constrained nothing.
+  With the environment enabled, evaporation scales with temperature and
+  light (×`drought_evaporation_factor` in droughts) and recovery arrives
+  **only** during rain events or on tiles adjacent to water
+  (`world.water_adjacent`, computed once). Moisture is now a real,
+  non-monotonic constraint. (Legacy arithmetic is preserved verbatim
+  when disabled.)
+- **Bug B2 fixed (sand germination was impossible).** Sand clamped tile
+  fertility/moisture to 0.05, strictly below the seed requirements
+  (0.3/0.2), so its ×0.1 germination multiplier never even applied. The
+  clamps now sit *at* the thresholds (0.30/0.20) so the multiplier is
+  what makes sand harder — rare desert germination is possible again.
+- **Config**: new documented `environment:` block in
+  `config/default.yaml` (`enabled: false` by default).
+- **Validation**: 34 new tests (`tests/test_environment.py`) covering the
+  clock, the response curve, weather lifecycles, every multiplier,
+  disabled-mode neutrality/legacy parity, the B1 fix empirically
+  (moisture falls in dry spells, recovers in rain, non-monotonic over a
+  cycle), and the B2 fix (a seed germinates on sand). A/B 2,000-tick
+  runs (seed 42): population stays viable with the environment on
+  (99 vs 100 agents alive) while scarcity becomes real
+  (67 vs 246 food items, 66 vs 293 plants at the final tick).
+
+### Phase W0 — Registry hardening & custom-object UX
+
+**In simple terms:** defining a custom object used to fail silently — a
+typo'd section name registered a useless object, a wrong field crashed
+with a context-free error, and a definition took ~60 lines of copying.
+Definitions are now validated with actionable errors, can inherit from
+builtins with `extends:`, and ship with a one-second toolbox CLI.
+
+- **New `world/object_validation.py`**: schema validation against the
+  spec dataclasses (unknown sections/fields are errors with
+  *did-you-mean* suggestions, all collected and reported together);
+  cross-reference checking at load time (`grows_into`, `produces`,
+  `decompose_into`, `spread_type_id` must name real types);
+  `extends: <type_id>` deep-merge inheritance (spawn counts are never
+  inherited implicitly); `vision_encoding: auto` allocates a free value
+  inside per-category bands; collision warnings when two types are
+  closer than 0.02 in encoding space (agents cannot tell them apart).
+- **`SpawnSpec` gains `respawn_rate` / `max_count`** — custom foods can
+  now replenish like builtin berries (`_respawn_registry_types` in the
+  spawn system, terrain-filtered, capped).
+- **New `scripts/objects.py`** — `validate` (schema + spawn dry-run with
+  "will NEVER appear" warnings), `list` (table of all registered types),
+  `preview` (plain-language explanation of how the simulation will treat
+  each type).
+- **New `docs/OBJECTS_GUIDE.md`** — 60-second authoring loop, the three
+  rules that prevent silent failures, full schema reference, cookbook.
+- **`config/custom_objects.yaml` rewritten** around `extends:` — the
+  golden-apple example is now ~8 substantive lines (was ~60).
+- **`main.py` refuses invalid object files at startup** with the full
+  error report instead of running a broken world.
+- 19 new tests (`tests/test_object_validation.py`).
+
 ## [Unreleased] — Brain v3, Phases 1–4 + Dream-Based Evolution
 
 ### Repository reorganization: docs/ and scripts/

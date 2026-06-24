@@ -26,6 +26,41 @@ def _get_object_type(obj) -> str:
     return ObjectRegistry.get_category(obj)
 
 
+def _find_agent_at(world: "World", x: int, y: int, exclude=None):
+    """
+    Return a living agent occupying (x, y), or None.
+
+    Used by the W5 trade path: cheap linear scan over world.agents — the agent
+    count is small (tens, not thousands) so a dict-keyed index would buy
+    nothing yet. If we ever push agent counts past a few hundred, a per-tick
+    position index lives naturally with the W6 spatial index.
+    """
+    for other in world.agents.values():
+        if other is exclude or not getattr(other, "alive", True):
+            continue
+        if other.x == x and other.y == y:
+            return other
+    return None
+
+
+def _tile_contact_damage(world: "World", x: int, y: int) -> float:
+    """Total contact damage from hazard objects on a tile (W3, e.g. thorns)."""
+    from world.object_registry import ObjectRegistry
+
+    tile = world.tiles[y][x]
+    if not tile.object_ids:
+        return 0.0
+    total = 0.0
+    for obj_id in tile.object_ids:
+        obj = world.objects.get(obj_id)
+        if obj is None:
+            continue
+        defn = ObjectRegistry.get(getattr(obj, "type_id", ""))
+        if defn is not None and defn.tile_effect is not None:
+            total += max(0.0, defn.tile_effect.contact_damage)
+    return total
+
+
 def get_action_mask(agent: "Agent", world: "World") -> np.ndarray:
     """
     Create binary mask over actions (1 = valid, 0 = invalid).
@@ -43,7 +78,18 @@ def get_action_mask(agent: "Agent", world: "World") -> np.ndarray:
     from world.objects import EdibleComponent, SeedComponent, FertilizerComponent
     from world.object_registry import ObjectRegistry
 
-    mask = np.ones(len(Action), dtype=np.float32)
+    # Mask width = this brain's action count (8 for v2/v3, 9 for v3.5). Sizing
+    # by the brain — not len(Action) — keeps the mask aligned with the policy
+    # head, so adding SIGNAL never disturbs an 8-action brain.
+    n_actions = getattr(getattr(agent, "brain", None), "output_size", len(Action))
+    mask = np.ones(n_actions, dtype=np.float32)
+
+    # SIGNAL (v3.5): available only when the brain has the action AND the
+    # world's pheromone field is on. Otherwise mask it off → bit-identical to
+    # an 8-action brain (the logit is forced to -1e9 before softmax).
+    if n_actions > Action.SIGNAL.value:
+        if not getattr(world, "signal_enabled", False):
+            mask[Action.SIGNAL.value] = 0.0
 
     # MOVE_FORWARD: check bounds and passability
     nx = agent.x + agent.direction[0]
@@ -113,8 +159,22 @@ def get_action_mask(agent: "Agent", world: "World") -> np.ndarray:
                 return True
         return False
 
-    # USE: check if inventory has usable items (seed or fertilizer)
+    # USE: check if inventory has usable items (seed or fertilizer), OR there
+    # is a trade target in front (W5 — transfer the first inventory item to a
+    # living agent on the tile directly ahead, if that capability is on and
+    # the recipient has space).
     can_use = False
+    if getattr(world, "transfer_enabled", False) and agent.inventory:
+        fx, fy = agent.direction
+        tx, ty = agent.x + fx, agent.y + fy
+        if 0 <= tx < world.width and 0 <= ty < world.height:
+            recipient = _find_agent_at(world, tx, ty, exclude=agent)
+            if (
+                recipient is not None
+                and len(recipient.inventory) < recipient.inventory_size
+            ):
+                can_use = True
+
     tile_can_plant_here = tile.can_support_plant()
 
     # If stacking is off and current tile has real objects, planting here fails
@@ -169,6 +229,13 @@ def get_action_mask(agent: "Agent", world: "World") -> np.ndarray:
     return mask
 
 
+# Energy added per unit of uphill elevation gain when moving (W2). With the
+# legacy flat generator every elevation is 0.0, so this is always 0 and
+# movement cost is unchanged (bit-compatible). Downhill is never cheaper than
+# the base cost — gravity helps, but you still spend the step.
+SLOPE_CLIMB_COST = 0.6
+
+
 def execute_move_forward(agent: "Agent", world: "World") -> ActionResult:
     """Move one tile in current direction."""
     new_x = agent.x + agent.direction[0]
@@ -179,14 +246,48 @@ def execute_move_forward(agent: "Agent", world: "World") -> ActionResult:
         return ActionResult(False, 0.22, "Out of bounds")
 
     # Check if tile is passable
-    tile = world.tiles[new_y][new_x]
-    if not tile.is_passable():
+    dest = world.tiles[new_y][new_x]
+    if not dest.is_passable():
         return ActionResult(False, 0.22, "Tile blocked")
+
+    # Tile exclusivity (W4 sub-step b): when agent collision is on, another
+    # living agent blocks the tile, so space itself becomes contested. Off by
+    # default → agents may overlap exactly as before.
+    if getattr(world, "agent_collision", False):
+        for other in world.agents.values():
+            if (
+                other is not agent
+                and getattr(other, "alive", True)
+                and other.x == new_x
+                and other.y == new_y
+            ):
+                return ActionResult(False, 0.22, "Tile occupied")
+
+    # Slope cost (W2): climbing uphill costs extra energy proportional to the
+    # elevation gained. Flat terrain (legacy) → no change.
+    src = world.tiles[agent.y][agent.x]
+    climb = dest.elevation - src.elevation
+    energy_cost = 0.20
+    if climb > 0.0:
+        energy_cost += SLOPE_CLIMB_COST * climb
 
     # Move agent
     agent.x = new_x
     agent.y = new_y
-    return ActionResult(True, 0.20, "Moved forward")
+
+    # Contact hazard (W3): stepping onto a tile with a damaging object (e.g.
+    # thorns) costs extra energy. Folded into the move's energy_cost so it
+    # flows through the normal energy/reward path. Harmless tiles → 0.
+    damage = _tile_contact_damage(world, new_x, new_y)
+    if damage > 0.0:
+        energy_cost += damage
+        return ActionResult(
+            True,
+            round(energy_cost, 3),
+            f"Moved onto hazard (−{damage:.1f} energy)",
+        )
+
+    return ActionResult(True, round(energy_cost, 3), "Moved forward")
 
 
 def execute_turn_left(agent: "Agent") -> ActionResult:
@@ -257,6 +358,9 @@ def execute_pick_up(agent: "Agent", world: "World") -> ActionResult:
     # Add to inventory and remove from world tile
     agent.inventory.append(obj_id_to_pick)
     tile.object_ids.remove(obj_id_to_pick)
+    # W6a: the item left the tile for an inventory — drop it from the food index
+    if getattr(world, "food_index", None) is not None:
+        world._index_remove(obj_id_to_pick)
 
     obj_type = _get_object_type(obj)
     return ActionResult(
@@ -293,6 +397,8 @@ def execute_drop(agent: "Agent", world: "World") -> ActionResult:
         tile.object_ids.add(obj_id)
         obj.x = agent.x
         obj.y = agent.y
+        if getattr(world, "food_index", None) is not None:
+            world._index_add(obj)  # W6a: item re-entered a tile
         return ActionResult(
             True,
             0.1,
@@ -320,6 +426,8 @@ def execute_drop(agent: "Agent", world: "World") -> ActionResult:
                 nearby_tile.object_ids.add(obj_id)
                 obj.x = nx
                 obj.y = ny
+                if getattr(world, "food_index", None) is not None:
+                    world._index_add(obj)  # W6a: item re-entered a tile
                 return ActionResult(
                     True,
                     0.1,
@@ -336,8 +444,23 @@ def execute_drop(agent: "Agent", world: "World") -> ActionResult:
     return ActionResult(False, 0.05, "No space to drop (tile occupied)")
 
 
+# Energy lost when eating, per unit of (toxicity × freshness). Tuned so a
+# fully-toxic, fully-fresh food (toxicity 1.0) inflicts a large loss — enough
+# that a low-calorie poison is net-negative and a discrimination pressure
+# emerges (W3). Non-toxic food (toxicity 0.0) is unaffected → bit-compatible.
+TOXICITY_DAMAGE = 30.0
+
+
 def execute_eat(agent: "Agent", world: "World") -> ActionResult:
-    """Consume edible object from inventory."""
+    """Consume edible object from inventory.
+
+    Net energy = calories × freshness − toxicity × freshness × TOXICITY_DAMAGE
+    (W3): the dormant toxicity field is now a real physical consequence, so
+    poisonous food can cost more energy than it gives. Nothing labels a food
+    "good" or "bad" — the agent must discover it through the energy/survival
+    signal (guideline §8). ``object_type`` records the eaten *species* so the
+    analyzer can break consumption down per species.
+    """
     from world.objects import EdibleComponent
 
     if not agent.inventory:
@@ -351,23 +474,36 @@ def execute_eat(agent: "Agent", world: "World") -> ActionResult:
 
         edible = obj.get_component(EdibleComponent)
         if edible is not None:
-            # Consume the food
-            energy_gained = edible.calories * edible.freshness
-            agent.energy = min(agent.max_energy, agent.energy + energy_gained)
+            # Net energy: calories minus a toxicity penalty (W3)
+            gain = edible.calories * edible.freshness
+            toxic_loss = edible.toxicity * edible.freshness * TOXICITY_DAMAGE
+            energy_delta = gain - toxic_loss
+            # Cap at max energy; net loss can drive energy below 0 (the death
+            # check handles fatal poisoning on the next tick).
+            agent.energy = min(agent.max_energy, agent.energy + energy_delta)
 
             # Remove from inventory and world
             agent.inventory.remove(obj_id)
             world.remove_object(obj_id)
 
-            # Fitness reward for eating
-            agent.fitness += energy_gained * 0.1
+            # Fitness tracks the realised energy outcome (poison hurts)
+            agent.fitness += energy_delta * 0.1
+
+            species = getattr(obj, "type_id", "") or "food"
+            if toxic_loss > 0:
+                msg = (
+                    f"Ate {species} {obj_id}: +{gain:.1f} −{toxic_loss:.1f} "
+                    f"toxic = {energy_delta:+.1f} energy"
+                )
+            else:
+                msg = f"Ate {species} {obj_id}, gained {energy_delta:.1f} energy"
 
             return ActionResult(
                 True,
                 0.1,
-                f"Ate food {obj_id}, gained {energy_gained:.1f} energy",
+                msg,
                 object_id=obj_id,
-                object_type="food",
+                object_type=species,
                 target_x=agent.x,
                 target_y=agent.y,
                 interaction_kind="eat",
@@ -377,11 +513,52 @@ def execute_eat(agent: "Agent", world: "World") -> ActionResult:
 
 
 def execute_use(agent: "Agent", world: "World") -> ActionResult:
-    """Use/plant object (e.g., plant seed, apply fertilizer)."""
+    """
+    Use/plant an inventory item, OR (W5) transfer it to a living agent on the
+    tile directly in front when ``world.transfer_enabled`` is on.
+
+    The trade path runs FIRST so the agent's policy can learn "USE while
+    facing someone = give." When no recipient is present the action falls
+    through to the original seed/fertilizer behaviour — old runs are
+    unchanged because transfer_enabled defaults to False.
+    """
     from world.objects import SeedComponent, FertilizerComponent
 
     if not agent.inventory:
         return ActionResult(False, 0.05, "Nothing to use")
+
+    # --- W5 trade path: hand the first inventory item to the agent ahead ---
+    if getattr(world, "transfer_enabled", False):
+        fx, fy = agent.direction
+        tx, ty = agent.x + fx, agent.y + fy
+        if 0 <= tx < world.width and 0 <= ty < world.height:
+            recipient = _find_agent_at(world, tx, ty, exclude=agent)
+            if recipient is not None:
+                if len(recipient.inventory) >= recipient.inventory_size:
+                    return ActionResult(
+                        False,
+                        0.05,
+                        "Recipient inventory full",
+                        target_x=tx,
+                        target_y=ty,
+                        interaction_kind="give_full",
+                    )
+                obj_id = agent.inventory.pop(0)
+                recipient.inventory.append(obj_id)
+                obj = world.objects.get(obj_id)
+                if obj is not None:
+                    obj.x = recipient.x
+                    obj.y = recipient.y
+                return ActionResult(
+                    True,
+                    0.12,
+                    f"Gave {obj_id} to agent {recipient.id}",
+                    object_id=obj_id,
+                    object_type=_get_object_type(obj) if obj is not None else "",
+                    target_x=tx,
+                    target_y=ty,
+                    interaction_kind="give",
+                )
 
     tile = world.tiles[agent.y][agent.x]
 
@@ -511,3 +688,23 @@ def execute_use(agent: "Agent", world: "World") -> ActionResult:
 def execute_wait(agent: "Agent") -> ActionResult:
     """Do nothing (conserve energy)."""
     return ActionResult(True, 0.18, "Waiting")
+
+
+def execute_signal(agent: "Agent", world: "World") -> ActionResult:
+    """
+    Emit a signal onto the current tile's pheromone field (Brain v3.5 / W4).
+
+    The signal carries no built-in meaning — any protocol must emerge. It is a
+    cheap action; the deposited value decays each tick (``world.signal_decay``)
+    and is sensed by nearby agents via the EXTRA observation block. If the
+    field is off (signalling disabled) this is a no-op success.
+    """
+    world.emit_signal(agent.x, agent.y)
+    return ActionResult(
+        True,
+        0.12,
+        "Signalled",
+        target_x=agent.x,
+        target_y=agent.y,
+        interaction_kind="signal",
+    )

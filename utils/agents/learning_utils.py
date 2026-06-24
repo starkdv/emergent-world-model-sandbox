@@ -12,6 +12,7 @@ Date: November 15, 2025
 """
 
 import numpy as np
+from dataclasses import dataclass
 from typing import List, Optional, TYPE_CHECKING
 from collections import deque
 import os
@@ -21,6 +22,70 @@ if TYPE_CHECKING:
     from agents.agent import Agent
     from world.world import World
     from agents.actions import Action, ActionResult
+
+
+# ---------------------------------------------------------------------------
+# Reward-shaping diet (World upgrade W6c)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RewardConfig:
+    """
+    Selects the reward-shaping "diet" and its magnitudes.
+
+    ``preset``:
+      * ``legacy`` (default) — the full dense shaping that has been tuned
+        across the Brain v2/v3 work (exploration, anti-loop, anti-spin,
+        turn-toward-food, eat bonuses, …). Bit-identical to before W6c.
+      * ``minimal`` — strips shaping down to **eat / death / energy-delta
+        only**: a successful net-positive EAT is rewarded, dying is penalised,
+        and per-step metabolism loss is a small penalty. Nothing else. This is
+        the world-side analogue of fading the brain's instincts — it tests
+        whether the world's own pressures (and curiosity) are enough signal to
+        learn from, instead of hand-built dense rewards.
+
+    The magnitudes are the headline terms the ``minimal`` diet uses; the
+    ``legacy`` path keeps its own (extensively tuned) inline constants so it is
+    provably unchanged.
+    """
+
+    preset: str = "legacy"
+    eat_base: float = 5.0
+    eat_energy_gain_coef: float = 0.2
+    metabolism_penalty_coef: float = 0.01
+    death_penalty: float = 10.0
+
+    @classmethod
+    def from_dict(cls, cfg: Optional[dict]) -> "RewardConfig":
+        cfg = cfg or {}
+        preset = str(cfg.get("preset", "legacy")).lower()
+        if preset not in ("legacy", "minimal"):
+            preset = "legacy"
+        return cls(
+            preset=preset,
+            eat_base=float(cfg.get("eat_base", 5.0)),
+            eat_energy_gain_coef=float(cfg.get("eat_energy_gain_coef", 0.2)),
+            metabolism_penalty_coef=float(cfg.get("metabolism_penalty_coef", 0.01)),
+            death_penalty=float(cfg.get("death_penalty", 10.0)),
+        )
+
+
+# Module-level active reward config (mirrors the observation active-spec
+# pattern): main.py sets it once at startup from config['reward']; it defaults
+# to the legacy diet so existing runs are unchanged.
+_ACTIVE_REWARD_CONFIG = RewardConfig()
+
+
+def get_active_reward_config() -> RewardConfig:
+    """Return the reward config the simulation is currently using."""
+    return _ACTIVE_REWARD_CONFIG
+
+
+def set_active_reward_config(config: RewardConfig) -> None:
+    """Set the active reward config (call once at startup)."""
+    global _ACTIVE_REWARD_CONFIG
+    _ACTIVE_REWARD_CONFIG = config
 
 
 class Experience:
@@ -99,8 +164,14 @@ class RewardShaper:
     - Heavy penalty for EAT spamming when no food present
     """
 
-    def __init__(self):
-        """Initialize reward shaper with tracking for distance rewards."""
+    def __init__(self, config: Optional[RewardConfig] = None):
+        """Initialize reward shaper with tracking for distance rewards.
+
+        Args:
+            config: Reward diet (preset + magnitudes). Defaults to the active
+                module-level config (legacy unless the run set it otherwise).
+        """
+        self.config = config if config is not None else get_active_reward_config()
         self.last_food_distance = None
         self.last_actions = []  # Track recent actions to detect spinning
         self.last_position = None  # Track position to detect movement
@@ -153,6 +224,23 @@ class RewardShaper:
             Shaped reward value
         """
         from agents.actions import Action
+
+        # ===== MINIMAL diet (W6c) =====
+        # eat / death / energy-delta only — no dense shaping. The world's own
+        # pressures (and curiosity, if enabled) must carry the learning signal.
+        if self.config.preset == "minimal":
+            energy_gain = energy_after - energy_before
+            reward = 0.0
+            if action == Action.EAT and action_result.success and energy_gain > 0:
+                reward += (
+                    self.config.eat_base
+                    + energy_gain * self.config.eat_energy_gain_coef
+                )
+            if energy_gain < 0 and action != Action.EAT:
+                reward -= abs(energy_gain) * self.config.metabolism_penalty_coef
+            if not agent.alive:
+                reward -= self.config.death_penalty
+            return reward
 
         reward = 0.0
 
@@ -352,24 +440,32 @@ class RewardShaper:
                 # Reset failed eat counter on success
                 self.consecutive_failed_eats = 0
 
-                # Base eating reward
-                reward += 5.0
-
-                # ENERGY-LEVEL MULTIPLIER for eating
-                energy_ratio = energy_before / agent.max_energy
-
-                if energy_ratio < 0.2:  # Critical (red) - HUGE reward
-                    reward += 20.0
-                elif energy_ratio < 0.4:  # Low (orange/red)
-                    reward += 15.0
-                elif energy_ratio < 0.6:  # Medium (yellow)
-                    reward += 10.0
-                elif energy_ratio < 0.8:  # Good (green)
+                # The eating bonuses are keyed off the *realised* energy gain,
+                # not the food's identity: a successful eat that nets energy is
+                # rewarded; eating something that nets zero/negative energy
+                # (e.g. a toxic food, W3) only gets the proportional energy
+                # term — which is negative — so the discrimination pressure is
+                # emergent, never a scripted "poison = bad" rule (guideline §8).
+                if energy_gain > 0:
+                    # Base eating reward
                     reward += 5.0
-                else:  # Full - still reward but less
-                    reward += 2.0
 
-                # Additional reward proportional to energy gained
+                    # ENERGY-LEVEL MULTIPLIER for eating
+                    energy_ratio = energy_before / agent.max_energy
+
+                    if energy_ratio < 0.2:  # Critical (red) - HUGE reward
+                        reward += 20.0
+                    elif energy_ratio < 0.4:  # Low (orange/red)
+                        reward += 15.0
+                    elif energy_ratio < 0.6:  # Medium (yellow)
+                        reward += 10.0
+                    elif energy_ratio < 0.8:  # Good (green)
+                        reward += 5.0
+                    else:  # Full - still reward but less
+                        reward += 2.0
+
+                # Additional reward proportional to energy gained (negative
+                # when the food was a net loss)
                 reward += energy_gain * 0.2
             else:
                 # FAILED EAT - Track and heavily penalize spam
@@ -539,47 +635,15 @@ class RewardShaper:
             Implementation: bounded local tile scan around the agent.
             Returns a Manhattan distance (cheap) or None if no food is found.
         """
-        from world.objects import EdibleComponent
-
-        if not hasattr(world, "tiles"):
+        if not hasattr(world, "tiles") or not hasattr(world, "nearest_edible"):
             return None
 
-        # 10 => 21x21 = 441 tiles max per call.
+        # 10 => 21x21 = 441 tiles max per call. Delegated to the World helper,
+        # which uses the W6a spatial index when present (O(objects nearby)) and
+        # an identical bounded tile scan otherwise.
         scan_r = 10
-        ax, ay = agent.x, agent.y
-
-        best_dist: Optional[int] = None
-
-        y0 = max(0, ay - scan_r)
-        y1 = min(world.height - 1, ay + scan_r)
-        x0 = max(0, ax - scan_r)
-        x1 = min(world.width - 1, ax + scan_r)
-
-        for y in range(y0, y1 + 1):
-            row = world.tiles[y]
-            dy = abs(y - ay)
-            for x in range(x0, x1 + 1):
-                dx = abs(x - ax)
-                d = dx + dy
-                if best_dist is not None and d >= best_dist:
-                    continue
-
-                tile = row[x]
-                if not tile.object_ids:
-                    continue
-
-                for oid in tile.object_ids:
-                    o = world.objects.get(oid)
-                    if o is None or getattr(o, "is_terrain", False):
-                        continue
-                    if o.get_component(EdibleComponent) is not None:
-                        best_dist = d
-                        break
-
-                if best_dist == 0:
-                    return 0.0
-
-        return float(best_dist) if best_dist is not None else None
+        nearest = world.nearest_edible(agent.x, agent.y, scan_r)
+        return None if nearest is None else nearest[0]
 
     def _compute_food_dir_match(self, agent: "Agent", world: "World") -> float:
         """
@@ -587,35 +651,17 @@ class RewardShaper:
 
         Returns 0.5 (neutral) when no food is nearby.
         """
-        from world.objects import EdibleComponent
         import math
 
-        if not hasattr(world, "tiles"):
+        if not hasattr(world, "tiles") or not hasattr(world, "nearest_edible"):
             return 0.5  # minimal/mock world
 
-        best_dist = float("inf")
-        best_fx, best_fy = 0, 0
         scan_r = 5
-        for sy in range(
-            max(0, agent.y - scan_r), min(world.height, agent.y + scan_r + 1)
-        ):
-            for sx in range(
-                max(0, agent.x - scan_r), min(world.width, agent.x + scan_r + 1)
-            ):
-                stile = world.tiles[sy][sx]
-                for oid in stile.object_ids:
-                    o = world.objects.get(oid)
-                    if o is None or getattr(o, "is_terrain", False):
-                        continue
-                    if o.get_component(EdibleComponent) is not None:
-                        d = abs(sx - agent.x) + abs(sy - agent.y)
-                        if d < best_dist:
-                            best_dist = d
-                            best_fx, best_fy = sx, sy
-
-        if best_dist >= float("inf"):
+        nearest = world.nearest_edible(agent.x, agent.y, scan_r)
+        if nearest is None:
             return 0.5  # neutral — no food visible
 
+        _, best_fx, best_fy = nearest
         diff_x = best_fx - agent.x
         diff_y = best_fy - agent.y
         mag = math.sqrt(diff_x * diff_x + diff_y * diff_y)

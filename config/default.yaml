@@ -9,6 +9,10 @@ world:
   resource_spawn_rate: 0.01
   seed: null  # null for random, or specify integer for reproducible runs
   allow_stacking: false  # If false, enforces one object per tile (prevents overlapping)
+  # Agents in each other's world (World upgrade W4). Both default off, so the
+  # baseline is unchanged; turning them on adds real selection pressure.
+  agents_visible: false   # Other agents appear in vision (encoding 0.40, value = energy)
+  agent_collision: false  # A living agent blocks a tile (space becomes contested)
 
 # Terrain Settings
 terrain:
@@ -18,6 +22,19 @@ terrain:
   sand_ratio: 0.005
   fertility_range: [0.3, 1.0]
   moisture_range: [0.2, 0.8]
+  # Terrain generator (World upgrade W2):
+  #   legacy    — uniform random shuffle (flat, no elevation; the original)
+  #   heightmap — elevation-first: mountains (high rock), rivers that flow
+  #               downhill into basins, and biomes (soil/sand) from a
+  #               geography-driven moisture field with fertile river
+  #               corridors. Honours the ratios above via elevation quantiles.
+  # The rock/water/sand ratios above are reused by the heightmap generator.
+  generator: legacy
+  heightmap:
+    feature_scale: 12     # coarse-noise cell size in tiles (bigger = smoother, broader features)
+    octaves: 4            # layered noise detail levels
+    persistence: 0.5      # amplitude falloff per octave (lower = smoother)
+    river_sources: 6      # how many downhill rivers to trace from the peaks
 
 # Agent Settings
 agents:
@@ -32,12 +49,18 @@ agents:
 # Neural Network Settings (GRU + Actor-Critic)
 brain:
   # Architecture version:
-  #   2 = legacy GRU-MLP (~8.9k params) — the controlled baseline
-  #   3 = attention perception + [z,h] value head (~17k params):
-  #       a small embedding shared by all vision tiles + an attention
-  #       pool driven by the agent's internal state, a larger GRU, and
-  #       a value head that sees the current state directly.
-  #       See agents/brain/v3.py and docs/BRAIN_V3_PROPOSAL.md §3.
+  #   2   = legacy GRU-MLP (~8.9k params) — the controlled baseline
+  #   3   = attention perception + [z,h] value head (~17k params):
+  #         a small embedding shared by all vision tiles + an attention
+  #         pool driven by the agent's internal state, a larger GRU, and
+  #         a value head that sees the current state directly.
+  #         See agents/brain/v3.py and docs/BRAIN_V3_PROPOSAL.md §3.
+  #   3.5 = v3 + the social/Observation-v2 upgrade (World phase W4):
+  #         six extra senses (day/night, temperature, nearest-agent
+  #         proximity & signal, on-hazard → state encoder 28) and the
+  #         SIGNAL action with a pheromone field (policy head 9). The
+  #         observation grows to 78; v3 genomes auto-migrate on load.
+  #         See docs/BRAIN_V3_PROPOSAL.md §8. Pair with signal.enabled.
   version: 2
 
   # --- v2 sizes (used when version: 2) ---
@@ -109,6 +132,16 @@ plants:
   fertility_consumption_per_tick: 0.001  # How much fertility plants consume
   moisture_consumption_per_tick: 0.0005  # How much moisture plants consume
   seed_max_age: 200  # Maximum age before seed rots (in ticks)
+  # Carrying capacity — competition for space/light. A seed will not
+  # germinate if this many (or more) plants already sit within
+  # neighbor_radius of it. Without this the plant population grows
+  # unbounded (each mature plant produces ~20 offspring over its life),
+  # so plants — and the berries they spawn — tile the whole world.
+  # Set max_neighbor_plants: 0 to disable (legacy unbounded growth).
+  # Defaults (cap 3 in a 5x5 window) plateau plant coverage at ~24% of
+  # plantable tiles instead of saturating the world to ~65% and climbing.
+  max_neighbor_plants: 3   # cap within the crowding window
+  neighbor_radius: 2       # 2 = the 5x5 window around the seed
 
 # Resource Settings
 resources:
@@ -127,6 +160,37 @@ soil:
   min_fertility: 0.0
   max_moisture: 1.0
   min_moisture: 0.0
+
+# Environment Engine (World upgrade W1) — day/night, seasons, weather
+# When enabled, ONE system computes global light/temperature/weather each
+# tick and existing systems consume plain multipliers from it:
+#   - plant growth × light × temperature window
+#   - germination × temperature window
+#   - food production × light
+#   - decay × (0.5 + temperature)  (hot = spoils faster)
+#   - agent metabolism × (1 + coef·|temp − 0.5|·2)  (extremes cost energy)
+# It also REPLACES the soil moisture arithmetic: evaporation scales with
+# temperature/light, and recovery happens ONLY during rain events or next
+# to water tiles (this is the fix for bug B1 — moisture used to only rise).
+# Disabled (default) = bit-compatible legacy behaviour, all multipliers 1.0.
+environment:
+  enabled: false               # Master switch (false = legacy static climate)
+  day_length: 200              # Ticks per full day/night cycle
+  min_light: 0.25              # Light level at deepest night (1.0 = noon)
+  season_length: 2000          # Ticks per full seasonal cycle
+  season_temp_amplitude: 0.25  # Seasonal swing around base_temperature
+  base_temperature: 0.5        # Yearly mean (0.5 = centre of comfort band)
+  daynight_temp_amplitude: 0.10  # Day-vs-night temperature swing
+  metabolism_temp_coef: 0.5    # Extra energy drain at temperature extremes
+  base_evaporation: 0.0012     # Soil moisture loss/tick (× temp & light)
+  water_adjacency_recovery: 0.002  # Moisture gain/tick next to WATER tiles
+  weather:
+    rain_start_chance: 0.01    # Per-tick chance rain begins (clear weather)
+    rain_duration: 60          # Ticks a rain event lasts
+    rain_recovery: 0.004       # Moisture gain/tick while raining
+    drought_start_chance: 0.002  # Per-tick chance a drought begins
+    drought_duration: 150      # Ticks a drought lasts
+    drought_evaporation_factor: 2.0  # Evaporation multiplier in drought
 
 # Simulation Settings
 simulation:
@@ -240,6 +304,70 @@ calamity:
   affect_food: true  # Whether to destroy berries/food
   affect_seeds: false  # Whether to destroy seeds (false = seeds survive for recovery)
 
+# Wildfire Settings (World upgrade W3) — opt-in
+# A pressure, not a script: plants on hot, dry tiles can ignite, fire spreads
+# to adjacent plants and burns them out (returning ash to the soil), and it
+# self-extinguishes at water/wet boundaries. It reads the W1 climate — heat
+# from environment.temperature, dryness from each tile's moisture — so fire is
+# rare in the wet/cold and dangerous in the hot/dry. Disabled = no-op.
+fire:
+  enabled: false             # Master switch
+  ignite_chance: 0.0004      # Base per-tick ignition chance for a hot, dry plant
+  spread_chance: 0.30        # Per-tick chance a burning plant ignites an adjacent plant
+  burn_duration: 6           # Ticks a plant burns before it is consumed
+  moisture_threshold: 0.4    # Above this tile moisture, plants won't ignite/spread (wet = firebreak)
+  nutrient_return: 0.25      # Fertility (ash) returned to a burned tile
+
+# Signalling / pheromone field (Brain v3.5 / World phase W4) — opt-in
+# When enabled, the SIGNAL action (only present on a v3.5 brain) deposits a
+# value onto the agent's tile in a shared float field that decays each tick.
+# Other agents sense it through the Observation-v2 EXTRA block. Signals carry
+# NO built-in meaning — any protocol must emerge. Disabled = SIGNAL is masked
+# off and no field is allocated (v3.5 then behaves like v3 on the 8 actions).
+signal:
+  enabled: false   # Master switch (requires brain.version: 3.5 to matter)
+  strength: 1.0    # Value deposited per SIGNAL action
+  decay: 0.9       # Per-tick geometric decay of the field
+  diffuse: 0.0     # Fraction spread to the 4-neighbourhood each tick (0 = none)
+
+# Social dynamics (World upgrade W5) — opt-in capabilities, NO built-in
+# rewards. transfer_enabled extends the USE action with a "give" path: when
+# the agent is facing a living agent, USE transfers the first inventory item
+# to that neighbour (recipient must have space). Pair with signal.enabled
+# (so requesters can advertise) for emergent trade. Disabled = legacy USE,
+# bit-compatible with W4 and earlier.
+social:
+  transfer_enabled: false
+
+# Reward-shaping diet (World upgrade W6c)
+# Selects how much hand-built dense reward the learner sees:
+#   legacy  — the full dense shaping tuned across the Brain v2/v3 work
+#             (exploration, anti-loop, anti-spin, turn-toward-food, eat
+#             bonuses…). The default; unchanged behaviour.
+#   minimal — eat / death / energy-delta ONLY. The world-side analogue of
+#             fading the brain's instincts: it tests whether the world's own
+#             pressures (and curiosity, if enabled) suffice as a learning
+#             signal, instead of hand-crafted dense rewards. Pair with
+#             learning.curiosity.enabled for an intrinsic exploration signal.
+# The magnitudes below are the headline terms the minimal diet uses; the
+# legacy path keeps its own tuned inline constants.
+reward:
+  preset: legacy            # legacy | minimal
+  eat_base: 5.0             # reward for a successful net-positive EAT
+  eat_energy_gain_coef: 0.2 # extra reward per unit of realised energy gained
+  metabolism_penalty_coef: 0.01  # penalty per unit of per-step energy lost
+  death_penalty: 10.0       # penalty applied on the tick an agent dies
+
+# Performance / substrate (World upgrade W6) — pure acceleration, no behaviour
+# change. The spatial index buckets edible objects into coarse cells so the
+# nearest-food scans in perception and the reward shaper visit only objects in
+# nearby cells instead of every tile in a 11×11 / 21×21 window. Results are
+# identical to the legacy tile scan (the index is a candidate filter verified
+# against live world state); disable it to A/B the speedup or for debugging.
+performance:
+  spatial_index: true       # Maintain the W6a edible-object spatial index
+  spatial_index_cell: 8     # Coarse cell edge in tiles (bigger = fatter buckets)
+
 # Logging Settings
 logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR
@@ -258,7 +386,9 @@ sand:
   germination_multiplier: 0.1   # Multiplier on germination chance (0.1 = 10× harder)
   growth_multiplier: 0.1        # Multiplier on plant growth speed (0.1 = 10× slower)
   spawn_rate_multiplier: 0.3    # Multiplier on food production (0.3 = 70% less)
-  fertility_override: 0.05      # Clamp fertility to this on sand tiles (-1 = no clamp)
-  moisture_override: 0.05       # Clamp moisture to this on sand tiles (-1 = no clamp)
+  fertility_override: 0.30      # Clamp fertility on sand (-1 = no clamp). At the seed
+                                # threshold (0.3) so the ×0.1 multiplier does the work (B2 fix)
+  moisture_override: 0.20       # Clamp moisture on sand (-1 = no clamp). At the seed
+                                # threshold (0.2) — 0.05 made germination impossible (B2 fix)
   reclaim_terrain: "soil"       # Terrain to convert back to when a blocker is present ("" = disabled)
   reclaim_interval: 150         # Ticks a plant must sit on sand before it reclaims to soil (0 = disabled)

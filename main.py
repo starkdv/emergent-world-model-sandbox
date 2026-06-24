@@ -179,6 +179,35 @@ Examples:
         help='Evolution mode: "rl" (RL + evolution) or "neuroevolution" (pure evolution). Overrides config/--learning.',
     )
 
+    parser.add_argument(
+        "--save-state",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="(W6b) Write a full checkpoint (world + agents + RNG) at the end "
+        "of the run. Resume later with --load-state.",
+    )
+
+    parser.add_argument(
+        "--load-state",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="(W6b) Resume from a checkpoint written by --save-state instead of "
+        "generating a fresh world. Reproduces the saved trajectory in serial "
+        "mode (simulation.parallel: false).",
+    )
+
+    parser.add_argument(
+        "--metrics-csv",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="(W6c) Append one aggregate metrics row per generation "
+        "(population, food/plant/seed counts, mean energy/age, soil means) "
+        "to this CSV during a headless run.",
+    )
+
     args = parser.parse_args()
 
     try:
@@ -236,6 +265,28 @@ Examples:
             print(f"Pre-trained weights: Loading from {args.load_weights}")
         if args.save_weights:
             print("Weight saving: Enabled (will save best agents at end)")
+
+        # Activate the observation layout BEFORE any logger is created, so the
+        # world-model logger sizes its obs_* columns to the active vector
+        # (78-dim under Brain v3.5, 72 otherwise).
+        from agents.brain import _is_v35 as _is_v35_early
+        from agents.brain.spec import set_observation_version as _set_obs_ver_early
+
+        _set_obs_ver_early(
+            2 if _is_v35_early(config.get("brain", {}).get("version", 2)) else 1
+        )
+
+        # Activate the reward-shaping diet (W6c). Default is the legacy dense
+        # shaping; `reward.preset: minimal` strips it to eat/death/energy-delta.
+        from utils.agents.learning_utils import (
+            RewardConfig as _RewardConfig,
+            set_active_reward_config as _set_reward_cfg,
+        )
+
+        _reward_cfg = _RewardConfig.from_dict(config.get("reward", None))
+        _set_reward_cfg(_reward_cfg)
+        if _reward_cfg.preset != "legacy":
+            print(f"Reward diet: {_reward_cfg.preset.upper()} (ablated shaping)")
 
         # Initialize agent logger if requested
         agent_logger = None
@@ -313,8 +364,15 @@ Examples:
                 )
 
         # Load custom object definitions from config if present
+        # (validated: refuses to start on schema/cross-reference errors)
+        from world.object_validation import ObjectValidationError
+
         if "objects" in config:
-            loaded = ObjectRegistry.load_from_config(config["objects"])
+            try:
+                loaded = ObjectRegistry.load_from_config(config["objects"])
+            except ObjectValidationError as e:
+                print(f"Error in config 'objects' section:\n{e}", file=sys.stderr)
+                return 1
             print(f"Loaded {loaded} custom object definitions from config")
 
         # Load custom objects from a separate YAML file (--objects flag)
@@ -324,7 +382,18 @@ Examples:
                 with open(objects_path, "r") as f:
                     objects_data = yaml.safe_load(f)
                 if objects_data and "objects" in objects_data:
-                    loaded = ObjectRegistry.load_from_config(objects_data["objects"])
+                    try:
+                        loaded = ObjectRegistry.load_from_config(
+                            objects_data["objects"]
+                        )
+                    except ObjectValidationError as e:
+                        print(
+                            f"Error in {args.objects}:\n{e}\n"
+                            f"Fix the definitions (or run: python "
+                            f"scripts/objects.py validate {args.objects})",
+                            file=sys.stderr,
+                        )
+                        return 1
                     print(
                         f"Loaded {loaded} custom object definitions from {args.objects}"
                     )
@@ -341,12 +410,22 @@ Examples:
             sand_ratio=terrain_cfg.get("sand_ratio", 0.05),
             fertility_range=tuple(terrain_cfg["fertility_range"]),
             moisture_range=tuple(terrain_cfg["moisture_range"]),
+            terrain_generator=terrain_cfg.get("generator", "legacy"),
+            heightmap_config=terrain_cfg.get("heightmap", None),
+            fire_config=config.get("fire", None),
+            agents_visible=world_cfg.get("agents_visible", False),
+            agent_collision=world_cfg.get("agent_collision", False),
+            signal_config=config.get("signal", None),
+            social_config=config.get("social", None),
+            performance_config=config.get("performance", None),
             # System configuration parameters
             plant_mature_age=plant_cfg["mature_age"],
             plant_max_age=plant_cfg["max_age"],
             decay_rate=resource_cfg["berry_freshness_decay"],
             seed_drop_chance=resource_cfg["seed_drop_chance"],
             germination_success_rate=plant_cfg["germination_success_rate"],
+            max_neighbor_plants=plant_cfg.get("max_neighbor_plants", 3),
+            neighbor_radius=plant_cfg.get("neighbor_radius", 2),
             fertility_consumption=plant_cfg["fertility_consumption_per_tick"],
             moisture_consumption=plant_cfg["moisture_consumption_per_tick"],
             fertility_recovery_rate=soil_cfg["fertility_recovery_rate"],
@@ -378,9 +457,17 @@ Examples:
                 "budget_low_frame_factor", 0.80
             ),
             parallel=config.get("simulation", {}).get("parallel", True),
+            environment_config=config.get("environment", None),
         )
 
         print(f"World created: {world.width}x{world.height}")
+        if world.environment.enabled:
+            print(
+                f"Environment: ENABLED (day {world.environment.day_length} ticks, "
+                f"season {world.environment.season_length} ticks, weather events on)"
+            )
+        else:
+            print("Environment: disabled (legacy static climate)")
         print(f"Seed: {world.seed}")
         print(
             f"Sand tiles: {sum(1 for row in world.tiles for t in row if t.terrain_type == TerrainType.SAND)}"
@@ -535,6 +622,13 @@ Examples:
         # [z, h] value head (agents/brain/v3.py).
         brain_cfg = config["brain"]
         Agent.brain_config = brain_cfg
+        # Brain v3.5 uses the Observation-v2 layout (78-dim) + SIGNAL action;
+        # activate it globally so perception and the brain agree before any
+        # agent is created.
+        from agents.brain import _is_v35
+        from agents.brain.spec import set_observation_version
+
+        set_observation_version(2 if _is_v35(brain_cfg.get("version", 2)) else 1)
         weight_count = calculate_weight_count_for_config(brain_cfg)
         _wm_cfg = brain_cfg.get("world_model", {}) or {}
         print(
@@ -581,7 +675,30 @@ Examples:
 
             pretrained_weights = BestAgentTracker.load_best_weights(args.load_weights)
             if pretrained_weights is not None:
-                print(f"Loaded pre-trained weights ({len(pretrained_weights)} values)")
+                # Migrate older-layout genomes onto the configured brain (e.g.
+                # a v3 champion loaded into a v3.5 run) — bit-identical on the
+                # original actions, new weights zero-filled.
+                from agents.brain import adapt_loaded_genome
+
+                adapted = adapt_loaded_genome(pretrained_weights, brain_cfg)
+                if adapted is None:
+                    print(
+                        f"⚠️  Loaded weights ({len(pretrained_weights)}) do not match "
+                        f"the configured brain ({weight_count}) and could not be "
+                        f"migrated — falling back to random genomes."
+                    )
+                    pretrained_weights = None
+                else:
+                    if len(adapted) != len(pretrained_weights):
+                        print(
+                            f"Migrated loaded weights "
+                            f"{len(pretrained_weights)} → {len(adapted)} "
+                            f"for brain v{brain_cfg.get('version', 2)}"
+                        )
+                    pretrained_weights = adapted
+                    print(
+                        f"Loaded pre-trained weights ({len(pretrained_weights)} values)"
+                    )
 
         # Initialize best agent tracker if saving weights
         best_agent_tracker = None
@@ -710,6 +827,26 @@ Examples:
                     f"  Affects seeds: {config['calamity'].get('affect_seeds', False)}"
                 )
 
+        # --- W6b: resume from checkpoint -------------------------------------
+        # Replace the freshly-built/populated world with the saved one. The
+        # build above is wasted work but harmless: load_state restores both RNG
+        # streams last, so the resumed trajectory is unaffected by it.
+        if args.load_state:
+            from world.checkpoint import load_state
+
+            world = load_state(args.load_state, config=config)
+            if "reproduction" in config:
+                world.reproduction_config = config["reproduction"]
+            if "calamity" in config:
+                world.calamity_config = config["calamity"]
+            print("\n" + "=" * 60)
+            print(f"RESUMED from checkpoint: {args.load_state}")
+            print(
+                f"  tick={world.tick}, agents={len(world.agents)}, "
+                f"objects={len(world.objects)}"
+            )
+            print("=" * 60)
+
         # Run demo if requested
         if args.demo:
             print("\n" + "=" * 60)
@@ -805,6 +942,14 @@ Examples:
             f"Planned run: {max_generations} generation(s) × {generation_length} ticks = {total_ticks} ticks"
         )
 
+        # W6c: per-generation metrics CSV (opt-in)
+        metrics_writer = None
+        if args.metrics_csv:
+            from utils.agents.metrics import MetricsWriter
+
+            metrics_writer = MetricsWriter(args.metrics_csv)
+            print(f"Metrics CSV: {args.metrics_csv} (one row per generation)")
+
         for _ in range(total_ticks):
             world.update()
 
@@ -816,10 +961,18 @@ Examples:
                     f"food={counts['total_food']} plants={counts['total_plants']}"
                 )
 
+            # Per-generation metrics row
+            if metrics_writer is not None and world.tick % generation_length == 0:
+                metrics_writer.record(world, generation=world.tick // generation_length)
+
             # Stop early if population goes extinct
             if not world.agents:
                 print(f"Population extinct at tick {world.tick}. Ending run early.")
                 break
+
+        if metrics_writer is not None:
+            metrics_writer.close()
+            print(f"Metrics written: {args.metrics_csv}")
 
         print("\nHeadless simulation complete")
         print(f"Final tick: {world.tick}")
@@ -837,6 +990,13 @@ Examples:
                 if agent.alive:
                     best_agent_tracker.update(agent, world)
             best_agent_tracker.save_best_weights()
+
+        # W6b: write a full checkpoint if requested (resume with --load-state)
+        if args.save_state:
+            from world.checkpoint import save_state
+
+            save_state(world, args.save_state, config=config)
+            print(f"\nCheckpoint written: {args.save_state} (tick {world.tick})")
 
         if agent_logger:
             agent_logger.close()

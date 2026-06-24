@@ -43,10 +43,10 @@ import numpy as np
 from agents.brain import Brain
 from agents.brain.instincts import InstinctModule
 from agents.brain.spec import (
-    DEFAULT_OBSERVATION_SPEC,
     ObservationSpec,
     build_brain_v3_param_spec,
     build_nested_params_v3,
+    get_active_observation_spec,
 )
 
 if TYPE_CHECKING:
@@ -99,7 +99,7 @@ class BrainV3(Brain):
         value_hidden: int = 16,
         output_size: int = 8,
         instincts: Optional[InstinctModule] = None,
-        obs_spec: ObservationSpec = DEFAULT_OBSERVATION_SPEC,
+        obs_spec: Optional[ObservationSpec] = None,
         world_model_hidden: Optional[int] = None,
     ):
         """
@@ -121,6 +121,10 @@ class BrainV3(Brain):
         # architecture parameters and spec; shared behaviour
         # (forward/decide/rebind/gru) is inherited as methods.
         self.genome = genome
+        # Resolve the active observation layout (v1 = 72-dim, v2 = 78-dim for
+        # Brain v3.5) unless an explicit spec is passed (e.g. tests).
+        if obs_spec is None:
+            obs_spec = get_active_observation_spec()
         self.obs_spec = obs_spec
         self.input_size = obs_spec.size
         self.embed_dim = embed_dim
@@ -131,11 +135,14 @@ class BrainV3(Brain):
         self.world_model_hidden = world_model_hidden
         self.instincts = instincts if instincts is not None else InstinctModule()
 
-        # Non-vision features: agent_state + stimulus + inventory
+        # Non-vision features: agent_state + stimulus + inventory + extra.
+        # The EXTRA block is empty under v1 (→ 22 inputs) and 6-wide under the
+        # v2 layout (→ 28 inputs, Brain v3.5).
         self.state_inputs = (
             (obs_spec.agent_state.stop - obs_spec.agent_state.start)
             + (obs_spec.stimulus.stop - obs_spec.stimulus.start)
             + (obs_spec.inventory.stop - obs_spec.inventory.start)
+            + (obs_spec.extra.stop - obs_spec.extra.start)
         )
 
         self.pos_enc = make_positional_encoding(obs_spec.vision_shape)
@@ -170,9 +177,15 @@ class BrainV3(Brain):
         spec_o = self.obs_spec
         p = self.params
 
-        # 1. State path
+        # 1. State path (agent_state + stimulus + inventory + EXTRA).
+        #    obs[extra] is empty under v1, so this matches v3 exactly there.
         state_feats = np.concatenate(
-            [obs[spec_o.agent_state], obs[spec_o.stimulus], obs[spec_o.inventory]]
+            [
+                obs[spec_o.agent_state],
+                obs[spec_o.stimulus],
+                obs[spec_o.inventory],
+                obs[spec_o.extra],
+            ]
         )
         s = np.tanh(state_feats @ p["state_enc"]["W"] + p["state_enc"]["b"])
 

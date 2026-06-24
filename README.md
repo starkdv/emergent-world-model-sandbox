@@ -148,13 +148,20 @@ can be run as a controlled experiment. Quick map:
 | # | Mode | Switch | Default | Requires |
 |---|------|--------|---------|----------|
 | 1 | Evolution mode | `--mode rl\|neuroevolution` / `evolution.mode` | `rl` | — |
-| 2 | Brain version | `brain.version: 2\|3` | `2` | — |
+| 2 | Brain version | `brain.version: 2\|3\|3.5` | `2` | 3.5 adds social senses + SIGNAL |
+| 2b | Signalling (v3.5) | `signal.enabled` | off | `brain.version: 3.5` |
 | 3 | Fading instincts | `brain.instincts` | on, fade at 150 | — |
 | 4 | Learning algorithm | `learning.algorithm: a2c\|ppo` | `a2c` | RL mode; PPO needs torch |
 | 5 | World model | `brain.world_model.enabled` | off | — (training needs PPO) |
 | 6 | Curiosity | `learning.curiosity.enabled` | off | world model + RL mode |
 | 7 | Latent planner | `brain.world_model.planner.enabled` | off | world model |
 | 8 | Dream evolution | `python scripts/dream_evolve.py` | — | torch + `--world-model-log` data |
+| 9 | Environment engine | `environment.enabled` | off | — |
+| 10 | Terrain generator | `terrain.generator: legacy\|heightmap` | `legacy` | — |
+| 11 | Wildfire | `fire.enabled` | off | — (hotter/drier = more fire) |
+| 12 | Ecology species pack | `--objects config/ecology.yaml` | — | — |
+| 13 | Agents visible in vision | `world.agents_visible` | off | — |
+| 14 | Tile exclusivity | `world.agent_collision` | off | — |
 
 All YAML keys live in `config/default.yaml` (heavily commented). CLI flags
 override config.
@@ -295,6 +302,128 @@ full simulation. The top-5 champions are saved in the same `.npz` format
 `main.py --load-weights` consumes. Dream fitness is a **proxy**: evolution
 exploits model errors, which is why step 3 is not optional.
 
+### 9. Environment engine — day/night, seasons, weather
+
+**Enable:** `environment.enabled: true` in `config/default.yaml`
+(see the heavily-commented `environment:` block for every knob).
+**Prerequisites:** none — works in every mode and with every brain.
+**What happens:** one system computes a global climate each tick —
+a light cycle (`day_length` ticks per day), a slow seasonal temperature
+wave (`season_length`), and stochastic rain/drought events — and the
+existing systems consume plain multipliers from it: plants grow with
+light × a temperature comfort window, seeds germinate only in livable
+temperatures, food production follows daylight, spoilage speeds up in
+heat, and agent metabolism rises at both temperature extremes. It also
+**replaces the soil moisture model**: moisture now *evaporates*
+(faster when hot/bright, doubled in droughts) and recovers **only**
+during rain or next to water tiles — fixing a long-standing bug where
+moisture could only ever rise. The intent is emergence-first: nothing
+scripts the agents, but day/night rhythms, seasonal scarcity, and
+weather shocks become real pressures their brains can discover and
+exploit. Disabled (the default), every multiplier is exactly 1.0 and
+the simulation is bit-compatible with the pre-upgrade baseline.
+
+### 10. Terrain generator — `legacy` vs `heightmap`
+
+**Enable:** `terrain.generator: heightmap` in `config/default.yaml`
+(with an optional `terrain.heightmap:` block of tunables).
+**Prerequisites:** none (pure NumPy; works in every mode).
+**What happens:** instead of the legacy uniform random shuffle, terrain is
+built from an **elevation heightmap**: the high ground becomes mountain
+**rock**, water settles into basins and **flows downhill into rivers**
+(steepest-descent tracing from the peaks), and soil/desert-**sand** fall out
+of a geography-driven moisture field — with **fertile river corridors**.
+Elevation becomes a first-class per-tile field, so **moving uphill costs
+extra energy** (slope cost). The rock/water/sand ratios you already set are
+honoured via elevation quantiles. Elevation is *not* in the agent
+observation yet (that genome break is reserved for a later phase), so old
+genomes run unchanged; `legacy` (the default) keeps the flat world exactly
+as before.
+
+Preview any seed as ASCII before running a simulation:
+
+```bash
+python scripts/terrain.py preview --seed 42                  # terrain map
+python scripts/terrain.py preview --seed 42 --elevation      # height field (0–9)
+python scripts/terrain.py preview --config config/default.yaml
+```
+
+### 11. Wildfire — `fire.enabled`
+
+**Enable:** `fire.enabled: true` in `config/default.yaml` (tunables under
+`fire:`). Most dramatic with the environment engine on and a warm
+`base_temperature`.
+**Prerequisites:** none (reads the W1 climate if present; otherwise uses a
+moderate constant heat).
+**What happens:** plants on **hot, dry** tiles can ignite; fire spreads to
+adjacent plants and burns them out, returning ash (fertility) to the soil.
+Heat comes from `environment.temperature` and dryness from each tile's
+moisture, so fire is rare in the wet/cold and dangerous in the hot/dry — and
+it **self-extinguishes at water/wet boundaries** (a damp strip of vegetation
+is a firebreak). This is a real, learnable disturbance rather than the blunt
+periodic calamity. Disabled (default) → no-op.
+
+### 12. Ecology species pack — `--objects config/ecology.yaml`
+
+**Enable:** `python main.py --objects config/ecology.yaml` (combine with any
+mode/renderer).
+**Prerequisites:** none.
+**What happens:** the single-berry food web becomes an ecology with
+trade-offs: a fast/cheap **shrub berry** (+10 energy), a slow/rich **tree
+fruit** (+45), and a **nightshade** look-alike that is *net-negative* to eat.
+Toxicity is now a real physical consequence of EAT (net energy =
+`calories × freshness − toxicity × freshness × 30`), so the nightshade is the
+first **discrimination task**: nothing flags it as poison — agents must learn
+to avoid it from the energy hit. Each species has a distinct `vision_encoding`
+so the v3 attention brain can tell them apart, and `scripts/analyze_logs.py`
+reports **per-species consumption** (with a toxic flag) so preference and
+poison-avoidance are measurable. Built-in **thorns** (`contact_damage`) add a
+crossable-but-costly terrain hazard. Validate/preview any pack first:
+
+```bash
+python scripts/objects.py validate config/ecology.yaml
+python scripts/objects.py preview  config/ecology.yaml   # shows net energy + ⚠ POISON
+```
+
+### 13. Agents visible in vision — `world.agents_visible`
+
+**Enable:** `world.agents_visible: true`.
+**What happens:** another living agent occupying a vision tile reads as the
+encoding `0.40` with that agent's energy ratio in the value slot, overriding
+the terrain/object underneath (an agent never sees itself). This is the
+unblock for every social research direction — until now agents were
+invisible to each other. It changes vision *content*, not the observation
+size, so existing genomes run unchanged; they simply start perceiving a new
+value where agents stand.
+
+### 14. Tile exclusivity — `world.agent_collision`
+
+**Enable:** `world.agent_collision: true`.
+**What happens:** a tile occupied by a living agent blocks `MOVE_FORWARD`, so
+physical space becomes a contested resource (territory, crowding, blocking).
+Off by default, agents may overlap exactly as before.
+
+> **W4 status:** these two toggles, the genome-migration tool, **and** the
+> batched **Observation v2 + SIGNAL** genome break are all shipped — the break
+> landed as **Brain v3.5** (`brain.version: 3.5`; see the Neural Architecture
+> section and [BRAIN_V3_PROPOSAL.md §8](docs/BRAIN_V3_PROPOSAL.md)).
+
+### 15. Inventory transfer — `social.transfer_enabled` (W5)
+
+**Enable:** `social.transfer_enabled: true`.
+**What happens:** the existing USE action now checks the tile in front first;
+if a living agent is there with inventory space, USE hands them the first
+inventory item (logged as `interaction_kind="give"`). Trade carries no
+built-in reward — any protocol (request via SIGNAL, donor specialisation,
+reciprocity) must emerge from selection. Off by default → legacy USE
+behaviour, bit-compatible with W4 runs.
+
+> **W5 status:** trade is shipped, and the analyzer's new **🧬 SOCIETY /
+> ROLES** section prints role-entropy, behavioural novelty (mean pairwise JS),
+> territory (bbox + Jaccard overlap) and trade counts on every run with ≥2
+> agents — no flag required. A `nearest_agent_kin` similarity sense is
+> deferred to the next batched genome bump (Brain v3.6 / Observation v3).
+
 ### Supporting flags & settings
 
 | Switch | Effect |
@@ -302,6 +431,8 @@ exploits model errors, which is why step 3 is not optional.
 | `--world-model-log` | Write transition/episode/world-state CSVs (the dream-evolution fuel). ~1 KB per transition. |
 | `--log` (+ `--log-dir`, `--log-frequency`) | Write per-action + per-tick agent-state CSVs for analysis. |
 | `--load-weights F.npz` / `--save-weights` | Seed agents from saved weights / save the best at the end. **Weight length must match the configured brain** (version + world model), otherwise loading fails. |
+| `--save-state F.pkl` / `--load-state F.pkl` | (W6b) Write a full checkpoint (world + agents + RNG) at the end of a run / resume from one. In serial mode (`simulation.parallel: false`) a resumed run is bit-identical to an uninterrupted one. |
+| `--metrics-csv F.csv` | (W6c) Append one aggregate row per generation (population, food/plant/seed counts, mean energy/age, mean fitness, soil means) during a headless run. |
 | `--seed N` | Reproducible world generation. Note: with `simulation.parallel: true` (default) agent updates are threaded and runs are not bit-reproducible; set `parallel: false` for determinism. |
 | `--gui` / `--gpu` / `--no-viz` | Pygame 2D / ModernGL isometric / headless. |
 | `learning.compute_backend/device` | `numpy`/`torch`, `cpu`/`cuda`/`mps` for the learners. |
@@ -386,6 +517,38 @@ brain:
     gru_hidden_size: 48
     value_hidden: 16
 ```
+
+**v3.5 — the social brain (`brain.version: 3.5`, World phase W4):** a *minor*
+bump of v3 that widens its I/O so agents can live in each other's world —
+**six new observation inputs** (time-of-day sin/cos, tile temperature,
+nearest-agent proximity & signal, on-hazard → state encoder 22→**28**) and
+**one new action**, **SIGNAL**, with a decaying pheromone field (policy head
+8→**9**). The attention/GRU/value core is unchanged; only the input and output
+layers grow (**+289 params, <2%**, v3.5-base ≈ 17 626). An existing v3 genome
+auto-migrates into v3.5 on `--load-weights` with the same behaviour on the
+original actions (to float tolerance; new weights zero-init). Enable SIGNAL +
+the pheromone field with `signal.enabled: true`, and combine with
+`world.agents_visible` so agents both see and signal each other. Full design +
+as-built notes: **[BRAIN_V3_PROPOSAL.md §8](docs/BRAIN_V3_PROPOSAL.md)**.
+
+```bash
+python main.py --gui --config config/default.yaml \
+  # set brain.version: 3.5, signal.enabled: true, world.agents_visible: true
+```
+
+```
+v3 inputs/outputs ───────────────►  v3.5 inputs/outputs
+state encoder 22 → 40                state encoder 28 → 40   (+6 EXTRA senses)
+policy head   48 → 8                 policy head   48 → 9    (+SIGNAL action)
+                                     + PheromoneField (decaying signal grid)
+```
+
+> **▶ Next up — v3.6 (the kin-similarity sense).** The one piece deferred from
+> World phase W5 because it touches the genome: a single `nearest_agent_kin`
+> input (obs 78→79, +40 params) computed from a birth-time genome fingerprint,
+> so agents can perceive how related a neighbour is and kin selection can
+> emerge. It is **designed and is the current open work item** — full design in
+> **[BRAIN_V3_PROPOSAL.md §9](docs/BRAIN_V3_PROPOSAL.md)**.
 
 #### v3 size presets — small / base / large
 
@@ -573,6 +736,154 @@ the full enable/prerequisite/effect reference):
 - Learning scheduler (interval, budget, adaptive mode)
 - Visualisation and data collection settings
 
+## World & Ecosystem Parameters
+
+The world is a 2D grid of tiles (soil/rock/water/sand), each carrying
+`fertility` and `moisture`. A pipeline of systems runs every tick to grow
+plants, germinate seeds, decay food, cycle soil nutrients, and (optionally)
+drive a day/night/seasonal/weather climate. Every parameter below lives in
+`config/default.yaml`; deeper mechanics are documented in
+[docs/ECOSYSTEM.md](docs/ECOSYSTEM.md).
+
+### World & terrain (`world:`, `terrain:`)
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `world.width` / `world.height` | 100 / 100 | Grid dimensions in tiles |
+| `world.initial_resources` | 50 | Objects scattered at world start |
+| `world.resource_spawn_rate` | 0.01 | Safety-net berry spawn probability when food is depleted |
+| `world.allow_stacking` | false | If false, one object per tile (overflow placed nearby) |
+| `world.agents_visible` | false | (W4) Other living agents appear in vision as encoding 0.40 with their energy ratio (the P3 unblock) |
+| `world.agent_collision` | false | (W4) A living agent blocks a tile, so space becomes contested |
+| `social.transfer_enabled` | false | (W5) USE on a facing agent transfers the first inventory item (recipient must have space). Logged as `interaction_kind="give"` |
+| `world.seed` | null | RNG seed (null = random each run) |
+| `terrain.soil_ratio` | 0.695 | Fraction of plantable soil tiles |
+| `terrain.rock_ratio` | 0.20 | Impassable rock (blocks movement) |
+| `terrain.water_ratio` | 0.10 | Water (not plantable; feeds moisture to adjacent soil when the environment engine is on) |
+| `terrain.sand_ratio` | 0.005 | Spreading hazard that slows growth/germination 10× |
+| `terrain.fertility_range` | [0.3, 1.0] | Initial fertility drawn per soil tile |
+| `terrain.moisture_range` | [0.2, 0.8] | Initial moisture drawn per soil tile |
+| `terrain.generator` | legacy | `legacy` (uniform shuffle, flat) or `heightmap` (elevation: mountains, rivers, biomes, slope cost — see [mode #10](#10-terrain-generator--legacy-vs-heightmap)) |
+| `terrain.heightmap.feature_scale` | 12 | Heightmap: coarse-noise cell size (bigger = smoother, broader features) |
+| `terrain.heightmap.octaves` | 4 | Heightmap: layered noise detail levels |
+| `terrain.heightmap.persistence` | 0.5 | Heightmap: amplitude falloff per octave (lower = smoother) |
+| `terrain.heightmap.river_sources` | 6 | Heightmap: how many downhill rivers to trace from the peaks |
+| `performance.spatial_index` | true | (W6a) Coarse-cell index of edible objects — speeds the nearest-food scans ~3.5× with identical results. Disable to A/B or debug |
+| `performance.spatial_index_cell` | 8 | (W6a) Index cell edge in tiles (bigger = fatter buckets) |
+| `reward.preset` | legacy | (W6c) `legacy` (full dense shaping) or `minimal` (eat/death/energy-delta only — the reward-diet ablation; pair with `learning.curiosity`) |
+
+### Plants & seeds (`plants:`)
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `growth_time` | 50 | Ticks a seed must sit in soil before it can germinate |
+| `mature_age` | 100 | Plant age at which it starts producing berries |
+| `max_age` | 500 | Plant age at death (returns fertility to soil) |
+| `seed_spawn_rate` | 0.1 | Per-tick chance a mature plant spawns a berry |
+| `required_fertility` | 0.3 | Minimum tile fertility for germination |
+| `required_moisture` | 0.2 | Minimum tile moisture for germination |
+| `germination_success_rate` | 0.75 | Probability a ready seed germinates (× temperature window when the environment engine is on) |
+| `fertility_consumption_per_tick` | 0.001 | Fertility a plant draws from its tile |
+| `moisture_consumption_per_tick` | 0.0005 | Moisture a plant draws from its tile |
+| `seed_max_age` | 200 | Ticks before an ungerminated seed rots away |
+| `max_neighbor_plants` | 3 | **Carrying capacity (B5):** a seed will not germinate if this many plants are already within `neighbor_radius`. `0` disables it (legacy unbounded growth) |
+| `neighbor_radius` | 2 | Chebyshev radius of the crowding window (2 = a 5×5 area) |
+
+> **Why the carrying capacity matters:** without it, each mature plant
+> produces ~20 offspring over its life, so plants — and the berries they
+> spawn — accumulate until they tile the world (a small world saturates at
+> ~65% plant coverage). With the defaults, plant coverage plateaus flat at
+> ~24% of plantable tiles while food stays abundant.
+
+### Resources & soil (`resources:`, `soil:`)
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `resources.berry_calories` | 20.0 | Energy a fresh berry gives when eaten (× freshness) |
+| `resources.berry_freshness_decay` | 0.01 | Freshness lost per tick (≈100-tick shelf life) |
+| `resources.seed_drop_chance` | 0.7 | Chance a fully decayed berry drops a seed |
+| `soil.fertility_recovery_rate` | 0.0005 | Fertility regained per tick on empty soil |
+| `soil.fertility_return_on_death` | 0.15 | Fertility returned when a plant/berry decomposes |
+| `soil.moisture_evaporation_rate` | 0.0002 | Legacy moisture loss/tick (**superseded** by the environment engine when enabled) |
+| `soil.moisture_recovery_rate` | 0.0008 | Legacy moisture gain/tick (the old "rain" — this was bug B1; **superseded** when the environment engine is enabled) |
+
+### Environment engine (`environment:`) — opt-in (W1)
+
+Off by default; when `enabled: true` it computes a global climate each tick
+and feeds plain multipliers to the systems above. See
+[mode #9](#9-environment-engine--daynight-seasons-weather) for the full
+effect description.
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `enabled` | false | Master switch (false = legacy static climate, bit-compatible) |
+| `day_length` | 200 | Ticks per day/night cycle (drives `light`) |
+| `min_light` | 0.25 | Light floor at deepest night (1.0 = noon) |
+| `season_length` | 2000 | Ticks per seasonal cycle (drives the temperature baseline) |
+| `season_temp_amplitude` | 0.25 | Seasonal temperature swing around `base_temperature` |
+| `base_temperature` | 0.5 | Yearly mean temperature (0.5 = centre of the comfort band) |
+| `daynight_temp_amplitude` | 0.10 | Day-vs-night temperature swing |
+| `metabolism_temp_coef` | 0.5 | Extra agent energy drain at temperature extremes |
+| `base_evaporation` | 0.0012 | Soil moisture loss/tick, scaled by temperature & light |
+| `water_adjacency_recovery` | 0.002 | Moisture gain/tick on soil next to water tiles |
+| `weather.rain_start_chance` | 0.01 | Per-tick chance rain begins (rain is the only moisture recovery) |
+| `weather.rain_duration` | 60 | Length of a rain event |
+| `weather.rain_recovery` | 0.004 | Moisture gain/tick while raining |
+| `weather.drought_start_chance` | 0.002 | Per-tick chance a drought begins |
+| `weather.drought_duration` | 150 | Length of a drought |
+| `weather.drought_evaporation_factor` | 2.0 | Evaporation multiplier during drought |
+
+### Sand hazard (`sand:`) — W0 / B2
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `germination_multiplier` | 0.1 | Germination is 10× harder on sand |
+| `growth_multiplier` | 0.1 | Plant growth is 10× slower on sand |
+| `spawn_rate_multiplier` | 0.3 | 70% less food production on sand |
+| `fertility_override` | 0.30 | Clamps tile fertility on sand (B2: at the seed threshold, so the ×0.1 multiplier is the real difficulty) |
+| `moisture_override` | 0.20 | Clamps tile moisture on sand (B2: at the seed threshold) |
+| `spread_interval` / `spread_chance` / `spread_radius` | 200 / 0.05 / 1 | How fast unprotected soil turns to sand |
+| `spread_blocked_by` | [plant] | Categories that stop sand spreading |
+| `reclaim_terrain` / `reclaim_interval` | soil / 150 | A plant sitting on sand reclaims it back to soil |
+
+### Population pressure (`reproduction:`, `calamity:`)
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `reproduction.enabled` | false | Enable in-simulation asexual reproduction |
+| `reproduction.energy_threshold` | 0.60 | Fraction of max energy a parent needs to reproduce |
+| `reproduction.energy_split` | 0.40 | Fraction of energy the parent loses to the offspring |
+| `reproduction.min_age` / `cooldown_ticks` | 100 / 50 | Earliest reproduction age / ticks between births |
+| `reproduction.mutation_std` | 0.02 | Gaussian mutation applied to offspring weights |
+| `reproduction.max_population` | 100 | Hard cap on agent count (null = unlimited) |
+| `calamity.enabled` | true | Enable periodic resource-destroying disasters |
+| `calamity.interval` | 500 | Ticks between calamities |
+| `calamity.destruction_rate` | 0.70 | Fraction of targeted objects destroyed each event |
+| `calamity.affect_plants` / `affect_food` / `affect_seeds` | true / true / false | What a calamity destroys (seeds preserved by default for recovery) |
+
+### Wildfire (`fire:`) — W3, opt-in
+
+| Parameter | Default | What it does |
+|-----------|---------|--------------|
+| `fire.enabled` | false | Master switch (no-op when off) |
+| `fire.ignite_chance` | 0.0004 | Base per-tick chance a hot, dry plant ignites |
+| `fire.spread_chance` | 0.30 | Per-tick chance a burning plant ignites an adjacent plant |
+| `fire.burn_duration` | 6 | Ticks a plant burns before it is consumed |
+| `fire.moisture_threshold` | 0.4 | Tile moisture above this is a firebreak (won't ignite/spread) |
+| `fire.nutrient_return` | 0.25 | Fertility (ash) returned to a burned tile |
+
+> Ignition/spread scale with heat (`environment.temperature`) and dryness
+> (tile moisture), so fire needs the environment engine (or a warm constant)
+> to be common. See [mode #11](#11-wildfire--fireenabled).
+
+### Edible / toxicity (per-object, W3)
+
+Edible objects (built-ins and custom) carry `edible.calories`,
+`edible.toxicity`, and `edible.freshness`. Eating yields **net energy =
+`calories × freshness − toxicity × freshness × 30`** — so a toxic food can be
+net-negative. Set `toxicity` on any food (e.g. in a `--objects` pack) to
+create a discrimination task. See [mode #12](#12-ecology-species-pack--objects-configecologyyaml).
+
 ## Custom Objects
 
 Create new world objects entirely from YAML — no code changes required.
@@ -649,6 +960,17 @@ phases — plus two Brain-v3-era sections:
 - **💀 Death analysis** — death reasons and age-at-death distribution
   (transitions format; e.g. a starvation spike just past fade_age means
   agents aren't learning to eat before the training wheels come off)
+- **🍽️ Per-species consumption** (W3) — what gets eaten, with net energy and a
+  toxic-food flag, so species preference / poison-avoidance is measurable
+- **🛰️ Social / SIGNAL** (Brain v3.5 / W4) — SIGNAL usage rate, **signal
+  entropy** (shared behaviour vs specialists), and an **agent-proximity
+  response** (action mix bucketed by how close other agents are) — does
+  signalling rise in company?
+- **🧬 Society / Roles** (W5) — **role-entropy** (normalised Shannon over
+  agents' dominant actions: division of labor), **behavioural novelty**
+  (mean pairwise Jensen-Shannon divergence between agent action
+  distributions), **territory** (per-agent bbox + mean Jaccard overlap),
+  and **trade** counts (gives, givers, recipient sites, give/signal ratio).
 
 ### Observation Sensitivity
 ```bash

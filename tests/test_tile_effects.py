@@ -157,12 +157,15 @@ class TestTileEffectSpec:
         assert defn.tile_effect.converts_terrain == "sand"
 
     def test_sand_fertility_override(self):
+        # B2 fix: clamp sits AT the seed fertility threshold (0.3) so the
+        # x0.1 germination multiplier is what makes sand harder
         defn = ObjectRegistry.get("sand")
-        assert defn.tile_effect.fertility_override == pytest.approx(0.05)
+        assert defn.tile_effect.fertility_override == pytest.approx(0.30)
 
     def test_sand_moisture_override(self):
+        # B2 fix: clamp sits AT the seed moisture threshold (0.2)
         defn = ObjectRegistry.get("sand")
-        assert defn.tile_effect.moisture_override == pytest.approx(0.05)
+        assert defn.tile_effect.moisture_override == pytest.approx(0.20)
 
 
 # ===================================================================
@@ -326,7 +329,7 @@ class TestTileEffectSystem:
         tes = TileEffectSystem()
         tes.update(small_world)
 
-        assert tile.fertility <= 0.1 + 1e-9
+        assert tile.fertility <= 0.30 + 1e-9
 
     def test_moisture_clamping(self, small_world):
         """Sand should clamp tile moisture to its override value."""
@@ -339,7 +342,7 @@ class TestTileEffectSystem:
         tes = TileEffectSystem()
         tes.update(small_world)
 
-        assert tile.moisture <= 0.05 + 1e-9
+        assert tile.moisture <= 0.20 + 1e-9
 
     def test_no_spread_before_interval(self, small_world):
         """Sand should NOT spread before spread_interval ticks."""

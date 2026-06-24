@@ -380,12 +380,15 @@ class AgentLearner:
         spec_o = brain.obs_spec
         batch = obs_batch.shape[0]
 
-        # State path
+        # State path (agent_state + stimulus + inventory + EXTRA). The EXTRA
+        # slice is empty under the v1 layout and 6-wide under v2 (Brain v3.5),
+        # so this matches BrainV3._encode for both.
         state_feats = np.concatenate(
             [
                 obs_batch[:, spec_o.agent_state],
                 obs_batch[:, spec_o.stimulus],
                 obs_batch[:, spec_o.inventory],
+                obs_batch[:, spec_o.extra],
             ],
             axis=1,
         )

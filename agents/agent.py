@@ -166,9 +166,10 @@ class Agent:
         # Age the agent
         self.age += 1
 
-        # Consume energy for metabolism
+        # Consume energy for metabolism (temperature extremes cost more
+        # when the environment engine is enabled — W1)
         energy_before = self.energy
-        self.energy -= self.metabolism_rate
+        self.energy -= self.metabolism_rate * world.environment.metabolism_multiplier
 
         # Check for death conditions
         if self.energy <= 0 or self.age >= self.max_age:
@@ -485,6 +486,8 @@ class Agent:
             result = agent_utils.execute_use(self, world)
         elif action == Action.WAIT:
             result = agent_utils.execute_wait(self)
+        elif action == Action.SIGNAL:
+            result = agent_utils.execute_signal(self, world)
 
         # Dynamic energy shaping (behavior economics, not reward shaping)
         effective_energy_cost = result.energy_cost

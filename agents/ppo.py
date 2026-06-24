@@ -218,8 +218,14 @@ class TorchBrainMirror:
         p = self.params
         if self.version == 3:
             so = self.obs_spec
+            # +EXTRA slice (empty under v1, 6-wide under v2 / Brain v3.5)
             state_feats = torch.cat(
-                [obs[:, so.agent_state], obs[:, so.stimulus], obs[:, so.inventory]],
+                [
+                    obs[:, so.agent_state],
+                    obs[:, so.stimulus],
+                    obs[:, so.inventory],
+                    obs[:, so.extra],
+                ],
                 dim=1,
             )
             s = torch.tanh(state_feats @ p["state_enc.W"] + p["state_enc.b"])

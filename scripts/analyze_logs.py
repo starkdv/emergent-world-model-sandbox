@@ -516,6 +516,308 @@ def _compute_efficiency_metrics(df: pd.DataFrame) -> dict:
     }
 
 
+def _compute_species_consumption(df: pd.DataFrame) -> dict:
+    """
+    Per-species consumption (W3). Successful EAT rows record the eaten
+    species in ``object_type``; this groups them so multi-species worlds and
+    the toxic-food discrimination task are measurable.
+
+    Reports, per species: number eaten, mean net energy gained (negative for
+    a poison), and a crude "preference" share of all eats. With the energy
+    columns present it also flags toxic species (mean net energy < 0).
+    """
+    eats = df[(df["action"] == "EAT") & (df["success"] == True)]  # noqa: E712
+    if len(eats) == 0:
+        return {"total_eats": 0, "by_species": []}
+
+    has_energy = "energy_before" in df.columns and "energy_after" in df.columns
+    total = len(eats)
+    rows = []
+    for species, g in eats.groupby(eats["object_type"].fillna("").replace("", "food")):
+        count = len(g)
+        mean_net = None
+        if has_energy:
+            net = g["energy_after"] - g["energy_before"] + g.get("energy_cost", 0)
+            mean_net = float(net.mean())
+        rows.append(
+            {
+                "species": str(species),
+                "eaten": count,
+                "share_pct": round(100.0 * count / total, 1),
+                "mean_net_energy": round(mean_net, 2) if mean_net is not None else None,
+                "toxic": (mean_net is not None and mean_net < 0),
+            }
+        )
+    rows.sort(key=lambda r: r["eaten"], reverse=True)
+    return {"total_eats": total, "distinct_species": len(rows), "by_species": rows}
+
+
+def _compute_social_metrics(df: pd.DataFrame) -> dict:
+    """
+    SIGNAL usage, signal entropy, and agent-proximity response (Brain v3.5 /
+    World phase W4). This is the W4 "signal entropy and agent-proximity
+    response measurable" acceptance criterion.
+
+    - SIGNAL usage: count + rate of the SIGNAL action.
+    - Signal entropy: normalised Shannon entropy of how SIGNAL emissions are
+      distributed across the agents that signalled — 1.0 = every signaller
+      uses it equally (a shared behaviour); →0 = concentrated in a few
+      specialists. Returned in bits and normalised to [0, 1].
+    - Agent-proximity response: bucket actions by the EXTRA
+      ``nearest_agent_proximity`` observation (only present in v2/v3.5
+      transition logs) into alone / near / close, and report the dominant
+      action and SIGNAL rate per bucket — does behaviour change with company?
+
+    Returns an empty-ish dict when there is no signalling and no proximity
+    column, so the printer can skip the section for non-social runs.
+    """
+    out: dict = {"signal_actions": 0}
+    if "action" not in df.columns:
+        return out
+
+    # SIGNAL may be logged as the action name ("SIGNAL", action logs) or its
+    # value ("8", transition logs); interaction_kind=="signal" is also set.
+    act = df["action"].astype(str)
+    is_signal = (act == "SIGNAL") | (act == "8")
+    if "interaction_kind" in df.columns:
+        is_signal = is_signal | (df["interaction_kind"].astype(str) == "signal")
+    n_signal = int(is_signal.sum())
+    total = len(df)
+    out["signal_actions"] = n_signal
+    out["signal_rate_pct"] = round(100.0 * n_signal / max(total, 1), 3)
+
+    if n_signal > 0 and "agent_id" in df.columns:
+        per_agent = df.loc[is_signal].groupby("agent_id").size().to_numpy(dtype=float)
+        out["signallers"] = int(per_agent.size)
+        p = per_agent / per_agent.sum()
+        h = float(-np.sum(p * np.log2(p)))
+        h_max = float(np.log2(len(p))) if len(p) > 1 else 1.0
+        out["signal_entropy_bits"] = round(h, 3)
+        out["signal_entropy_norm"] = round(h / h_max if h_max > 0 else 0.0, 3)
+
+    # Agent-proximity response (needs the v2 EXTRA observation column)
+    try:
+        from agents.brain.spec import OBSERVATION_SPEC_V2
+
+        prox_col = f"obs_{OBSERVATION_SPEC_V2.nearest_agent_proximity}"
+    except Exception:
+        prox_col = "obs_75"
+    if prox_col in df.columns:
+        prox = pd.to_numeric(df[prox_col], errors="coerce").fillna(0.0)
+        buckets = pd.cut(
+            prox,
+            [-0.01, 1e-9, 0.5, 1.01],
+            labels=["alone", "near", "close"],
+        )
+        response = []
+        for label in ("alone", "near", "close"):
+            mask = buckets == label
+            count = int(mask.sum())
+            if count == 0:
+                continue
+            sig_rate = 100.0 * int((is_signal & mask).sum()) / count
+            top_action = df.loc[mask, "action"].astype(str).value_counts().idxmax()
+            response.append(
+                {
+                    "bucket": label,
+                    "count": count,
+                    "signal_pct": round(sig_rate, 2),
+                    "top_action": top_action,
+                }
+            )
+        out["proximity_response"] = response
+        if n_signal > 0:
+            out["mean_prox_when_signalling"] = round(float(prox[is_signal].mean()), 3)
+            out["mean_prox_overall"] = round(float(prox.mean()), 3)
+    return out
+
+
+def _compute_society_metrics(df: pd.DataFrame) -> dict:
+    """
+    Division-of-labor + behavioural-novelty + territory + trade metrics
+    (World phase W5). All four are derived from action/position logs, so the
+    function works on the existing schemas (no new columns required).
+
+    Returns an empty dict when the log is too small to be informative
+    (<2 agents or no action column), so the printer can skip the section.
+
+    Metrics:
+      - role_entropy_norm: normalised Shannon entropy of "dominant action per
+        agent" across the population. 0 = everyone has the same dominant
+        action (one role); 1 = roles are spread evenly across the action
+        vocabulary (high division of labor).
+      - novelty_mean_js: mean pairwise Jensen-Shannon divergence (bits) between
+        agents' action-frequency distributions. 0 = identical strategies; high
+        = strategies have diverged. A complement to role_entropy that captures
+        gradual differences rather than only the top action.
+      - territory: per-agent and aggregate territory readouts derived from
+        positions (x, y when present). Per agent: centroid, bbox area,
+        position entropy (how spread its visits are). Aggregate: mean of
+        per-agent bbox areas, overlap-rate proxy (mean Jaccard over visited
+        cell sets of every pair).
+      - trade: count and rate of give actions (interaction_kind="give"),
+        unique givers, unique recipients (when target_x/target_y identifies
+        the recipient tile), and a give→signal ratio that hints at whether
+        signalling and trading co-occur.
+    """
+    out: dict = {}
+    if "action" not in df.columns or "agent_id" not in df.columns:
+        return out
+
+    agents = df["agent_id"].unique()
+    if len(agents) < 2:
+        return out
+
+    # ----- role-entropy: dominant action per agent -----
+    dominant = df.groupby("agent_id")["action"].agg(
+        lambda s: s.astype(str).value_counts().idxmax()
+    )
+    role_counts = dominant.value_counts().to_numpy(dtype=float)
+    p = role_counts / role_counts.sum()
+    h = float(-np.sum(p * np.log2(p)))
+    h_max = float(np.log2(len(p))) if len(p) > 1 else 1.0
+    out["role_entropy_bits"] = round(h, 3)
+    out["role_entropy_norm"] = round(h / h_max if h_max > 0 else 0.0, 3)
+    out["distinct_roles"] = int(len(p))
+    out["dominant_role_counts"] = {
+        str(role): int(c) for role, c in dominant.value_counts().items()
+    }
+
+    # ----- novelty: mean pairwise Jensen-Shannon divergence over action dists
+    # Build per-agent action histogram over the union vocabulary, then average
+    # JS(p_i, p_j) over all i<j pairs. Cap the population at 64 random agents
+    # so runs with thousands of agents stay O(seconds), not O(minutes).
+    actions = df["action"].astype(str)
+    vocab = sorted(actions.unique())
+    rng = np.random.default_rng(0)
+    sampled = agents
+    if len(sampled) > 64:
+        sampled = rng.choice(sampled, size=64, replace=False)
+    dists = {}
+    for aid in sampled:
+        counts = df.loc[df["agent_id"] == aid, "action"].astype(str).value_counts()
+        v = np.array([counts.get(a, 0) for a in vocab], dtype=float)
+        s = v.sum()
+        if s > 0:
+            dists[aid] = v / s
+
+    js_vals = []
+
+    def _js(p_: np.ndarray, q_: np.ndarray) -> float:
+        m = 0.5 * (p_ + q_)
+
+        # KL with 0 log 0 ≡ 0
+        def _kl(a, b):
+            mask = a > 0
+            return float(np.sum(a[mask] * np.log2(a[mask] / b[mask])))
+
+        return 0.5 * _kl(p_, m) + 0.5 * _kl(q_, m)
+
+    ids = list(dists.keys())
+    for i in range(len(ids)):
+        for j in range(i + 1, len(ids)):
+            js_vals.append(_js(dists[ids[i]], dists[ids[j]]))
+    if js_vals:
+        out["novelty_mean_js"] = round(float(np.mean(js_vals)), 3)
+        out["novelty_max_js"] = round(float(np.max(js_vals)), 3)
+        out["novelty_pairs"] = len(js_vals)
+
+    # ----- territory: per-agent centroid, bbox area, position entropy -----
+    # Two log schemas: action logs use x_after/y_after, world-model transition
+    # logs use x/y. Prefer x_after/y_after when present.
+    if "x_after" in df.columns and "y_after" in df.columns:
+        x_col, y_col = "x_after", "y_after"
+    elif "x" in df.columns and "y" in df.columns:
+        x_col, y_col = "x", "y"
+    else:
+        x_col = y_col = None
+    if x_col is not None:
+        x = pd.to_numeric(df[x_col], errors="coerce")
+        y = pd.to_numeric(df[y_col], errors="coerce")
+        valid = x.notna() & y.notna()
+        if valid.any():
+            sub = df.loc[valid].assign(_x=x[valid].astype(int), _y=y[valid].astype(int))
+            per_agent_terr = []
+            visited_sets = {}
+            for aid, g in sub.groupby("agent_id"):
+                xs = g["_x"].to_numpy()
+                ys = g["_y"].to_numpy()
+                cells = list(zip(xs.tolist(), ys.tolist()))
+                visited = set(cells)
+                visited_sets[aid] = visited
+                bbox_area = (xs.max() - xs.min() + 1) * (ys.max() - ys.min() + 1)
+                cell_counts = pd.Series(cells).value_counts().to_numpy(dtype=float)
+                pp = cell_counts / cell_counts.sum()
+                ent = float(-np.sum(pp * np.log2(pp))) if len(pp) > 1 else 0.0
+                per_agent_terr.append(
+                    {
+                        "agent_id": int(aid),
+                        "centroid": (
+                            round(float(xs.mean()), 1),
+                            round(float(ys.mean()), 1),
+                        ),
+                        "bbox_area": int(bbox_area),
+                        "visited_cells": int(len(visited)),
+                        "position_entropy_bits": round(ent, 2),
+                    }
+                )
+            out["per_agent_territory"] = per_agent_terr
+            out["mean_bbox_area"] = round(
+                float(np.mean([t["bbox_area"] for t in per_agent_terr])), 1
+            )
+            out["mean_visited_cells"] = round(
+                float(np.mean([t["visited_cells"] for t in per_agent_terr])), 1
+            )
+
+            # Overlap proxy: mean Jaccard over visited-cell sets (sample-capped)
+            jac_ids = list(visited_sets.keys())
+            if len(jac_ids) > 32:
+                jac_ids = rng.choice(jac_ids, size=32, replace=False).tolist()
+            jaccards = []
+            for i in range(len(jac_ids)):
+                a = visited_sets[jac_ids[i]]
+                for j in range(i + 1, len(jac_ids)):
+                    b = visited_sets[jac_ids[j]]
+                    union = len(a | b)
+                    if union > 0:
+                        jaccards.append(len(a & b) / union)
+            if jaccards:
+                out["mean_territory_overlap"] = round(float(np.mean(jaccards)), 3)
+
+    # ----- trade: count "give" interactions -----
+    if "interaction_kind" in df.columns:
+        kind = df["interaction_kind"].astype(str)
+        give_mask = kind == "give"
+        give_full_mask = kind == "give_full"
+        n_give = int(give_mask.sum())
+        out["give_actions"] = n_give
+        if n_give > 0:
+            out["give_rate_pct"] = round(100.0 * n_give / max(len(df), 1), 3)
+            out["givers"] = int(df.loc[give_mask, "agent_id"].nunique())
+            # Recipient inferred from target_x/target_y position match (cheap):
+            # we count distinct (target_x, target_y) pairs as a recipient proxy.
+            if "target_x" in df.columns and "target_y" in df.columns:
+                pairs = (
+                    df.loc[give_mask, ["target_x", "target_y"]]
+                    .astype(str)
+                    .agg("|".join, axis=1)
+                )
+                out["distinct_recipients"] = int(pairs.nunique())
+            # Co-occurrence with SIGNAL: ratio of gives to signals
+            sig_count = int(
+                (
+                    (df["action"].astype(str) == "SIGNAL")
+                    | (df["action"].astype(str) == "8")
+                ).sum()
+            )
+            if sig_count > 0:
+                out["give_per_signal"] = round(n_give / sig_count, 3)
+        if int(give_full_mask.sum()) > 0:
+            out["give_failed_recipient_full"] = int(give_full_mask.sum())
+
+    return out
+
+
 def _compute_action_sequences(df: pd.DataFrame, top_n: int = 10) -> dict:
     """Most common 2-gram and 3-gram action sequences."""
     from collections import Counter
@@ -675,8 +977,10 @@ if "reward" in df.columns:
     print("\n  Reward by action:")
     reward_by_action = df.groupby("action")["reward"].agg(["mean", "sum", "count"])
     for action, row in reward_by_action.iterrows():
+        # action may be a name (action logs) or an int code (transition logs)
         print(
-            f"    {action:15s}: avg={row['mean']:+.3f}, total={row['sum']:+.1f}, count={int(row['count'])}"
+            f"    {str(action):15s}: avg={row['mean']:+.3f}, "
+            f"total={row['sum']:+.1f}, count={int(row['count'])}"
         )
 
 print("\n🎯 ACTION DISTRIBUTION")
@@ -926,6 +1230,115 @@ if farm_m:
     print(f"  Food picked up:         {farm_m['total_food_pickups']}")
     print(f"  Food eaten:             {farm_m['total_eats']}")
     print(f"  Food pickups per eat:   {farm_m['food_per_eat']:.2f}")
+
+# ── NEW: PER-SPECIES CONSUMPTION (W3) ────────────────────────────────
+
+species_m = _compute_species_consumption(df)
+if species_m.get("by_species"):
+    print("\n🍽️  PER-SPECIES CONSUMPTION")
+    print(f"  Distinct species eaten: {species_m.get('distinct_species', 0)}")
+    print(f"  {'species':<16}{'eaten':>8}{'share':>8}{'net energy':>12}  note")
+    for r in species_m["by_species"]:
+        net = (
+            f"{r['mean_net_energy']:+.1f}"
+            if r["mean_net_energy"] is not None
+            else "   n/a"
+        )
+        note = "⚠ toxic (net loss)" if r["toxic"] else ""
+        print(
+            f"  {r['species']:<16}{r['eaten']:>8}{r['share_pct']:>7.1f}%"
+            f"{net:>12}  {note}"
+        )
+
+# ── NEW: SOCIAL / SIGNAL (Brain v3.5 / W4) ───────────────────────────
+
+social_m = _compute_social_metrics(df)
+if social_m.get("signal_actions", 0) > 0 or social_m.get("proximity_response"):
+    print("\n🛰️  SOCIAL / SIGNAL")
+    print(
+        f"  SIGNAL actions:         {social_m.get('signal_actions', 0)} "
+        f"({social_m.get('signal_rate_pct', 0.0):.2f}% of actions)"
+    )
+    if social_m.get("signal_actions", 0) > 0:
+        print(f"  Signalling agents:      {social_m.get('signallers', 0)}")
+        print(
+            f"  Signal entropy:         {social_m.get('signal_entropy_bits', 0.0):.3f} "
+            f"bits ({social_m.get('signal_entropy_norm', 0.0) * 100:.1f}% of max — "
+            f"1.0 = signalling shared evenly, →0 = few specialists)"
+        )
+    if "mean_prox_when_signalling" in social_m:
+        print(
+            f"  Nearest-agent proximity when signalling: "
+            f"{social_m['mean_prox_when_signalling']:.3f} "
+            f"(overall {social_m['mean_prox_overall']:.3f}) — "
+            f"higher = agents signal more in company"
+        )
+    if social_m.get("proximity_response"):
+        print("  Agent-proximity response (action mix by how close others are):")
+        print(f"    {'proximity':<10}{'actions':>10}{'SIGNAL%':>9}  dominant")
+        for r in social_m["proximity_response"]:
+            print(
+                f"    {r['bucket']:<10}{r['count']:>10}{r['signal_pct']:>8.2f}%"
+                f"  {r['top_action']}"
+            )
+
+# ── NEW: SOCIETY / ROLES / TERRITORY / TRADE (W5) ────────────────────
+
+society_m = _compute_society_metrics(df)
+if society_m:
+    print("\n🧬 SOCIETY / ROLES")
+    if "role_entropy_norm" in society_m:
+        print(
+            f"  Role entropy:           {society_m['role_entropy_bits']:.3f} bits "
+            f"({society_m['role_entropy_norm'] * 100:.1f}% of max — "
+            f"1.0 = roles spread evenly, 0 = single role)"
+        )
+        print(
+            f"  Distinct dominant roles:{society_m['distinct_roles']:>4}  "
+            + ", ".join(
+                f"{a}={c}"
+                for a, c in sorted(
+                    society_m["dominant_role_counts"].items(),
+                    key=lambda kv: -kv[1],
+                )
+            )
+        )
+    if "novelty_mean_js" in society_m:
+        print(
+            f"  Behavioural novelty:    mean pairwise JS = {society_m['novelty_mean_js']:.3f} "
+            f"bits (max {society_m['novelty_max_js']:.3f}, n_pairs={society_m['novelty_pairs']})"
+        )
+    if "mean_bbox_area" in society_m:
+        print(
+            f"  Territory:              mean bbox = {society_m['mean_bbox_area']:.1f} tiles, "
+            f"mean visited cells = {society_m['mean_visited_cells']:.1f}"
+        )
+        if "mean_territory_overlap" in society_m:
+            print(
+                f"                          mean Jaccard overlap = "
+                f"{society_m['mean_territory_overlap']:.3f} "
+                f"(0 = disjoint territories, 1 = identical)"
+            )
+    if society_m.get("give_actions", 0) > 0:
+        print(
+            f"  Trade (give actions):   {society_m['give_actions']} "
+            f"({society_m.get('give_rate_pct', 0.0):.2f}% of actions), "
+            f"{society_m.get('givers', 0)} givers"
+            + (
+                f", ~{society_m['distinct_recipients']} recipient sites"
+                if "distinct_recipients" in society_m
+                else ""
+            )
+        )
+        if "give_per_signal" in society_m:
+            print(
+                f"                          give/signal ratio = {society_m['give_per_signal']:.3f}"
+            )
+        if "give_failed_recipient_full" in society_m:
+            print(
+                f"                          {society_m['give_failed_recipient_full']} blocked "
+                "(recipient inventory full)"
+            )
 
 # ── NEW: BEHAVIORAL DIVERSITY ────────────────────────────────────────
 

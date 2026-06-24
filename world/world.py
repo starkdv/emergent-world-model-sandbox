@@ -46,6 +46,8 @@ class World:
         sand_ratio: float = 0.05,
         fertility_range: Tuple[float, float] = (0.3, 1.0),
         moisture_range: Tuple[float, float] = (0.2, 0.8),
+        terrain_generator: str = "legacy",
+        heightmap_config: dict = None,
         # System configuration parameters
         plant_mature_age: int = 100,
         plant_max_age: int = 500,
@@ -62,6 +64,8 @@ class World:
         safety_spawn_rate: float = 0.01,
         min_resources: int = 10,
         seed_max_age: int = 200,
+        max_neighbor_plants: int = 3,
+        neighbor_radius: int = 2,
         allow_stacking: bool = False,  # NEW: Controls object stacking
         learning_train_interval_ticks: int = 3,
         learning_max_updates_per_tick: int = 16,
@@ -73,6 +77,13 @@ class World:
         learning_budget_high_frame_factor: float = 1.10,
         learning_budget_low_frame_factor: float = 0.80,
         parallel: bool = True,
+        environment_config: dict = None,
+        fire_config: dict = None,
+        agents_visible: bool = False,
+        agent_collision: bool = False,
+        signal_config: dict = None,
+        social_config: dict = None,
+        performance_config: dict = None,
     ):
         """
         Initialize a new world with generated terrain.
@@ -125,9 +136,55 @@ class World:
         self.width = width
         self.height = height
         self.tick = 0
+        # W4: agents perceive each other in vision / contest tiles (opt-in)
+        self.agents_visible = bool(agents_visible)
+        self.agent_collision = bool(agent_collision)
+
+        # W4 / Brain v3.5: SIGNAL action + decaying pheromone field (opt-in).
+        sig = signal_config or {}
+        self.signal_enabled = bool(sig.get("enabled", False))
+        self.signal_strength = float(sig.get("strength", 1.0))
+        self.signal_decay = float(sig.get("decay", 0.9))
+        self.signal_diffuse = float(sig.get("diffuse", 0.0))
+        # The field is only allocated when signalling is on (None = no field,
+        # which perception reads as "no signal anywhere").
+        self.pheromones = None
+        if self.signal_enabled:
+            import numpy as _np
+
+            self.pheromones = _np.zeros((height, width), dtype=_np.float32)
+
+        # W5: social capabilities (opt-in). When transfer_enabled, the USE
+        # action transfers the first inventory item to a living agent on the
+        # tile directly in front of the actor (recipient must have space).
+        # Carries NO built-in reward — any trade protocol must emerge.
+        soc = social_config or {}
+        self.transfer_enabled = bool(soc.get("transfer_enabled", False))
+
+        # W6a: coarse-cell spatial index of edible objects (acceleration for
+        # the nearest-food scans in perception + RewardShaper). On by default;
+        # results are identical to the tile scan (it's a candidate filter, not
+        # the source of truth). performance.spatial_index: false disables it.
+        perf = performance_config or {}
+        self.food_index = None
+        if bool(perf.get("spatial_index", True)):
+            from world.spatial_index import SpatialIndex
+
+            self.food_index = SpatialIndex(
+                width, height, cell_size=int(perf.get("spatial_index_cell", 8))
+            )
+
         self.seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         self.allow_stacking = allow_stacking  # NEW: Store stacking configuration
         self.parallel = parallel  # Enable parallel agent updates
+
+        # Environment engine (day/night, seasons, weather — W1).
+        # Disabled by default: every multiplier is then exactly 1.0 and
+        # soil dynamics keep their legacy arithmetic.
+        from world.environment import EnvironmentSystem
+
+        self.environment = EnvironmentSystem(environment_config)
+        self._water_adjacent_cache = None
 
         # Set random seed for reproducibility
         random.seed(self.seed)
@@ -195,17 +252,31 @@ class World:
             safety_spawn_rate=safety_spawn_rate,
             min_resources=min_resources,
             seed_max_age=seed_max_age,
+            max_neighbor_plants=max_neighbor_plants,
+            neighbor_radius=neighbor_radius,
+            fire_config=fire_config,
         )
 
-        # Generate terrain
-        self._generate_terrain(
-            soil_ratio,
-            rock_ratio,
-            water_ratio,
-            sand_ratio,
-            fertility_range,
-            moisture_range,
-        )
+        # Generate terrain (legacy uniform shuffle, or W2 heightmap)
+        self.terrain_generator = terrain_generator
+        self.heightmap_config = heightmap_config or {}
+        if str(terrain_generator).lower() in ("heightmap", "biomes"):
+            self._generate_terrain_heightmap(
+                rock_ratio,
+                water_ratio,
+                sand_ratio,
+                fertility_range,
+                moisture_range,
+            )
+        else:
+            self._generate_terrain(
+                soil_ratio,
+                rock_ratio,
+                water_ratio,
+                sand_ratio,
+                fertility_range,
+                moisture_range,
+            )
 
     def _generate_terrain(
         self,
@@ -273,17 +344,89 @@ class World:
 
             self.tiles.append(row)
 
-        # Spawn sand objects on SAND terrain tiles so TileEffectSystem can
-        # track them (and they appear in the renderer/observation).
+        self._spawn_sand_objects()
+
+    def _spawn_sand_objects(self) -> None:
+        """
+        Spawn sand objects on SAND terrain tiles so TileEffectSystem can
+        track them (and they appear in the renderer/observation). Shared by
+        the legacy and heightmap generators.
+        """
         from world.object_registry import ObjectRegistry
 
-        if ObjectRegistry.get("sand") is not None:
-            for y in range(self.height):
-                for x in range(self.width):
-                    tile = self.tiles[y][x]
-                    if tile.terrain_type == TerrainType.SAND:
-                        sand_obj = ObjectRegistry.create("sand", x, y)
-                        self.add_object(sand_obj)
+        if ObjectRegistry.get("sand") is None:
+            return
+        for y in range(self.height):
+            for x in range(self.width):
+                tile = self.tiles[y][x]
+                if tile.terrain_type == TerrainType.SAND:
+                    sand_obj = ObjectRegistry.create("sand", x, y)
+                    self.add_object(sand_obj)
+
+    def _generate_terrain_heightmap(
+        self,
+        rock_ratio: float,
+        water_ratio: float,
+        sand_ratio: float,
+        fertility_range: Tuple[float, float],
+        moisture_range: Tuple[float, float],
+    ) -> None:
+        """
+        Generate coherent terrain from an elevation heightmap (W2).
+
+        Produces mountains (high elevation → rock), rivers that flow downhill
+        into basins, and biomes (soil/sand) derived from a geography-driven
+        moisture field — with fertile river corridors. Elevation is stored on
+        every tile. See ``world/terrain_generation.py``.
+
+        Args:
+            rock_ratio: Fraction of highest tiles that become mountain rock
+            water_ratio: Total water fraction (lakes + rivers)
+            sand_ratio: Fraction of the driest remaining land → desert sand
+            fertility_range: Min/max fertility for generated land
+            moisture_range: Min/max moisture for generated land
+        """
+        from world.terrain_generation import HeightmapConfig, generate_terrain
+
+        hc = self.heightmap_config
+        cfg = HeightmapConfig(
+            feature_scale=int(hc.get("feature_scale", 12)),
+            octaves=int(hc.get("octaves", 4)),
+            persistence=float(hc.get("persistence", 0.5)),
+            rock_ratio=rock_ratio,
+            water_ratio=water_ratio,
+            sand_ratio=sand_ratio,
+            river_sources=int(hc.get("river_sources", 6)),
+            fertility_range=tuple(fertility_range),
+            moisture_range=tuple(moisture_range),
+        )
+        result = generate_terrain(self.width, self.height, self.seed, cfg)
+        self.terrain_stats = result.stats
+
+        for y in range(self.height):
+            row = []
+            for x in range(self.width):
+                terrain_type = result.terrain[y][x]
+                fertility = float(result.fertility[y, x])
+                moisture = float(result.moisture[y, x])
+                elevation = float(result.elevation[y, x])
+                if terrain_type == TerrainType.ROCK:
+                    fertility = 0.0
+                elif terrain_type == TerrainType.WATER:
+                    moisture = 1.0
+                row.append(
+                    Tile(
+                        x,
+                        y,
+                        terrain_type,
+                        max(0.0, min(1.0, fertility)),
+                        max(0.0, min(1.0, moisture)),
+                        max(0.0, min(1.0, elevation)),
+                    )
+                )
+            self.tiles.append(row)
+
+        self._spawn_sand_objects()
 
     def get_tile(self, x: int, y: int) -> Optional[Tile]:
         """
@@ -371,6 +514,7 @@ class World:
                                     obj.y = ny
                                     self.objects[obj.id] = obj
                                     nearby_tile.add_object(obj.id)
+                                    self._index_add(obj)
                                     return True
 
                     # No empty nearby tiles - don't add object
@@ -381,6 +525,7 @@ class World:
         self.objects[obj.id] = obj
         if tile:
             tile.add_object(obj.id)
+        self._index_add(obj)
 
         # Maintain tile-effect index
         try:
@@ -409,6 +554,7 @@ class World:
         tile = self.get_tile(obj.x, obj.y)
         if tile:
             tile.remove_object(object_id)
+        self._index_remove(object_id)
 
         # Maintain tile-effect index
         if object_id in self._tile_effect_object_ids:
@@ -421,6 +567,100 @@ class World:
     def tile_effect_object_ids(self) -> set[int]:
         """Set of object IDs that have tile effects (read-only view)."""
         return self._tile_effect_object_ids
+
+    # -- spatial index maintenance (W6a) ----------------------------------
+    # The index tracks edible objects *while they sit on a tile*. Edibility is
+    # stable per object (a berry stays edible until removed/picked up), so the
+    # only transitions to mirror are: enters world/tile, leaves world, moves,
+    # picked up (off-tile into inventory), dropped (back onto a tile).
+
+    @staticmethod
+    def _is_edible(obj) -> bool:
+        if obj is None or getattr(obj, "is_terrain", False):
+            return False
+        from world.objects import EdibleComponent
+
+        return obj.get_component(EdibleComponent) is not None
+
+    def _index_add(self, obj) -> None:
+        """Track an object if the index is on and the object is edible."""
+        if self.food_index is not None and self._is_edible(obj):
+            self.food_index.add(obj.id, obj.x, obj.y)
+
+    def _index_remove(self, obj_id: int) -> None:
+        if self.food_index is not None:
+            self.food_index.remove(obj_id)
+
+    def _index_move(self, obj) -> None:
+        if self.food_index is not None and self._is_edible(obj):
+            self.food_index.move(obj.id, obj.x, obj.y)
+
+    def nearest_edible(self, ax: int, ay: int, scan_r: int):
+        """
+        Nearest edible object to (ax, ay) within the square window
+        [ax±scan_r] × [ay±scan_r], ranked by Manhattan distance.
+
+        Returns ``(dist, fx, fy)`` for the nearest edible (dist = Manhattan,
+        fx/fy = its tile), or ``None`` if the window holds no edible. Ties are
+        broken in row-major order (smallest y, then smallest x) — identical to
+        the legacy per-tile scans this consolidates, so perception/reward
+        features are unchanged whether or not the index is enabled.
+
+        Uses the W6a spatial index when present (visits only objects in the
+        overlapping coarse cells); falls back to a bounded tile scan otherwise.
+        Every candidate is verified against live world state, so the index can
+        never return a stale or picked-up item.
+        """
+        x0, x1 = ax - scan_r, ax + scan_r
+        y0, y1 = ay - scan_r, ay + scan_r
+
+        best = None  # (dist, y, x)
+        if self.food_index is not None:
+            for oid in self.food_index.query_box(x0, y0, x1, y1):
+                obj = self.objects.get(oid)
+                if obj is None or getattr(obj, "is_terrain", False):
+                    continue
+                ox, oy = obj.x, obj.y
+                if not (x0 <= ox <= x1 and y0 <= oy <= y1):
+                    continue  # cell overlap can spill past the box
+                # Verify the item is still on its tile (defensive against any
+                # unhooked mutation) — keeps results identical to a live scan.
+                if 0 <= oy < self.height and 0 <= ox < self.width:
+                    if oid not in self.tiles[oy][ox].object_ids:
+                        continue
+                else:
+                    continue
+                d = abs(ox - ax) + abs(oy - ay)
+                key = (d, oy, ox)
+                if best is None or key < best:
+                    best = key
+        else:
+            from world.objects import EdibleComponent
+
+            cy0 = max(0, y0)
+            cy1 = min(self.height - 1, y1)
+            cx0 = max(0, x0)
+            cx1 = min(self.width - 1, x1)
+            for y in range(cy0, cy1 + 1):
+                row = self.tiles[y]
+                for x in range(cx0, cx1 + 1):
+                    tile = row[x]
+                    if not tile.object_ids:
+                        continue
+                    for oid in tile.object_ids:
+                        o = self.objects.get(oid)
+                        if o is None or getattr(o, "is_terrain", False):
+                            continue
+                        if o.get_component(EdibleComponent) is not None:
+                            d = abs(x - ax) + abs(y - ay)
+                            key = (d, y, x)
+                            if best is None or key < best:
+                                best = key
+                            break
+
+        if best is None:
+            return None
+        return (float(best[0]), best[2], best[1])  # (dist, fx, fy)
 
     def move_object(self, object_id: int, new_x: int, new_y: int) -> bool:
         """
@@ -455,6 +695,7 @@ class World:
         new_tile = self.get_tile(new_x, new_y)
         if new_tile:
             new_tile.add_object(object_id)
+        self._index_move(obj)
 
         return True
 
@@ -514,6 +755,12 @@ class World:
         self.tick += 1
         self._learning_updates_this_tick = 0
 
+        # Environment first: every system this tick consumes its multipliers
+        self.environment.update(self)
+
+        # Pheromone field decays (and optionally diffuses) each tick (W4)
+        self._update_pheromones()
+
         # Invalidate cached world counts (lazily recomputed on first use)
         self._cached_counts = None
         self._cached_soil_stats = None
@@ -545,6 +792,61 @@ class World:
                 )
             else:
                 Agent.logger.log_all_states(self.tick, self.agents)
+
+    def _update_pheromones(self) -> None:
+        """
+        Decay (and optionally diffuse) the SIGNAL pheromone field each tick.
+
+        No-op when signalling is disabled. Decay is geometric
+        (``signal_decay``); a small ``signal_diffuse`` fraction spreads to the
+        4-neighbourhood so trails blur over time (a stigmergic medium).
+        """
+        if self.pheromones is None:
+            return
+        if self.signal_diffuse > 0.0:
+            f = self.pheromones
+            blurred = f.copy()
+            blurred[1:, :] += self.signal_diffuse * f[:-1, :]
+            blurred[:-1, :] += self.signal_diffuse * f[1:, :]
+            blurred[:, 1:] += self.signal_diffuse * f[:, :-1]
+            blurred[:, :-1] += self.signal_diffuse * f[:, 1:]
+            blurred /= 1.0 + 4.0 * self.signal_diffuse
+            self.pheromones = blurred
+        self.pheromones *= self.signal_decay
+        # Drop negligible residue so the field doesn't carry float dust forever
+        self.pheromones[self.pheromones < 1e-3] = 0.0
+
+    def emit_signal(self, x: int, y: int, strength: float = None) -> bool:
+        """
+        Deposit a signal at (x, y) on the pheromone field (W4 SIGNAL action).
+
+        Returns False when signalling is disabled or the field is absent, so
+        the caller can treat SIGNAL as a no-op in that case.
+        """
+        if self.pheromones is None:
+            return False
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            return False
+        s = self.signal_strength if strength is None else strength
+        self.pheromones[y, x] = min(1.0, self.pheromones[y, x] + s)
+        return True
+
+    @property
+    def water_adjacent(self) -> set:
+        """
+        Tiles orthogonally adjacent to WATER (computed once — water tiles
+        are never created or destroyed). Used by the environment-enabled
+        soil dynamics: these tiles recover moisture even without rain.
+        """
+        if self._water_adjacent_cache is None:
+            adjacent = set()
+            for y in range(self.height):
+                for x in range(self.width):
+                    if self.tiles[y][x].terrain_type == TerrainType.WATER:
+                        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                            adjacent.add((x + dx, y + dy))
+            self._water_adjacent_cache = adjacent
+        return self._water_adjacent_cache
 
     def get_cached_object_counts(self) -> dict:
         """

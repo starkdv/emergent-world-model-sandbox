@@ -68,8 +68,10 @@ class PlantGrowthSystem:
 
             plant = obj.get_component(PlantComponent)
 
-            # Apply growth multiplier from tile effects
+            # Apply growth multiplier from tile effects and the global
+            # environment (light × temperature window; 1.0 when disabled)
             growth_mult = _get_tile_growth_multiplier(world, obj.x, obj.y)
+            growth_mult *= world.environment.growth_multiplier
             plant.age += growth_mult
 
             # Check if plant died of old age
@@ -102,6 +104,8 @@ class SeedGerminationSystem:
         plant_mature_age: int = 100,
         plant_max_age: int = 500,
         germination_success_rate: float = 0.75,
+        max_neighbor_plants: int = 3,
+        neighbor_radius: int = 2,
     ):
         """
         Initialize germination system.
@@ -110,11 +114,21 @@ class SeedGerminationSystem:
             plant_mature_age: Age at which new plants mature
             plant_max_age: Maximum age for new plants
             germination_success_rate: Probability that a seed successfully germinates
+            max_neighbor_plants: Carrying-capacity cap — a seed will not
+                germinate if this many (or more) plants already occupy the
+                surrounding ``neighbor_radius`` window. This is competition
+                for space/light: it gives the plant ecology a real carrying
+                capacity instead of unbounded exponential growth.
+                Set to 0 to disable (legacy unbounded behaviour).
+            neighbor_radius: Chebyshev radius of the crowding window
+                (1 = the 3×3 neighbourhood around the seed)
 
         Author: Karan Vasa
         """
         self.plant_mature_age = plant_mature_age
         self.plant_max_age = plant_max_age
+        self.max_neighbor_plants = max_neighbor_plants
+        self.neighbor_radius = neighbor_radius
         self.germination_success_rate = germination_success_rate
 
     def update(self, world: "World") -> None:
@@ -162,13 +176,28 @@ class SeedGerminationSystem:
 
             # Check if ready to attempt germination
             if seed.time_in_soil >= seed.grow_time:
-                # Apply germination multiplier from tile effects
+                # Apply germination multipliers: tile effects × the global
+                # temperature window (1.0 when environment is disabled)
                 germ_mult = _get_tile_germination_multiplier(world, obj.x, obj.y)
-                effective_rate = self.germination_success_rate * germ_mult
+                effective_rate = (
+                    self.germination_success_rate
+                    * germ_mult
+                    * world.environment.germination_multiplier
+                )
 
                 # Also check if any object on tile blocks growth
                 if _tile_blocks_growth(world, obj.x, obj.y):
                     # Growth is blocked — seed stays alive and keeps waiting
+                    continue
+                # Carrying capacity: a seed cannot establish where the
+                # neighbourhood is already saturated with plants (competition
+                # for space/light). The seed waits — and eventually rots at
+                # max_age — instead of stacking yet another plant. This is the
+                # fix for runaway plant/food accumulation.
+                elif self.max_neighbor_plants > 0 and (
+                    _count_plants_in_radius(world, obj.x, obj.y, self.neighbor_radius)
+                    >= self.max_neighbor_plants
+                ):
                     continue
                 elif random.random() < effective_rate:
                     seeds_to_germinate.append((obj_id, obj.x, obj.y, seed.plant_type))
@@ -276,6 +305,9 @@ class DecaySystem:
                 if (physics and physics.decay_rate > 0)
                 else self.decay_rate
             )
+
+            # Environment: heat accelerates spoilage, cold preserves (W1)
+            rate *= world.environment.decay_multiplier
 
             # Reduce freshness
             edible.freshness -= rate
@@ -503,10 +535,30 @@ class SoilDynamicsSystem:
     def _update_tile_rows(
         self, world: "World", start_y: int, end_y: int, occupied_tiles: Set[tuple]
     ) -> None:
-        """Process a contiguous range of tile rows."""
-        evap = self.moisture_evaporation_rate
-        rain = self.moisture_recovery_rate
+        """
+        Process a contiguous range of tile rows.
+
+        Two moisture models:
+        - legacy (environment disabled): constant evaporation + constant
+          unconditional recovery — kept bit-compatible (note: this is the
+          verified bug B1 — net drift is always positive, so moisture
+          saturates and never constrains anything);
+        - environment (W1): evaporation scales with temperature/light
+          (droughts multiply it), recovery arrives ONLY from rain events
+          or adjacency to water — moisture becomes a real constraint.
+        """
+        env = world.environment
         fert_rec = self.fertility_recovery_rate
+        if env.enabled:
+            evap = env.evaporation_rate
+            rain = env.moisture_recovery_rate
+            water_rec = env.water_adjacency_recovery
+            water_adjacent = world.water_adjacent
+        else:
+            evap = self.moisture_evaporation_rate
+            rain = self.moisture_recovery_rate
+            water_rec = 0.0
+            water_adjacent = ()
 
         for y in range(start_y, end_y):
             row = world.tiles[y]
@@ -515,7 +567,11 @@ class SoilDynamicsSystem:
                 if not tile.is_plantable():
                     continue
                 tile.moisture = max(0.0, tile.moisture - evap)
-                tile.moisture = min(1.0, tile.moisture + rain)
+                recovery = rain
+                if water_rec and (x, y) in water_adjacent:
+                    recovery += water_rec
+                if recovery:
+                    tile.moisture = min(1.0, tile.moisture + recovery)
                 if (x, y) not in occupied_tiles:
                     tile.fertility = min(1.0, tile.fertility + fert_rec)
 
@@ -594,7 +650,9 @@ class ResourceSpawnSystem:
 
             # Chance to spawn resource (modulated by tile effects)
             spawn_mult = _get_tile_spawn_rate_multiplier(world, obj.x, obj.y)
-            effective_rate = plant.spawn_rate * spawn_mult
+            effective_rate = (
+                plant.spawn_rate * spawn_mult * world.environment.spawn_multiplier
+            )
             if random.random() < effective_rate:
                 self._spawn_resource_near(
                     world, obj.x, obj.y, plant.spawn_resource_type
@@ -611,6 +669,63 @@ class ResourceSpawnSystem:
             x = random.randint(0, world.width - 1)
             y = random.randint(0, world.height - 1)
             self._spawn_resource_near(world, x, y, "berry")
+
+        # Per-type respawn for registry types with spawn.respawn_rate > 0
+        # (custom standalone foods previously vanished forever once eaten —
+        # only plant-produced and the hardcoded berry safety net came back)
+        self._respawn_registry_types(world)
+
+    def _respawn_registry_types(self, world: "World") -> None:
+        """
+        Respawn registry-defined types up to their population cap.
+
+        For every definition with ``spawn.respawn_rate > 0``: with that
+        per-tick probability, place one new instance on an empty tile
+        matching ``spawn.terrain``, as long as fewer than
+        ``spawn.max_count`` (or ``spawn.initial_count`` when max_count
+        is 0) currently exist. Builtins keep respawn_rate 0, so default
+        behaviour is unchanged.
+        """
+        from world.object_registry import ObjectRegistry
+        from world.tiles import TerrainType
+
+        respawners = [
+            d
+            for d in ObjectRegistry.all_definitions().values()
+            if d.spawn.respawn_rate > 0
+        ]
+        if not respawners:
+            return
+
+        counts: dict = {}
+        for obj in world.objects.values():
+            tid = getattr(obj, "type_id", "")
+            if tid:
+                counts[tid] = counts.get(tid, 0) + 1
+
+        for defn in respawners:
+            sp = defn.spawn
+            if random.random() >= sp.respawn_rate:
+                continue
+            cap = sp.max_count if sp.max_count > 0 else sp.initial_count
+            if cap <= 0 or counts.get(defn.type_id, 0) >= cap:
+                continue
+            for _ in range(10):  # bounded placement attempts
+                x = random.randint(0, world.width - 1)
+                y = random.randint(0, world.height - 1)
+                tile = world.get_tile(x, y)
+                if tile is None or tile.object_ids:
+                    continue
+                terrain_ok = (
+                    (sp.terrain == "soil" and tile.terrain_type == TerrainType.SOIL)
+                    or (sp.terrain == "sand" and tile.terrain_type == TerrainType.SAND)
+                    or (sp.terrain == "plantable" and tile.is_plantable())
+                    or (sp.terrain == "any" and tile.terrain_type != TerrainType.ROCK)
+                )
+                if terrain_ok:
+                    world.add_object(ObjectRegistry.create(defn.type_id, x, y))
+                    counts[defn.type_id] = counts.get(defn.type_id, 0) + 1
+                    break
 
     def _spawn_resource_near(
         self, world: "World", center_x: int, center_y: int, resource_type: str
@@ -698,6 +813,111 @@ class ResourceSpawnSystem:
         return False
 
 
+class FireSystem:
+    """
+    Wildfire dynamics (World upgrade W3) — opt-in via ``fire.enabled``.
+
+    A *pressure*, not a script (guideline §8): plants on hot, dry tiles can
+    ignite; fire spreads to adjacent plants and burns them out, returning
+    nutrients (ash) to the soil. It consumes the W1 climate — heat comes from
+    ``world.environment.temperature`` and dryness from each tile's moisture —
+    so fire is rare in the wet/cold and dangerous in the hot/dry.
+
+    Self-extinguishing at water/moisture boundaries (the W3 acceptance
+    criterion): ignition and spread are both blocked where tile moisture is
+    above ``moisture_threshold`` (and water tiles hold no plants), so a moist
+    strip of vegetation stops a fire dead.
+
+    Disabled (the default) → ``update`` is a no-op and nothing changes.
+    """
+
+    def __init__(self, config: dict = None):
+        cfg = config or {}
+        self.enabled: bool = bool(cfg.get("enabled", False))
+        self.ignite_chance: float = float(cfg.get("ignite_chance", 0.0004))
+        self.spread_chance: float = float(cfg.get("spread_chance", 0.30))
+        self.burn_duration: int = int(cfg.get("burn_duration", 6))
+        self.moisture_threshold: float = float(cfg.get("moisture_threshold", 0.4))
+        self.nutrient_return: float = float(cfg.get("nutrient_return", 0.25))
+        # obj_id -> ticks of burning remaining
+        self.burning: Dict[int, int] = {}
+        self.total_burned: int = 0
+
+    def _can_burn(self, world: "World", obj) -> bool:
+        """A plant can catch only on a dry-enough, plantable tile."""
+        tile = world.get_tile(obj.x, obj.y)
+        if tile is None or not tile.is_plantable():
+            return False
+        return tile.moisture <= self.moisture_threshold
+
+    def update(self, world: "World") -> None:
+        if not self.enabled:
+            return
+
+        heat = getattr(world.environment, "temperature", 0.5)
+
+        # Drop any burning ids whose object no longer exists
+        self.burning = {
+            oid: t for oid, t in self.burning.items() if oid in world.objects
+        }
+
+        # --- Spread from currently burning plants to dry neighbours ---
+        newly_lit: Dict[int, int] = {}
+        for oid in list(self.burning):
+            obj = world.objects.get(oid)
+            if obj is None:
+                continue
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    tile = world.get_tile(obj.x + dx, obj.y + dy)
+                    if tile is None:
+                        continue
+                    if tile.moisture > self.moisture_threshold:
+                        continue  # damp firebreak — fire cannot cross
+                    for nid in list(tile.object_ids):
+                        if nid in self.burning or nid in newly_lit:
+                            continue
+                        n = world.objects.get(nid)
+                        if n is not None and n.has_component(PlantComponent):
+                            if random.random() < self.spread_chance * (0.5 + heat):
+                                newly_lit[nid] = self.burn_duration
+        self.burning.update(newly_lit)
+
+        # --- New ignitions: dry plants under heat ---
+        ignite_p = self.ignite_chance * (0.5 + heat)
+        for oid, obj in list(world.objects.items()):
+            if oid in self.burning:
+                continue
+            if not obj.has_component(PlantComponent):
+                continue
+            if self._can_burn(world, obj) and random.random() < ignite_p:
+                self.burning[oid] = self.burn_duration
+
+        # --- Burn down: consume plants, return ash, extinguish when wet ---
+        burned_out = []
+        for oid in list(self.burning):
+            obj = world.objects.get(oid)
+            if obj is None:
+                burned_out.append(oid)
+                continue
+            tile = world.get_tile(obj.x, obj.y)
+            # Rain/wet tiles put the fire out without consuming the plant
+            if tile is not None and tile.moisture > self.moisture_threshold:
+                burned_out.append(oid)
+                continue
+            self.burning[oid] -= 1
+            if self.burning[oid] <= 0:
+                if tile is not None and tile.is_plantable():
+                    tile.fertility = min(1.0, tile.fertility + self.nutrient_return)
+                world.remove_object(oid)
+                self.total_burned += 1
+                burned_out.append(oid)
+        for oid in burned_out:
+            self.burning.pop(oid, None)
+
+
 class WorldSystemManager:
     """
     Manager for all world update systems.
@@ -724,6 +944,9 @@ class WorldSystemManager:
         safety_spawn_rate: float = 0.01,
         min_resources: int = 10,
         seed_max_age: int = 200,
+        max_neighbor_plants: int = 3,
+        neighbor_radius: int = 2,
+        fire_config: dict = None,
     ):
         """
         Initialize system manager with all systems.
@@ -734,6 +957,9 @@ class WorldSystemManager:
             decay_rate: Freshness decay rate per tick
             seed_drop_chance: Chance for decomposed berries to drop seeds
             germination_success_rate: Probability that seeds successfully germinate
+            max_neighbor_plants: Plant carrying-capacity cap per neighbourhood
+                (0 disables — legacy unbounded growth)
+            neighbor_radius: Chebyshev radius of the crowding window
             fertility_consumption: Fertility consumed by plants per tick
             moisture_consumption: Moisture consumed by plants per tick
             fertility_recovery_rate: Fertility recovery for empty soil per tick
@@ -763,7 +989,11 @@ class WorldSystemManager:
         # Create systems with references to soil dynamics
         self.plant_growth = PlantGrowthSystem(self.soil_dynamics)
         self.seed_germination = SeedGerminationSystem(
-            plant_mature_age, plant_max_age, germination_success_rate
+            plant_mature_age,
+            plant_max_age,
+            germination_success_rate,
+            max_neighbor_plants=max_neighbor_plants,
+            neighbor_radius=neighbor_radius,
         )
         self.decay = DecaySystem(
             decay_rate, seed_drop_chance, self.soil_dynamics, seed_max_age
@@ -773,6 +1003,8 @@ class WorldSystemManager:
         self.resource_spawn = ResourceSpawnSystem(
             berry_calories, safety_spawn_rate, min_resources, seed_max_age
         )
+        # Wildfire dynamics (W3) — no-op unless fire.enabled
+        self.fire = FireSystem(fire_config)
 
     def update(self, world: "World") -> None:
         """
@@ -805,6 +1037,8 @@ class WorldSystemManager:
         self.soil_dynamics.update(world)
         self.tile_effect.update(world)
         self.resource_spawn.update(world)
+        # Wildfire (W3) — runs after soil/moisture so it reads current values
+        self.fire.update(world)
 
 
 # ---------------------------------------------------------------------------
@@ -863,6 +1097,25 @@ def _tile_blocks_growth(world: "World", x: int, y: int) -> bool:
         if interaction.blocks_growth:
             return True
     return False
+
+
+def _count_plants_in_radius(world: "World", x: int, y: int, radius: int) -> int:
+    """
+    Count living plants within a Chebyshev ``radius`` window centred on
+    (x, y), inclusive of the centre tile. Used by germination to enforce a
+    local carrying capacity (competition for space/light).
+    """
+    count = 0
+    for ny in range(y - radius, y + radius + 1):
+        for nx in range(x - radius, x + radius + 1):
+            tile = world.get_tile(nx, ny)
+            if tile is None:
+                continue
+            for obj_id in tile.object_ids:
+                obj = world.objects.get(obj_id)
+                if obj is not None and obj.has_component(PlantComponent):
+                    count += 1
+    return count
 
 
 # ---------------------------------------------------------------------------

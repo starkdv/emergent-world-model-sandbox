@@ -205,6 +205,8 @@ class TileEffectSpec:
             plant growing on sand can turn it back to soil.
         reclaim_interval: Ticks a blocking object must be present on
             the same tile before reclamation triggers (0 = disabled).
+        contact_damage: Energy an agent loses when it ends a move on a tile
+            holding this object (W3 hazard, e.g. thorns). 0.0 = harmless.
     """
 
     germination_multiplier: float = 1.0
@@ -220,6 +222,7 @@ class TileEffectSpec:
     moisture_override: float = -1.0
     reclaim_terrain: str = ""
     reclaim_interval: int = 0
+    contact_damage: float = 0.0
 
 
 @dataclass
@@ -268,10 +271,16 @@ class SpawnSpec:
             "sand"     - only on SAND tiles
             "any"      - any walkable tile (SOIL, SAND, WATER)
             "plantable"- tiles that can support plants (is_plantable)
+        respawn_rate: Per-tick probability of respawning one instance
+            while fewer than the cap exist (0 = never respawn; fixes
+            "my custom food vanished forever" — proposal issue O4).
+        max_count: Population cap for respawning (0 = use initial_count).
     """
 
     initial_count: int = 0
     terrain: str = "soil"
+    respawn_rate: float = 0.0
+    max_count: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -460,10 +469,16 @@ class ObjectDefinition:
             "color": list(self.render.color),
         }
 
-        if self.spawn.initial_count > 0:
+        if (
+            self.spawn.initial_count > 0
+            or self.spawn.respawn_rate > 0
+            or self.spawn.max_count > 0
+        ):
             d["spawn"] = {
                 "initial_count": self.spawn.initial_count,
                 "terrain": self.spawn.terrain,
+                "respawn_rate": self.spawn.respawn_rate,
+                "max_count": self.spawn.max_count,
             }
 
         return d
@@ -802,24 +817,77 @@ class ObjectRegistry:
     # ------------------------------------------------------------------
 
     @classmethod
-    def load_from_config(cls, objects_config: dict) -> int:
+    def load_from_config(cls, objects_config: dict, strict: bool = True) -> int:
         """
         Bulk-register object definitions from a YAML ``objects:`` section.
 
         Each key is a *type_id* and the value is a dict matching
-        :meth:`ObjectDefinition.from_dict` format.
+        :meth:`ObjectDefinition.from_dict` format. Supports
+        ``extends: <type_id>`` inheritance (from builtins or earlier
+        entries) and ``vision_encoding: auto`` band allocation.
+
+        The whole batch is validated BEFORE anything registers: unknown
+        sections/fields (with "did you mean" suggestions), dangling
+        cross-references (grows_into/produces/decompose_into/
+        spread_type_id), and bad encodings are collected and raised
+        together as :class:`ObjectValidationError`. Encoding collisions
+        across the full registry are emitted as warnings.
 
         Args:
             objects_config: Dictionary of type_id → definition dict.
+            strict: Raise on validation errors (False = legacy behaviour:
+                print the errors and register nothing invalid-free).
 
         Returns:
             Number of definitions loaded.
+
+        Raises:
+            ObjectValidationError: If strict and any definition is invalid.
         """
+        # Imported lazily — object_validation imports this module's specs
+        from world.object_validation import (
+            ObjectValidationError,
+            allocate_auto_encodings,
+            resolve_definitions,
+            validate_cross_references,
+            validate_definition_dict,
+            warn_encoding_collisions,
+        )
+
+        def _registered_as_dict(type_id: str):
+            defn = cls.get(type_id)
+            return defn.to_dict() if defn is not None else None
+
+        resolved, errors = resolve_definitions(objects_config, _registered_as_dict)
+
+        for type_id, data in resolved.items():
+            errors.extend(validate_definition_dict(type_id, data))
+
+        if not errors:
+            taken = {
+                tid: d.observation.vision_encoding
+                for tid, d in cls._definitions.items()
+            }
+            errors.extend(allocate_auto_encodings(resolved, taken))
+
+        known_ids = set(cls._definitions) | set(resolved)
+        errors.extend(validate_cross_references(resolved, known_ids))
+
+        if errors:
+            exc = ObjectValidationError(errors)
+            if strict:
+                raise exc
+            print(str(exc))
+            return 0
+
         count = 0
-        for type_id, data in objects_config.items():
-            defn = ObjectDefinition.from_dict(type_id, data)
-            cls.register(defn)
+        for type_id, data in resolved.items():
+            cls.register(ObjectDefinition.from_dict(type_id, data))
             count += 1
+
+        warn_encoding_collisions(
+            {tid: d.observation.vision_encoding for tid, d in cls._definitions.items()}
+        )
         return count
 
 
@@ -999,8 +1067,11 @@ def register_builtin_objects() -> None:
                 spread_blocked_by=["plant"],  # any plant category blocks spreading
                 spread_chance=0.05,  # 5% per tick once interval met
                 converts_terrain="sand",  # mark tile terrain as SAND
-                fertility_override=0.05,  # sand has almost no fertility
-                moisture_override=0.05,  # sand has almost no moisture
+                # B2 fix: clamps sit AT the germination thresholds (0.3
+                # fertility / 0.2 moisture) so the ×0.1 multiplier is what
+                # makes sand "harder" — 0.05 made germination impossible
+                fertility_override=0.30,
+                moisture_override=0.20,
                 reclaim_terrain="soil",  # plants can reclaim sand → soil
                 reclaim_interval=150,  # 150 ticks with a plant → reclaim
             ),
@@ -1012,6 +1083,37 @@ def register_builtin_objects() -> None:
             render=RenderSpec(
                 char=":",
                 color=[210, 180, 120],
+            ),
+        )
+    )
+
+    # ---- Thorns (contact hazard) ----
+    # A passable, immovable terrain object that costs energy to step onto
+    # (W3). It is a *pressure*, not a wall: agents can cross it, but learn to
+    # route around it. Not spawned by default — opt in via spawn config or a
+    # custom-object file.
+    ObjectRegistry.register(
+        ObjectDefinition(
+            type_id="thorns",
+            display_name="Thorns",
+            category="terrain",
+            interaction=InteractionSpec(
+                pickable=False,
+                usable=False,
+                passable=True,  # crossable, just painful
+                blocks_growth=False,
+            ),
+            tile_effect=TileEffectSpec(
+                contact_damage=8.0,  # energy lost when an agent steps on it
+            ),
+            physics=PhysicsSpec(),
+            observation=ObservationSpec(
+                vision_encoding=0.30,  # distinct terrain-band encoding
+                value_source="none",
+            ),
+            render=RenderSpec(
+                char="*",
+                color=[120, 90, 60],
             ),
         )
     )

@@ -55,6 +55,8 @@ def build_observation(agent: "Agent", world: "World") -> np.ndarray:
     Returns:
         Normalised observation vector (72 dimensions)
     """
+    from agents.brain.spec import get_active_observation_spec
+
     obs: list[float] = []
 
     # 1. Agent internal state (8 features)
@@ -69,14 +71,19 @@ def build_observation(agent: "Agent", world: "World") -> np.ndarray:
     # 4. Inventory state (6 features)
     obs.extend(_encode_inventory(agent, world))
 
+    # 5. EXTRA block — Observation v2 (social/climate), Brain v3.5 (6 features).
+    #    Appended only under the v2 layout so the 0–71 prefix is unchanged.
+    if get_active_observation_spec().version >= 2:
+        obs.extend(_encode_extra(agent, world))
+
     return np.array(obs, dtype=np.float32)
 
 
 def get_observation_size() -> int:
-    """Return the size of the observation vector."""
-    from agents.brain.spec import DEFAULT_OBSERVATION_SPEC
+    """Return the size of the observation vector (active layout)."""
+    from agents.brain.spec import get_active_observation_spec
 
-    return DEFAULT_OBSERVATION_SPEC.size
+    return get_active_observation_spec().size
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +126,12 @@ def _encode_agent_state(agent: "Agent") -> list[float]:
 # ---------------------------------------------------------------------------
 
 
+# Vision encoding for "another agent occupies this tile" (W4 sub-step a).
+# Sits in the free gap between thorns (0.30) and soil (0.50), ≥0.10 from
+# every other terrain/object encoding so it is distinguishable.
+AGENT_VISION_ENCODING = 0.40
+
+
 def _encode_vision(agent: "Agent", world: "World") -> list[float]:
     """
     Encode the 5×5 vision grid around the agent.
@@ -126,6 +139,12 @@ def _encode_vision(agent: "Agent", world: "World") -> list[float]:
     Each tile produces (type_encoding, value_encoding).
     Terrain-layer objects (e.g. sand) are transparent — the
     agent perceives the real resource underneath.
+
+    When ``world.agents_visible`` is on (W4), a tile occupied by *another*
+    living agent is encoded as (AGENT_VISION_ENCODING, that agent's energy
+    ratio), overriding the terrain/object underneath — this is the P3
+    unblock that lets agents finally perceive each other. Off by default, so
+    the observation content is unchanged for existing runs.
     """
     features: list[float] = []
     vision_radius = 2  # 5×5
@@ -138,6 +157,13 @@ def _encode_vision(agent: "Agent", world: "World") -> list[float]:
     # Right vector (clockwise 90° rotation of facing)
     rx, ry = (-fy, fx)
 
+    # Other-agent occupancy map (only when the feature is enabled)
+    others: dict = {}
+    if getattr(world, "agents_visible", False):
+        for other in world.agents.values():
+            if other is not agent and getattr(other, "alive", True):
+                others[(other.x, other.y)] = other
+
     for dy in range(-vision_radius, vision_radius + 1):
         for dx in range(-vision_radius, vision_radius + 1):
             # dy < 0 is "ahead" in observation space
@@ -147,6 +173,14 @@ def _encode_vision(agent: "Agent", world: "World") -> list[float]:
             if not (0 <= wx < world.width and 0 <= wy < world.height):
                 features.append(0.0)  # Rock (out of bounds)
                 features.append(0.0)
+                continue
+
+            occupant = others.get((wx, wy))
+            if occupant is not None:
+                features.append(AGENT_VISION_ENCODING)
+                features.append(
+                    max(0.0, min(1.0, occupant.energy / occupant.max_energy))
+                )
                 continue
 
             tile = world.tiles[wy][wx]
@@ -318,27 +352,13 @@ def _encode_stimulus(agent: "Agent", world: "World") -> list[float]:
                 features[3] = 1.0  # resource_ahead
 
     # --- Nearest food scan (within vision radius 5) ---
-    best_dist = float("inf")
-    best_fx, best_fy = 0, 0
+    # Consolidated into World.nearest_edible: it uses the W6a spatial index
+    # when present (O(objects nearby)) and an identical tile scan otherwise.
     scan_r = 5
-    for sy in range(max(0, agent.y - scan_r), min(world.height, agent.y + scan_r + 1)):
-        for sx in range(
-            max(0, agent.x - scan_r), min(world.width, agent.x + scan_r + 1)
-        ):
-            stile = world.tiles[sy][sx]
-            for oid in stile.object_ids:
-                o = world.objects.get(oid)
-                if o is None:
-                    continue
-                if getattr(o, "is_terrain", False):
-                    continue
-                if o.get_component(EdibleComponent) is not None:
-                    d = abs(sx - agent.x) + abs(sy - agent.y)  # Manhattan
-                    if d < best_dist:
-                        best_dist = d
-                        best_fx, best_fy = sx, sy
+    nearest = world.nearest_edible(agent.x, agent.y, scan_r)
 
-    if best_dist < float("inf"):
+    if nearest is not None:
+        best_dist, best_fx, best_fy = nearest
         # Proximity: 1.0 when on the food, ~0 at scan_r distance
         features[4] = max(0.0, 1.0 - best_dist / scan_r)
 
@@ -437,3 +457,76 @@ def _encode_inventory(agent: "Agent", world: "World") -> list[float]:
     features.append(len(agent.inventory) / agent.inventory_size)
 
     return features
+
+
+# ---------------------------------------------------------------------------
+# 5. EXTRA block — Observation v2 / Brain v3.5  (6 social/climate features)
+# ---------------------------------------------------------------------------
+
+# Manhattan radius for the nearest-other-agent scan
+AGENT_SCAN_RADIUS = 5
+
+
+def _encode_extra(agent: "Agent", world: "World") -> list[float]:
+    """
+    The Observation-v2 social/climate block (Brain v3.5 / World phase W4).
+
+    Features (6), all normalised to [0, 1]:
+      [0] time_of_day_sin       — sin(2π · environment.time_of_day)*0.5+0.5
+      [1] time_of_day_cos       — cos(2π · environment.time_of_day)*0.5+0.5
+      [2] tile_temperature      — environment.temperature (climate felt here)
+      [3] nearest_agent_proximity — 1 − dist/R to the nearest OTHER agent
+      [4] nearest_agent_signal  — strongest pheromone in the 3×3 neighbourhood
+      [5] on_hazard             — 1.0 if this tile carries contact_damage
+
+    All six degrade gracefully when their subsystem is off: with the
+    environment disabled the clock is 0 and temperature is the base value;
+    with no pheromone field the signal is 0.
+    """
+    from world.object_registry import ObjectRegistry
+
+    env = world.environment
+    tod = float(getattr(env, "time_of_day", 0.0))
+    # Map sin/cos from [-1, 1] to [0, 1] to keep the whole vector non-negative
+    tod_sin = 0.5 * (1.0 + math.sin(2.0 * math.pi * tod))
+    tod_cos = 0.5 * (1.0 + math.cos(2.0 * math.pi * tod))
+    temperature = max(0.0, min(1.0, float(getattr(env, "temperature", 0.5))))
+
+    # Nearest other living agent (bounded Manhattan scan)
+    best = AGENT_SCAN_RADIUS + 1
+    for other in world.agents.values():
+        if other is agent or not getattr(other, "alive", True):
+            continue
+        d = abs(other.x - agent.x) + abs(other.y - agent.y)
+        if d < best:
+            best = d
+    agent_prox = 0.0
+    if best <= AGENT_SCAN_RADIUS:
+        agent_prox = max(0.0, 1.0 - best / AGENT_SCAN_RADIUS)
+
+    # Strongest signal in the 3×3 neighbourhood of the pheromone field
+    signal = 0.0
+    field = getattr(world, "pheromones", None)
+    if field is not None:
+        for ny in range(agent.y - 1, agent.y + 2):
+            for nx in range(agent.x - 1, agent.x + 2):
+                if 0 <= nx < world.width and 0 <= ny < world.height:
+                    v = float(field[ny, nx])
+                    if v > signal:
+                        signal = v
+        signal = min(1.0, signal)
+
+    # On a contact-damage hazard tile (e.g. thorns)?
+    on_hazard = 0.0
+    tile = world.tiles[agent.y][agent.x]
+    for oid in tile.object_ids:
+        o = world.objects.get(oid)
+        if o is None:
+            continue
+        defn = ObjectRegistry.get(getattr(o, "type_id", ""))
+        if defn is not None and defn.tile_effect is not None:
+            if defn.tile_effect.contact_damage > 0:
+                on_hazard = 1.0
+                break
+
+    return [tod_sin, tod_cos, temperature, agent_prox, signal, on_hazard]

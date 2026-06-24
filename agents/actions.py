@@ -30,6 +30,11 @@ class Action(IntEnum):
     # Passive action
     WAIT = 7  # Do nothing (save energy)
 
+    # Communication action (Brain v3.5 / World phase W4). Only available when
+    # the brain's output_size is 9 (v3.5) AND signal.enabled — otherwise it is
+    # masked off, so v2/v3 brains (output_size 8) behave exactly as before.
+    SIGNAL = 8  # Emit a value onto the current tile's pheromone field
+
 
 # Direction vectors (for movement and orientation)
 DIRECTIONS = {

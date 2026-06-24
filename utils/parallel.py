@@ -117,10 +117,10 @@ def _observe_and_decide(agent: "Agent", world: "World") -> Optional[tuple]:
     if not agent.alive:
         return None
 
-    # --- age & metabolism ---
+    # --- age & metabolism (× environment temperature multiplier, W1) ---
     agent.age += 1
     energy_before = agent.energy
-    agent.energy -= agent.metabolism_rate
+    agent.energy -= agent.metabolism_rate * world.environment.metabolism_multiplier
 
     # --- death check ---
     if agent.energy <= 0 or agent.age >= agent.max_age:
