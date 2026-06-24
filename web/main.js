@@ -53,6 +53,7 @@ let elevation = null; // Uint8Array [h*w]
 let terrainCodes = null; // Uint8Array [h*w]
 const agents = new Map(); // id -> { group, target:THREE.Vector3, energyBar }
 const objects = new Map(); // id -> THREE.Object3D
+let burning = new Set(); // object ids currently on fire (W3)
 let signalGroup = new THREE.Group();
 scene.add(signalGroup);
 let followIds = [];
@@ -344,10 +345,28 @@ function applySnapshot(snap) {
   objects.clear();
   for (const o of snap.objects) upsertObject(o);
   for (const a of snap.agents) upsertAgent(a);
+  applyBurning(snap.burning || []);
   updateSky(snap.sky);
   hud.objects.textContent = objects.size;
   hud.tick.textContent = snap.tick;
   bornReady = true;
+}
+
+function applyBurning(ids) {
+  const next = new Set(ids);
+  // newly extinguished → clear emissive
+  for (const id of burning) {
+    if (!next.has(id)) {
+      const m = objects.get(id);
+      if (m && m.material.emissive) m.material.emissive.setHex(0x000000);
+    }
+  }
+  // currently burning → emissive orange (intensity flickers in animate)
+  for (const id of next) {
+    const m = objects.get(id);
+    if (m && m.material.emissive) m.material.emissive.setHex(0xff5a1e);
+  }
+  burning = next;
 }
 
 function upsertObject(o) {
@@ -422,6 +441,7 @@ function applyDelta(d) {
       }
     }
   }
+  applyBurning(d.burning || []);
   updateSignals(d.signals || []);
   updateSky(d.sky);
   hud.tick.textContent = d.tick;
@@ -575,6 +595,17 @@ function animate() {
   }
 
   updateParticles(dt);
+
+  // fire flicker + occasional flame particles on burning objects
+  if (burning.size) {
+    const flick = 0.6 + 0.4 * Math.abs(Math.sin(elapsed * 12));
+    for (const id of burning) {
+      const m = objects.get(id);
+      if (!m || !m.material.emissive) continue;
+      m.material.emissiveIntensity = flick;
+      if (Math.random() < 0.15) spawnBurst(m.position, 0xff7a1e, 1, 1.6);
+    }
+  }
 
   // signal glow pulse
   const pulse = 0.75 + 0.25 * Math.sin(elapsed * 3);

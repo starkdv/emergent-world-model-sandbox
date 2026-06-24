@@ -193,6 +193,17 @@ class TestDelta:
             [s[0], s[1], pytest.approx(s[2], abs=1e-3)] for s in d["signals"]
         ]
 
+    def test_burning_ids_reported_when_fire_on(self):
+        # FireSystem off by default → empty; turning it on and marking a plant
+        # burning surfaces its id read-only in snapshot + delta.
+        w = _world(fire_config={"enabled": True})
+        o = _berry(w, 1, 1)  # any object id works for the burning set
+        assert world_snapshot(w)["burning"] == []
+        w.systems.fire.burning[o] = 3  # read-only from the bridge's view
+        assert world_snapshot(w)["burning"] == [o]
+        tr = StateTracker()
+        assert tr.delta(w)["burning"] == [o]
+
     def test_dead_agent_removed(self):
         from types import SimpleNamespace
 

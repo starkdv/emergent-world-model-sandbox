@@ -110,6 +110,20 @@ def _agent_view(agent) -> dict:
     }
 
 
+def _burning_ids(world) -> list:
+    """
+    Object ids currently on fire (W3 FireSystem), read-only.
+
+    The fire system owns the burning set; we only read it, so this adds no
+    state to the world and changes no dynamics. Empty when fire is off.
+    """
+    systems = getattr(world, "systems", None)
+    fire = getattr(systems, "fire", None) if systems is not None else None
+    if fire is None or not getattr(fire, "enabled", False):
+        return []
+    return [int(oid) for oid in getattr(fire, "burning", {})]
+
+
 def _sky_view(world) -> dict:
     """Scalar sky/climate state for the skybox + lighting (W1 environment)."""
     env = getattr(world, "environment", None)
@@ -200,6 +214,7 @@ def world_snapshot(world) -> dict:
         "objects": objects,
         "agents": agents,
         "sky": _sky_view(world),
+        "burning": _burning_ids(world),
         "has_pheromones": pher is not None,
     }
 
@@ -271,6 +286,7 @@ class StateTracker:
             "agents": agent_upserts,
             "removed_agents": removed_ag,
             "signals": signals,
+            "burning": _burning_ids(world),
             "sky": _sky_view(world),
         }
 
