@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Emergent World — 3D Voxel View</title>
+    <link rel="stylesheet" href="/style.css" />
+    <!-- Three.js via import map (CDN). Pinned for reproducibility. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="hud">
+      <div id="hud-title">Emergent World — voxel view</div>
+      <div class="row"><span>tick</span><b id="hud-tick">—</b></div>
+      <div class="row"><span>agents</span><b id="hud-agents">—</b></div>
+      <div class="row"><span>objects</span><b id="hud-objects">—</b></div>
+      <div class="row"><span>season</span><b id="hud-season">—</b></div>
+      <div class="row"><span>weather</span><b id="hud-weather">—</b></div>
+      <div class="row"><span>conn</span><b id="hud-conn">connecting…</b></div>
+      <div id="hud-help">
+        drag: orbit · scroll: zoom · WASD/QE: fly · F: follow next agent · R:
+        reset cam
+      </div>
+    </div>
+    <canvas id="view"></canvas>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

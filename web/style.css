@@ -1,0 +1,52 @@
+:root {
+  --fg: #e8eef2;
+  --panel: rgba(18, 22, 28, 0.78);
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0b0f14;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--fg);
+}
+#view { display: block; width: 100vw; height: 100vh; }
+#hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+  min-width: 210px;
+  font-size: 13px;
+  line-height: 1.5;
+  user-select: none;
+}
+#hud-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+  letter-spacing: 0.3px;
+}
+#hud .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+#hud .row span { opacity: 0.65; }
+#hud .row b { font-variant-numeric: tabular-nums; }
+#hud-help {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  opacity: 0.6;
+  max-width: 230px;
+}
+#hud-conn { color: #ffcf6b; }
+#hud-conn.ok { color: #7fe08a; }
+#hud-conn.err { color: #ff7b7b; }

@@ -1,0 +1,460 @@
+// Emergent World — 3D voxel web client (Frontend phase F2/F3b).
+//
+// Consumes the F0 state bridge over the F3a SSE stream (/api/stream):
+//   - a `snapshot` event builds the voxel terrain (blocky columns from the W2
+//     elevation grid) and the initial entities;
+//   - a `delta` event per tick upserts/removes agents & objects, updates the
+//     pheromone glow, and animates the day/night sky.
+// Agents are grounded on their tile's surface height and tween between ticks so
+// movement over elevation reads smoothly. Distinct models per object category;
+// agents tinted per lineage. Camera: orbit + free-fly + follow.
+
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const MAX_H = 18; // voxel column height for elevation == 1.0
+const TERRAIN = { SOIL: 0, ROCK: 1, WATER: 2, SAND: 3 };
+
+// ---- scene -----------------------------------------------------------------
+
+const canvas = document.getElementById("view");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8fbcd4);
+scene.fog = new THREE.Fog(0x8fbcd4, 60, 240);
+
+const camera = new THREE.PerspectiveCamera(
+  60,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  1000,
+);
+camera.position.set(40, 50, 40);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI * 0.49;
+
+const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x4a4030, 0.8);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff2d8, 1.1);
+sun.position.set(50, 80, 30);
+scene.add(sun);
+
+// ---- module state ----------------------------------------------------------
+
+let gridW = 0;
+let gridH = 0;
+let elevation = null; // Uint8Array [h*w]
+let terrainCodes = null; // Uint8Array [h*w]
+const agents = new Map(); // id -> { group, target:THREE.Vector3, energyBar }
+const objects = new Map(); // id -> THREE.Object3D
+let signalGroup = new THREE.Group();
+scene.add(signalGroup);
+let followIds = [];
+let followIdx = -1;
+
+const hud = {
+  tick: document.getElementById("hud-tick"),
+  agents: document.getElementById("hud-agents"),
+  objects: document.getElementById("hud-objects"),
+  season: document.getElementById("hud-season"),
+  weather: document.getElementById("hud-weather"),
+  conn: document.getElementById("hud-conn"),
+};
+
+// ---- helpers ---------------------------------------------------------------
+
+function decodeGrid(packed) {
+  // base64 -> Uint8Array, row-major [shape[0]=h, shape[1]=w]
+  const bin = atob(packed.b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
+function colBlocks(x, y) {
+  if (!elevation) return 1;
+  const e = elevation[y * gridW + x] / 255;
+  return Math.max(1, Math.round(e * MAX_H));
+}
+
+// world grid (x,y) -> centered three position helpers
+function worldX(x) {
+  return x + 0.5 - gridW / 2;
+}
+function worldZ(y) {
+  return y + 0.5 - gridH / 2;
+}
+function surfaceY(x, y) {
+  return colBlocks(x, y); // top of the column (base at 0)
+}
+
+const TERRAIN_COLOR = {
+  [TERRAIN.SOIL]: new THREE.Color(0x4f9d3a),
+  [TERRAIN.ROCK]: new THREE.Color(0x8a8d92),
+  [TERRAIN.WATER]: new THREE.Color(0x2f6fb0),
+  [TERRAIN.SAND]: new THREE.Color(0xd7c489),
+};
+
+function lineageColor(lineage) {
+  // stable hue from the lineage id
+  const h = ((lineage * 47) % 360) / 360;
+  return new THREE.Color().setHSL(h < 0 ? h + 1 : h, 0.55, 0.55);
+}
+
+// ---- terrain ---------------------------------------------------------------
+
+let terrainMesh = null;
+let waterMesh = null;
+
+function buildTerrain(pack) {
+  gridW = pack.width;
+  gridH = pack.height;
+  elevation = decodeGrid(pack.elevation);
+  terrainCodes = decodeGrid(pack.terrain);
+  const fertility = decodeGrid(pack.fertility);
+
+  if (terrainMesh) {
+    scene.remove(terrainMesh);
+    terrainMesh.geometry.dispose();
+    terrainMesh.material.dispose();
+  }
+  if (waterMesh) {
+    scene.remove(waterMesh);
+    waterMesh.geometry.dispose();
+    waterMesh.material.dispose();
+  }
+
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  const landMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const n = gridW * gridH;
+  terrainMesh = new THREE.InstancedMesh(box, landMat, n);
+
+  const waterBox = new THREE.BoxGeometry(1, 1, 1);
+  const waterMat = new THREE.MeshLambertMaterial({
+    color: 0x2f6fb0,
+    transparent: true,
+    opacity: 0.6,
+  });
+  // count water tiles
+  let waterCount = 0;
+  for (let i = 0; i < n; i++) if (terrainCodes[i] === TERRAIN.WATER) waterCount++;
+  waterMesh = new THREE.InstancedMesh(waterBox, waterMat, Math.max(1, waterCount));
+
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const s = new THREE.Vector3();
+  const p = new THREE.Vector3();
+  const col = new THREE.Color();
+  let wi = 0;
+
+  for (let y = 0; y < gridH; y++) {
+    for (let x = 0; x < gridW; x++) {
+      const idx = y * gridW + x;
+      const h = Math.max(1, Math.round((elevation[idx] / 255) * MAX_H));
+      const code = terrainCodes[idx];
+
+      // land column (full height; water gets a dirt/sand base under the water)
+      const baseCode = code === TERRAIN.WATER ? TERRAIN.SAND : code;
+      col.copy(TERRAIN_COLOR[baseCode] || TERRAIN_COLOR[TERRAIN.SOIL]);
+      // shade by fertility for soil/sand
+      if (baseCode === TERRAIN.SOIL || baseCode === TERRAIN.SAND) {
+        const f = 0.7 + 0.3 * (fertility[idx] / 255);
+        col.multiplyScalar(f);
+      }
+      p.set(worldX(x), h / 2, worldZ(y));
+      s.set(1, h, 1);
+      m.compose(p, q, s);
+      terrainMesh.setMatrixAt(idx, m);
+      terrainMesh.setColorAt(idx, col);
+
+      if (code === TERRAIN.WATER) {
+        const wh = Math.max(1, h + 1); // a shallow translucent layer on top
+        p.set(worldX(x), wh - 0.25, worldZ(y));
+        s.set(1, 0.5, 1);
+        m.compose(p, q, s);
+        waterMesh.setMatrixAt(wi++, m);
+      }
+    }
+  }
+  terrainMesh.instanceMatrix.needsUpdate = true;
+  if (terrainMesh.instanceColor) terrainMesh.instanceColor.needsUpdate = true;
+  waterMesh.instanceMatrix.needsUpdate = true;
+  scene.add(terrainMesh);
+  scene.add(waterMesh);
+
+  controls.target.set(0, 0, 0);
+  controls.update();
+}
+
+// ---- entity models ---------------------------------------------------------
+
+function makeAgentModel(lineage) {
+  const group = new THREE.Group();
+  const color = lineageColor(lineage);
+  const bodyMat = new THREE.MeshLambertMaterial({ color });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), bodyMat);
+  body.position.y = 0.3;
+  group.add(body);
+  const head = new THREE.Mesh(
+    new THREE.BoxGeometry(0.34, 0.34, 0.34),
+    new THREE.MeshLambertMaterial({ color: color.clone().offsetHSL(0, 0, 0.12) }),
+  );
+  head.position.y = 0.78;
+  group.add(head);
+  // facing marker (snout)
+  const snout = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.12, 0.22),
+    new THREE.MeshLambertMaterial({ color: 0x222222 }),
+  );
+  snout.position.set(0, 0.78, 0.24);
+  group.add(snout);
+  // energy bar
+  const bar = new THREE.Mesh(
+    new THREE.BoxGeometry(0.7, 0.08, 0.08),
+    new THREE.MeshBasicMaterial({ color: 0x6bd06b }),
+  );
+  bar.position.y = 1.15;
+  group.add(bar);
+  group.userData.energyBar = bar;
+  return group;
+}
+
+// distinct per-category object models
+function makeObjectModel(o) {
+  const cat = (o.category || "object").toLowerCase();
+  const tid = (o.type_id || "").toLowerCase();
+  let geo, mat;
+  if (cat.includes("food") || tid.includes("berry") || tid.includes("fruit")) {
+    geo = new THREE.IcosahedronGeometry(0.22, 0);
+    const toxic = tid.includes("night") || tid.includes("toxic");
+    mat = new THREE.MeshLambertMaterial({ color: toxic ? 0x9b30c0 : 0xe23b3b });
+  } else if (cat.includes("plant") || tid.includes("tree") || tid.includes("shrub")) {
+    geo = new THREE.ConeGeometry(0.3, 0.7, 6);
+    mat = new THREE.MeshLambertMaterial({ color: 0x2f8f3a });
+  } else if (cat.includes("seed")) {
+    geo = new THREE.BoxGeometry(0.18, 0.18, 0.18);
+    mat = new THREE.MeshLambertMaterial({ color: 0xcdb079 });
+  } else if (cat.includes("fertil")) {
+    geo = new THREE.BoxGeometry(0.26, 0.16, 0.26);
+    mat = new THREE.MeshLambertMaterial({ color: 0x6b4a2b });
+  } else if (cat.includes("hazard") || tid.includes("thorn")) {
+    geo = new THREE.ConeGeometry(0.26, 0.5, 4);
+    mat = new THREE.MeshLambertMaterial({ color: 0x3a2a2a });
+  } else {
+    geo = new THREE.BoxGeometry(0.24, 0.24, 0.24);
+    mat = new THREE.MeshLambertMaterial({ color: 0xb0b0b0 });
+  }
+  return new THREE.Mesh(geo, mat);
+}
+
+function placeOnSurface(obj3d, x, y, yOffset = 0) {
+  obj3d.position.set(worldX(x), surfaceY(x, y) + yOffset, worldZ(y));
+}
+
+// ---- snapshot / delta application ------------------------------------------
+
+function applySnapshot(snap) {
+  buildTerrain(snap.terrain);
+  // clear entities
+  for (const a of agents.values()) scene.remove(a.group);
+  agents.clear();
+  for (const o of objects.values()) scene.remove(o);
+  objects.clear();
+  for (const o of snap.objects) upsertObject(o);
+  for (const a of snap.agents) upsertAgent(a);
+  updateSky(snap.sky);
+  hud.objects.textContent = objects.size;
+  hud.tick.textContent = snap.tick;
+}
+
+function upsertObject(o) {
+  let mesh = objects.get(o.id);
+  if (!mesh) {
+    mesh = makeObjectModel(o);
+    objects.set(o.id, mesh);
+    scene.add(mesh);
+  }
+  placeOnSurface(mesh, o.x, o.y, 0.3);
+}
+
+function upsertAgent(a) {
+  let rec = agents.get(a.id);
+  if (!rec) {
+    const group = makeAgentModel(a.lineage);
+    scene.add(group);
+    rec = { group, target: new THREE.Vector3(), energyBar: group.userData.energyBar };
+    rec.group.position.set(worldX(a.x), surfaceY(a.x, a.y), worldZ(a.y));
+    agents.set(a.id, rec);
+  }
+  rec.target.set(worldX(a.x), surfaceY(a.x, a.y), worldZ(a.y));
+  // yaw from direction (dx,dy): face +Z when dir=(0,1)
+  const [dx, dy] = a.dir;
+  rec.group.rotation.y = Math.atan2(dx, dy);
+  // energy bar scale + color
+  const e = Math.max(0, Math.min(1, a.energy));
+  rec.energyBar.scale.x = Math.max(0.02, e);
+  rec.energyBar.material.color.setHSL(0.33 * e, 0.7, 0.5);
+  rec.group.visible = a.alive !== false;
+}
+
+function applyDelta(d) {
+  for (const o of d.objects || []) upsertObject(o);
+  for (const id of d.removed_objects || []) {
+    const m = objects.get(id);
+    if (m) {
+      scene.remove(m);
+      objects.delete(id);
+    }
+  }
+  for (const a of d.agents || []) upsertAgent(a);
+  for (const id of d.removed_agents || []) {
+    const r = agents.get(id);
+    if (r) {
+      scene.remove(r.group);
+      agents.delete(id);
+    }
+  }
+  updateSignals(d.signals || []);
+  updateSky(d.sky);
+  hud.tick.textContent = d.tick;
+  hud.agents.textContent = agents.size;
+  hud.objects.textContent = objects.size;
+}
+
+function updateSignals(signals) {
+  // rebuild the glow group each delta (sparse; the field decays to zero)
+  scene.remove(signalGroup);
+  signalGroup = new THREE.Group();
+  const geo = new THREE.PlaneGeometry(1, 1);
+  for (const [x, y, v] of signals) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x66e0ff,
+      transparent: true,
+      opacity: Math.min(0.7, 0.15 + 0.6 * v),
+      depthWrite: false,
+    });
+    const m = new THREE.Mesh(geo, mat);
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(worldX(x), surfaceY(x, y) + 0.05, worldZ(y));
+    signalGroup.add(m);
+  }
+  scene.add(signalGroup);
+}
+
+function updateSky(sky) {
+  if (!sky) return;
+  const t = sky.time_of_day ?? 0; // 0..1
+  const light = sky.light ?? 1;
+  // sun arcs across the sky over a day
+  const ang = t * Math.PI * 2 - Math.PI / 2;
+  sun.position.set(Math.cos(ang) * 80, Math.max(5, Math.sin(ang) * 90), 30);
+  sun.intensity = 0.3 + 1.0 * light;
+  hemi.intensity = 0.3 + 0.6 * light;
+  // background: night blue -> day blue by light
+  const night = new THREE.Color(0x0b1430);
+  const day = new THREE.Color(0x8fbcd4);
+  const bg = night.clone().lerp(day, light);
+  scene.background = bg;
+  if (scene.fog) scene.fog.color = bg;
+  hud.season.textContent = (sky.season ?? 0).toFixed(2);
+  let w = "clear";
+  if (sky.raining) w = "rain";
+  else if (sky.drought) w = "drought";
+  hud.weather.textContent = w;
+}
+
+// ---- input: free-fly + follow ---------------------------------------------
+
+const keys = new Set();
+window.addEventListener("keydown", (e) => {
+  keys.add(e.key.toLowerCase());
+  if (e.key.toLowerCase() === "f") cycleFollow();
+  if (e.key.toLowerCase() === "r") resetCamera();
+});
+window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+
+function resetCamera() {
+  followIdx = -1;
+  camera.position.set(40, 50, 40);
+  controls.target.set(0, 0, 0);
+}
+
+function cycleFollow() {
+  followIds = Array.from(agents.keys());
+  if (followIds.length === 0) return;
+  followIdx = (followIdx + 1) % (followIds.length + 1);
+  if (followIdx === followIds.length) followIdx = -1; // wrap to free cam
+}
+
+function applyFreeFly(dt) {
+  const speed = 20 * dt;
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+  const move = new THREE.Vector3();
+  if (keys.has("w")) move.add(forward);
+  if (keys.has("s")) move.addScaledVector(forward, -1);
+  if (keys.has("d")) move.add(right);
+  if (keys.has("a")) move.addScaledVector(right, -1);
+  if (keys.has("e")) move.y += 1;
+  if (keys.has("q")) move.y -= 1;
+  if (move.lengthSq() > 0) {
+    move.normalize().multiplyScalar(speed);
+    camera.position.add(move);
+    controls.target.add(move);
+  }
+}
+
+// ---- animation loop --------------------------------------------------------
+
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(0.05, clock.getDelta());
+
+  // tween agents toward targets (smooth motion over elevation)
+  for (const rec of agents.values()) {
+    rec.group.position.lerp(rec.target, 0.18);
+  }
+
+  if (followIdx >= 0 && followIds[followIdx] !== undefined) {
+    const rec = agents.get(followIds[followIdx]);
+    if (rec) controls.target.lerp(rec.group.position, 0.2);
+  } else {
+    applyFreeFly(dt);
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ---- SSE connection --------------------------------------------------------
+
+function connect() {
+  const es = new EventSource("/api/stream");
+  es.addEventListener("snapshot", (ev) => {
+    hud.conn.textContent = "live";
+    hud.conn.className = "ok";
+    applySnapshot(JSON.parse(ev.data));
+  });
+  es.addEventListener("delta", (ev) => applyDelta(JSON.parse(ev.data)));
+  es.onerror = () => {
+    hud.conn.textContent = "reconnecting…";
+    hud.conn.className = "err";
+  };
+}
+
+connect();
+animate();
