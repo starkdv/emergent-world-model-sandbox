@@ -198,6 +198,16 @@ Examples:
         "mode (simulation.parallel: false).",
     )
 
+    parser.add_argument(
+        "--metrics-csv",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="(W6c) Append one aggregate metrics row per generation "
+        "(population, food/plant/seed counts, mean energy/age, soil means) "
+        "to this CSV during a headless run.",
+    )
+
     args = parser.parse_args()
 
     try:
@@ -265,6 +275,18 @@ Examples:
         _set_obs_ver_early(
             2 if _is_v35_early(config.get("brain", {}).get("version", 2)) else 1
         )
+
+        # Activate the reward-shaping diet (W6c). Default is the legacy dense
+        # shaping; `reward.preset: minimal` strips it to eat/death/energy-delta.
+        from utils.agents.learning_utils import (
+            RewardConfig as _RewardConfig,
+            set_active_reward_config as _set_reward_cfg,
+        )
+
+        _reward_cfg = _RewardConfig.from_dict(config.get("reward", None))
+        _set_reward_cfg(_reward_cfg)
+        if _reward_cfg.preset != "legacy":
+            print(f"Reward diet: {_reward_cfg.preset.upper()} (ablated shaping)")
 
         # Initialize agent logger if requested
         agent_logger = None
@@ -920,6 +942,14 @@ Examples:
             f"Planned run: {max_generations} generation(s) × {generation_length} ticks = {total_ticks} ticks"
         )
 
+        # W6c: per-generation metrics CSV (opt-in)
+        metrics_writer = None
+        if args.metrics_csv:
+            from utils.agents.metrics import MetricsWriter
+
+            metrics_writer = MetricsWriter(args.metrics_csv)
+            print(f"Metrics CSV: {args.metrics_csv} (one row per generation)")
+
         for _ in range(total_ticks):
             world.update()
 
@@ -931,10 +961,18 @@ Examples:
                     f"food={counts['total_food']} plants={counts['total_plants']}"
                 )
 
+            # Per-generation metrics row
+            if metrics_writer is not None and world.tick % generation_length == 0:
+                metrics_writer.record(world, generation=world.tick // generation_length)
+
             # Stop early if population goes extinct
             if not world.agents:
                 print(f"Population extinct at tick {world.tick}. Ending run early.")
                 break
+
+        if metrics_writer is not None:
+            metrics_writer.close()
+            print(f"Metrics written: {args.metrics_csv}")
 
         print("\nHeadless simulation complete")
         print(f"Final tick: {world.tick}")

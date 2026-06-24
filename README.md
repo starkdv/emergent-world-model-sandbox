@@ -432,6 +432,7 @@ behaviour, bit-compatible with W4 runs.
 | `--log` (+ `--log-dir`, `--log-frequency`) | Write per-action + per-tick agent-state CSVs for analysis. |
 | `--load-weights F.npz` / `--save-weights` | Seed agents from saved weights / save the best at the end. **Weight length must match the configured brain** (version + world model), otherwise loading fails. |
 | `--save-state F.pkl` / `--load-state F.pkl` | (W6b) Write a full checkpoint (world + agents + RNG) at the end of a run / resume from one. In serial mode (`simulation.parallel: false`) a resumed run is bit-identical to an uninterrupted one. |
+| `--metrics-csv F.csv` | (W6c) Append one aggregate row per generation (population, food/plant/seed counts, mean energy/age, mean fitness, soil means) during a headless run. |
 | `--seed N` | Reproducible world generation. Note: with `simulation.parallel: true` (default) agent updates are threaded and runs are not bit-reproducible; set `parallel: false` for determinism. |
 | `--gui` / `--gpu` / `--no-viz` | Pygame 2D / ModernGL isometric / headless. |
 | `learning.compute_backend/device` | `numpy`/`torch`, `cpu`/`cuda`/`mps` for the learners. |
@@ -762,6 +763,7 @@ drive a day/night/seasonal/weather climate. Every parameter below lives in
 | `terrain.heightmap.river_sources` | 6 | Heightmap: how many downhill rivers to trace from the peaks |
 | `performance.spatial_index` | true | (W6a) Coarse-cell index of edible objects — speeds the nearest-food scans ~3.5× with identical results. Disable to A/B or debug |
 | `performance.spatial_index_cell` | 8 | (W6a) Index cell edge in tiles (bigger = fatter buckets) |
+| `reward.preset` | legacy | (W6c) `legacy` (full dense shaping) or `minimal` (eat/death/energy-delta only — the reward-diet ablation; pair with `learning.curiosity`) |
 
 ### Plants & seeds (`plants:`)
 

@@ -382,8 +382,17 @@ checkpoint→resume reproduces identical state in serial mode.
 > save→load→run equality test. Wired as `--save-state PATH` / `--load-state
 > PATH` in `main.py`. 4 tests (`tests/test_checkpoint.py`).
 >
-> **Remaining (W6c):** per-generation metrics CSV and the reward-shaping
-> config + `minimal` preset.
+> **Shipped (W6c — reward diet + metrics).** A `reward.preset` switch:
+> `legacy` (default, the full tuned dense shaping — unchanged) or `minimal`
+> (eat / death / energy-delta **only**, the world-side analogue of fading the
+> brain's instincts — pair with curiosity for the exploration signal). The diet
+> + its headline magnitudes live in `RewardConfig` behind a module-level active
+> config (`set_active_reward_config`), set from `config['reward']`; the legacy
+> arithmetic is untouched so it stays bit-identical. Plus a per-generation
+> **metrics CSV** (`utils/agents/metrics.py`, `--metrics-csv PATH`): one
+> aggregate row per generation (population, food/plant/seed counts, mean
+> energy/age, mean fitness, soil means). 11 tests
+> (`tests/test_w6c_reward_diet.py`). **W6 complete.**
 
 **Suggested order:** W0 + W6a (spatial index) → W1 → W2 → W3 → W4 → W5, with
 W6b/c (checkpointing, reward diet) slotted between. W1–W3 are pure

@@ -1,8 +1,40 @@
 # Changelog
 
-## [Unreleased] — World upgrade, Phases W0–W6
+## [Unreleased] — World upgrade, Phases W0–W6 (complete)
 
 Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
+
+### Phase W6c — Substrate: reward-shaping diet + per-generation metrics CSV
+
+**In simple terms:** the reward the learner sees is now a choosable "diet," and
+a run can write a compact metrics CSV. The `minimal` diet is the world-side
+analogue of fading the brain's instincts — it lets us ask whether the world's
+own pressures (plus curiosity) are enough to learn from, instead of hand-built
+dense rewards.
+
+- **`reward.preset`** — `legacy` (default) keeps the full dense shaping tuned
+  across the Brain v2/v3 work, **bit-identical** (its inline constants are
+  untouched). `minimal` strips reward to **eat / death / energy-delta only**:
+  a successful net-positive EAT, the death penalty, and a small per-step
+  metabolism penalty — nothing else (no exploration/anti-loop/anti-spin/
+  turn-toward-food terms).
+- **`RewardConfig`** (`utils/agents/learning_utils.py`) holds the preset + the
+  headline magnitudes (`eat_base`, `eat_energy_gain_coef`,
+  `metabolism_penalty_coef`, `death_penalty`), behind a module-level active
+  config (`get/set_active_reward_config`) that `main.py` sets from
+  `config['reward']` — the same pattern as the observation active-spec.
+- **Per-generation metrics CSV** — `utils/agents/metrics.py` `MetricsWriter`,
+  wired as `--metrics-csv PATH`. One aggregate row per generation: population,
+  food/plant/seed counts, mean energy/age, max age, mean fitness, and the soil
+  fertility/moisture means. One O(agents) pass per generation.
+- **Config**: new `reward:` block; new `--metrics-csv` flag.
+- **Tests**: 11 new (`tests/test_w6c_reward_diet.py`) — `RewardConfig.from_dict`
+  fallback, the minimal diet's four-term behaviour (eat rewarded, no-gain eat
+  ignored, metabolism penalty, death penalty, no exploration/failed-eat terms),
+  legacy-richer-than-minimal sanity, and the metrics writer. CLI smoke-tested
+  (`minimal` + metrics CSV).
+
+This completes **W6** (and the W0–W6 world-upgrade arc).
 
 ### Phase W6b — Substrate: full checkpointing (--save-state / --load-state)
 

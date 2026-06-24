@@ -339,6 +339,25 @@ signal:
 social:
   transfer_enabled: false
 
+# Reward-shaping diet (World upgrade W6c)
+# Selects how much hand-built dense reward the learner sees:
+#   legacy  — the full dense shaping tuned across the Brain v2/v3 work
+#             (exploration, anti-loop, anti-spin, turn-toward-food, eat
+#             bonuses…). The default; unchanged behaviour.
+#   minimal — eat / death / energy-delta ONLY. The world-side analogue of
+#             fading the brain's instincts: it tests whether the world's own
+#             pressures (and curiosity, if enabled) suffice as a learning
+#             signal, instead of hand-crafted dense rewards. Pair with
+#             learning.curiosity.enabled for an intrinsic exploration signal.
+# The magnitudes below are the headline terms the minimal diet uses; the
+# legacy path keeps its own tuned inline constants.
+reward:
+  preset: legacy            # legacy | minimal
+  eat_base: 5.0             # reward for a successful net-positive EAT
+  eat_energy_gain_coef: 0.2 # extra reward per unit of realised energy gained
+  metabolism_penalty_coef: 0.01  # penalty per unit of per-step energy lost
+  death_penalty: 10.0       # penalty applied on the tick an agent dies
+
 # Performance / substrate (World upgrade W6) — pure acceleration, no behaviour
 # change. The spatial index buckets edible objects into coarse cells so the
 # nearest-food scans in perception and the reward shaper visit only objects in

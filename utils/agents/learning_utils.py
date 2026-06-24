@@ -12,6 +12,7 @@ Date: November 15, 2025
 """
 
 import numpy as np
+from dataclasses import dataclass
 from typing import List, Optional, TYPE_CHECKING
 from collections import deque
 import os
@@ -21,6 +22,70 @@ if TYPE_CHECKING:
     from agents.agent import Agent
     from world.world import World
     from agents.actions import Action, ActionResult
+
+
+# ---------------------------------------------------------------------------
+# Reward-shaping diet (World upgrade W6c)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RewardConfig:
+    """
+    Selects the reward-shaping "diet" and its magnitudes.
+
+    ``preset``:
+      * ``legacy`` (default) — the full dense shaping that has been tuned
+        across the Brain v2/v3 work (exploration, anti-loop, anti-spin,
+        turn-toward-food, eat bonuses, …). Bit-identical to before W6c.
+      * ``minimal`` — strips shaping down to **eat / death / energy-delta
+        only**: a successful net-positive EAT is rewarded, dying is penalised,
+        and per-step metabolism loss is a small penalty. Nothing else. This is
+        the world-side analogue of fading the brain's instincts — it tests
+        whether the world's own pressures (and curiosity) are enough signal to
+        learn from, instead of hand-built dense rewards.
+
+    The magnitudes are the headline terms the ``minimal`` diet uses; the
+    ``legacy`` path keeps its own (extensively tuned) inline constants so it is
+    provably unchanged.
+    """
+
+    preset: str = "legacy"
+    eat_base: float = 5.0
+    eat_energy_gain_coef: float = 0.2
+    metabolism_penalty_coef: float = 0.01
+    death_penalty: float = 10.0
+
+    @classmethod
+    def from_dict(cls, cfg: Optional[dict]) -> "RewardConfig":
+        cfg = cfg or {}
+        preset = str(cfg.get("preset", "legacy")).lower()
+        if preset not in ("legacy", "minimal"):
+            preset = "legacy"
+        return cls(
+            preset=preset,
+            eat_base=float(cfg.get("eat_base", 5.0)),
+            eat_energy_gain_coef=float(cfg.get("eat_energy_gain_coef", 0.2)),
+            metabolism_penalty_coef=float(cfg.get("metabolism_penalty_coef", 0.01)),
+            death_penalty=float(cfg.get("death_penalty", 10.0)),
+        )
+
+
+# Module-level active reward config (mirrors the observation active-spec
+# pattern): main.py sets it once at startup from config['reward']; it defaults
+# to the legacy diet so existing runs are unchanged.
+_ACTIVE_REWARD_CONFIG = RewardConfig()
+
+
+def get_active_reward_config() -> RewardConfig:
+    """Return the reward config the simulation is currently using."""
+    return _ACTIVE_REWARD_CONFIG
+
+
+def set_active_reward_config(config: RewardConfig) -> None:
+    """Set the active reward config (call once at startup)."""
+    global _ACTIVE_REWARD_CONFIG
+    _ACTIVE_REWARD_CONFIG = config
 
 
 class Experience:
@@ -99,8 +164,14 @@ class RewardShaper:
     - Heavy penalty for EAT spamming when no food present
     """
 
-    def __init__(self):
-        """Initialize reward shaper with tracking for distance rewards."""
+    def __init__(self, config: Optional[RewardConfig] = None):
+        """Initialize reward shaper with tracking for distance rewards.
+
+        Args:
+            config: Reward diet (preset + magnitudes). Defaults to the active
+                module-level config (legacy unless the run set it otherwise).
+        """
+        self.config = config if config is not None else get_active_reward_config()
         self.last_food_distance = None
         self.last_actions = []  # Track recent actions to detect spinning
         self.last_position = None  # Track position to detect movement
@@ -153,6 +224,22 @@ class RewardShaper:
             Shaped reward value
         """
         from agents.actions import Action
+
+        # ===== MINIMAL diet (W6c) =====
+        # eat / death / energy-delta only — no dense shaping. The world's own
+        # pressures (and curiosity, if enabled) must carry the learning signal.
+        if self.config.preset == "minimal":
+            energy_gain = energy_after - energy_before
+            reward = 0.0
+            if action == Action.EAT and action_result.success and energy_gain > 0:
+                reward += (
+                    self.config.eat_base + energy_gain * self.config.eat_energy_gain_coef
+                )
+            if energy_gain < 0 and action != Action.EAT:
+                reward -= abs(energy_gain) * self.config.metabolism_penalty_coef
+            if not agent.alive:
+                reward -= self.config.death_penalty
+            return reward
 
         reward = 0.0
 
