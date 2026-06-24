@@ -179,6 +179,25 @@ Examples:
         help='Evolution mode: "rl" (RL + evolution) or "neuroevolution" (pure evolution). Overrides config/--learning.',
     )
 
+    parser.add_argument(
+        "--save-state",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="(W6b) Write a full checkpoint (world + agents + RNG) at the end "
+        "of the run. Resume later with --load-state.",
+    )
+
+    parser.add_argument(
+        "--load-state",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="(W6b) Resume from a checkpoint written by --save-state instead of "
+        "generating a fresh world. Reproduces the saved trajectory in serial "
+        "mode (simulation.parallel: false).",
+    )
+
     args = parser.parse_args()
 
     try:
@@ -786,6 +805,26 @@ Examples:
                     f"  Affects seeds: {config['calamity'].get('affect_seeds', False)}"
                 )
 
+        # --- W6b: resume from checkpoint -------------------------------------
+        # Replace the freshly-built/populated world with the saved one. The
+        # build above is wasted work but harmless: load_state restores both RNG
+        # streams last, so the resumed trajectory is unaffected by it.
+        if args.load_state:
+            from world.checkpoint import load_state
+
+            world = load_state(args.load_state, config=config)
+            if "reproduction" in config:
+                world.reproduction_config = config["reproduction"]
+            if "calamity" in config:
+                world.calamity_config = config["calamity"]
+            print("\n" + "=" * 60)
+            print(f"RESUMED from checkpoint: {args.load_state}")
+            print(
+                f"  tick={world.tick}, agents={len(world.agents)}, "
+                f"objects={len(world.objects)}"
+            )
+            print("=" * 60)
+
         # Run demo if requested
         if args.demo:
             print("\n" + "=" * 60)
@@ -913,6 +952,13 @@ Examples:
                 if agent.alive:
                     best_agent_tracker.update(agent, world)
             best_agent_tracker.save_best_weights()
+
+        # W6b: write a full checkpoint if requested (resume with --load-state)
+        if args.save_state:
+            from world.checkpoint import save_state
+
+            save_state(world, args.save_state, config=config)
+            print(f"\nCheckpoint written: {args.save_state} (tick {world.tick})")
 
         if agent_logger:
             agent_logger.close()

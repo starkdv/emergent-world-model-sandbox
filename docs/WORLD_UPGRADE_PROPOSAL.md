@@ -370,8 +370,20 @@ checkpoint→resume reproduces identical state in serial mode.
 > `performance.spatial_index` (default on) toggles it. 11 tests
 > (`tests/test_spatial_index.py`).
 >
-> **Remaining (W6b/c):** full checkpointing (`--save-state/--load-state`),
-> per-generation metrics CSV, and the reward-shaping config + `minimal` preset.
+> **Shipped (W6b — checkpointing).** `world/checkpoint.py`: `save_state` /
+> `load_state` capture the full simulation state — tiles, objects + components,
+> pheromone field, environment-engine state, every agent's genome + physical
+> state + GRU hidden state + anti-spin counters, the id counters, and **both**
+> RNG streams (Python `random` and NumPy global, since decisions sample via
+> `np.random.choice` and placement shuffles via `random`). Brains/learners are
+> rebuilt from the genome on load; RNG is restored *last*, after agents are
+> constructed (the constructor draws one `np.random.randint` for facing), so a
+> resumed serial run is **bit-identical** — asserted by a save→continue vs
+> save→load→run equality test. Wired as `--save-state PATH` / `--load-state
+> PATH` in `main.py`. 4 tests (`tests/test_checkpoint.py`).
+>
+> **Remaining (W6c):** per-generation metrics CSV and the reward-shaping
+> config + `minimal` preset.
 
 **Suggested order:** W0 + W6a (spatial index) → W1 → W2 → W3 → W4 → W5, with
 W6b/c (checkpointing, reward diet) slotted between. W1–W3 are pure

@@ -4,6 +4,35 @@
 
 Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
 
+### Phase W6b — Substrate: full checkpointing (--save-state / --load-state)
+
+**In simple terms:** a long run can now be stopped and resumed *exactly* where
+it left off. Save a checkpoint; later, load it and the simulation continues on
+a bit-identical trajectory (in serial mode) — the prerequisite for the
+persistent-world track and for reproducible long experiments.
+
+- **`world/checkpoint.py`** — `save_state(world, path, config=…)` and
+  `load_state(path, config=…)`. Captured: world scalars + feature flags + the
+  config; the tile grid (terrain/fertility/moisture/elevation/occupancy);
+  every `WorldObject` and its components (plain Python — pickled directly); the
+  pheromone field; the environment-engine state; each agent's genome, physical
+  state, GRU hidden state, and anti-spin action-streak counters; the id
+  counters; and **both** RNG streams (Python `random` and NumPy global).
+- **Faithful resume** — brains/learners are rebuilt from the genome on load
+  (no RNG cost); RNG state is restored **last**, after every agent is
+  constructed (each draws one `np.random.randint` for facing), so the resumed
+  stream is byte-identical. The anti-spin counters are captured because they
+  drive the next action's energy cost — without them, energy diverged by ~0.2.
+- **CLI** — `--save-state PATH` writes a checkpoint at the end of a headless
+  run; `--load-state PATH` resumes from one (replacing the freshly-built world;
+  that build is harmless because RNG is restored last).
+- **Tests**: 4 new (`tests/test_checkpoint.py`) — save→continue vs
+  save→load→run **bit-identical equality** (the acceptance criterion),
+  tick/population restore, immediate-resume equality (RNG captured at the right
+  moment), and version rejection. CLI save→resume smoke-tested.
+- **Deferred (W6c)**: per-generation metrics CSV, reward-shaping config +
+  `minimal` preset.
+
 ### Phase W6a — Substrate: spatial index for the nearest-food scans
 
 **In simple terms:** the single biggest tick-rate sink was three "where's the

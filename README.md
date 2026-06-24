@@ -431,6 +431,7 @@ behaviour, bit-compatible with W4 runs.
 | `--world-model-log` | Write transition/episode/world-state CSVs (the dream-evolution fuel). ~1 KB per transition. |
 | `--log` (+ `--log-dir`, `--log-frequency`) | Write per-action + per-tick agent-state CSVs for analysis. |
 | `--load-weights F.npz` / `--save-weights` | Seed agents from saved weights / save the best at the end. **Weight length must match the configured brain** (version + world model), otherwise loading fails. |
+| `--save-state F.pkl` / `--load-state F.pkl` | (W6b) Write a full checkpoint (world + agents + RNG) at the end of a run / resume from one. In serial mode (`simulation.parallel: false`) a resumed run is bit-identical to an uninterrupted one. |
 | `--seed N` | Reproducible world generation. Note: with `simulation.parallel: true` (default) agent updates are threaded and runs are not bit-reproducible; set `parallel: false` for determinism. |
 | `--gui` / `--gpu` / `--no-viz` | Pygame 2D / ModernGL isometric / headless. |
 | `learning.compute_backend/device` | `numpy`/`torch`, `cpu`/`cuda`/`mps` for the learners. |
