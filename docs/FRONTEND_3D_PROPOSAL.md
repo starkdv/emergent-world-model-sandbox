@@ -199,21 +199,92 @@ swapped for Option B (native ModernGL 3D) if a desktop-only view is preferred.
 | Dependency weight (Three.js/Vite or Ursina/Panda3D) | Option A's deps live in a separate web subproject, not the sim's Python env; Option C needs only a glTF writer. |
 | Effort vs. payoff if only used locally | Deliver Option C first (days, not weeks); commit to the web stack only once the spectator goal is confirmed. |
 
-## 10. Open questions for review
+## 10. Decisions (resolved — review complete)
 
-1. **Target surface:** web/browser (Option A — shareable, the spectator goal)
-   or native desktop 3D (Option B — simpler, no network)? The plan assumes A
-   with C first; confirm.
-2. **Fidelity:** blocky Minecraft aesthetic (fast, on-theme) vs. smoothed
-   terrain (prettier, more work)? The plan assumes blocky.
-3. **Live vs. replay-first:** is watching a *live* run the priority (F3), or is
-   scrubbing *recorded* checkpoints (F1/F5) enough to start?
-4. **Agent look:** abstract blocky mobs vs. distinct per-species models?
-5. **Where should the web subproject live** — in this repo (`web/`) or a
-   separate one consuming the bridge as an API?
+The review settled the five questions; the build follows these answers:
+
+1. **Target surface — Option A (web/browser), with Option C (offline export)
+   as the first cheap milestone.** The web client is the strategic target (it
+   serves the shareable spectator goal).
+2. **Fidelity — blocky Minecraft aesthetic first.** Smoothed terrain is a later
+   enhancement; what it would take is spelled out in §11.
+3. **Cadence — live first.** Watching a running sim (F3) is the priority;
+   replay-from-checkpoint (F1/F5) comes after the live path works.
+4. **Agent look — distinct per-species models.** Each species gets its own
+   model/palette rather than one abstract mob (see §12).
+5. **Location — `web/` inside this repo.** Kept in-repo for now; it consumes the
+   bridge over the API and can be split into its own repo later without changes
+   to the Python side.
+
+> **Build order locked:** F0 (state bridge, pure Python) → **F3 live web viewer
+> brought forward** (live-first) with F2's static viewer folded in as its first
+> render target → F1 offline export as a parallel cheap win → F4 entities
+> (per-species) → F5 spectator/replay. The phase *table* in §7 still describes
+> each capability; the live-first decision reorders which lands first.
+
+## 11. Blocky now, smooth later — what "smooth" requires
+
+Blocky is the default because it falls straight out of the heightmap: one
+integer-height column per tile, cube faces, greedy meshing. Moving to **smooth
+terrain** later means replacing the per-column cube stack with a continuous
+surface, which is a contained, additive change to the *mesher only* (the bridge
+and sim are untouched):
+
+1. **Surface from a height field, not columns.** Treat `elevation[y][x] × MAX_H`
+   as a vertex height grid and build a triangulated surface (two tris per tile
+   quad) instead of cube columns. The data is already a float field, so no sim
+   change is needed.
+2. **Smoothing pass.** Apply vertex-normal averaging (Gouraud/Phong shading) and
+   optionally one or two rounds of Laplacian smoothing or a Catmull-Clark-style
+   subdivision on the height grid for rounded hills. Bilinear interpolation of
+   `elevation` between tile centers removes the stair-steps.
+3. **Biome blending.** With cubes, each tile is one block type; smooth terrain
+   needs **splat/blended texturing** — sample neighboring tiles' biome weights
+   per fragment so grass→sand→rock transitions are gradients, not hard seams.
+4. **Water as a surface.** A separate translucent surface mesh at the local
+   water level with an animated normal map, instead of translucent cubes.
+5. **Cost.** Same chunked re-mesh strategy; smooth meshing is slightly heavier
+   per chunk but still trivial at 100×100. The work is the shader (splat
+   blending + normals), not the data path.
+
+Because both modes consume the **same `elevation` field from the bridge**,
+"blocky vs. smooth" is a client-side render toggle we can ship incrementally —
+blocky first, smooth as a second materialization of the identical snapshot.
+
+## 12. Agent movement on elevation
+
+Agents live on a 2D grid in the sim (`agent.x, agent.y`); the third dimension is
+**purely a render concern** — the renderer places each agent at the *surface
+height of the tile it stands on*. This keeps the sim unchanged while making
+motion read as 3D:
+
+- **Grounding.** Render Y for an agent at `(x, y)` = the column-top (blocky) or
+  the interpolated surface height (smooth) at that tile. As the agent steps to a
+  new tile each tick, its render height changes with the terrain — it visibly
+  walks uphill and downhill.
+- **Interpolation between ticks.** The sim moves an agent one tile per action;
+  the renderer **tweens** position over the frames between ticks (ease the
+  horizontal `(x,y)` and the vertical surface height together) so movement is
+  smooth rather than teleporting cell-to-cell. A small hop/step animation on
+  elevation changes sells the climb.
+- **Slope already matters to the sim.** W2 added `SLOPE_CLIMB_COST` — moving to a
+  higher-elevation tile costs extra energy. So uphill movement is already
+  *behaviorally* meaningful; the 3D view simply makes that visible (and we can
+  tint/strain the agent on steep climbs using the elevation delta).
+- **Orientation.** Yaw from `agent.direction` (N/E/S/W); optionally pitch the
+  model to the local slope normal so it leans into hills. Pitch is cosmetic and
+  derived entirely from the height field.
+- **Water/impassable.** ROCK is impassable in the sim, so agents never stand on
+  it; WATER tiles render the agent at the water surface (wading) — again a
+  render placement, no sim change.
+
+Net: **no simulation change is required for agents to move over elevation** —
+the renderer derives height, tweens between ticks, and reuses the existing
+`direction` and the W2 slope cost that already shapes uphill behavior.
 
 ---
 
-*Once the answers to §10 are settled, F0 (the state bridge) can start
-immediately — it is pure Python, reuses the W6b serialization, and unblocks
-every later phase.*
+*F0 (the state bridge) can start immediately — it is pure Python, reuses the
+W6b serialization, and unblocks every later phase. Per the live-first decision,
+F3 (live web viewer) is the first user-visible target after F0.*
+
