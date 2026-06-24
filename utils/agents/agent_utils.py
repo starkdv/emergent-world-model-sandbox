@@ -26,6 +26,23 @@ def _get_object_type(obj) -> str:
     return ObjectRegistry.get_category(obj)
 
 
+def _find_agent_at(world: "World", x: int, y: int, exclude=None):
+    """
+    Return a living agent occupying (x, y), or None.
+
+    Used by the W5 trade path: cheap linear scan over world.agents — the agent
+    count is small (tens, not thousands) so a dict-keyed index would buy
+    nothing yet. If we ever push agent counts past a few hundred, a per-tick
+    position index lives naturally with the W6 spatial index.
+    """
+    for other in world.agents.values():
+        if other is exclude or not getattr(other, "alive", True):
+            continue
+        if other.x == x and other.y == y:
+            return other
+    return None
+
+
 def _tile_contact_damage(world: "World", x: int, y: int) -> float:
     """Total contact damage from hazard objects on a tile (W3, e.g. thorns)."""
     from world.object_registry import ObjectRegistry
@@ -142,8 +159,19 @@ def get_action_mask(agent: "Agent", world: "World") -> np.ndarray:
                 return True
         return False
 
-    # USE: check if inventory has usable items (seed or fertilizer)
+    # USE: check if inventory has usable items (seed or fertilizer), OR there
+    # is a trade target in front (W5 — transfer the first inventory item to a
+    # living agent on the tile directly ahead, if that capability is on and
+    # the recipient has space).
     can_use = False
+    if getattr(world, "transfer_enabled", False) and agent.inventory:
+        fx, fy = agent.direction
+        tx, ty = agent.x + fx, agent.y + fy
+        if 0 <= tx < world.width and 0 <= ty < world.height:
+            recipient = _find_agent_at(world, tx, ty, exclude=agent)
+            if recipient is not None and len(recipient.inventory) < recipient.inventory_size:
+                can_use = True
+
     tile_can_plant_here = tile.can_support_plant()
 
     # If stacking is off and current tile has real objects, planting here fails
@@ -475,11 +503,46 @@ def execute_eat(agent: "Agent", world: "World") -> ActionResult:
 
 
 def execute_use(agent: "Agent", world: "World") -> ActionResult:
-    """Use/plant object (e.g., plant seed, apply fertilizer)."""
+    """
+    Use/plant an inventory item, OR (W5) transfer it to a living agent on the
+    tile directly in front when ``world.transfer_enabled`` is on.
+
+    The trade path runs FIRST so the agent's policy can learn "USE while
+    facing someone = give." When no recipient is present the action falls
+    through to the original seed/fertilizer behaviour — old runs are
+    unchanged because transfer_enabled defaults to False.
+    """
     from world.objects import SeedComponent, FertilizerComponent
 
     if not agent.inventory:
         return ActionResult(False, 0.05, "Nothing to use")
+
+    # --- W5 trade path: hand the first inventory item to the agent ahead ---
+    if getattr(world, "transfer_enabled", False):
+        fx, fy = agent.direction
+        tx, ty = agent.x + fx, agent.y + fy
+        if 0 <= tx < world.width and 0 <= ty < world.height:
+            recipient = _find_agent_at(world, tx, ty, exclude=agent)
+            if recipient is not None:
+                if len(recipient.inventory) >= recipient.inventory_size:
+                    return ActionResult(
+                        False, 0.05, "Recipient inventory full",
+                        target_x=tx, target_y=ty,
+                        interaction_kind="give_full",
+                    )
+                obj_id = agent.inventory.pop(0)
+                recipient.inventory.append(obj_id)
+                obj = world.objects.get(obj_id)
+                if obj is not None:
+                    obj.x = recipient.x
+                    obj.y = recipient.y
+                return ActionResult(
+                    True, 0.12, f"Gave {obj_id} to agent {recipient.id}",
+                    object_id=obj_id,
+                    object_type=_get_object_type(obj) if obj is not None else "",
+                    target_x=tx, target_y=ty,
+                    interaction_kind="give",
+                )
 
     tile = world.tiles[agent.y][agent.x]
 

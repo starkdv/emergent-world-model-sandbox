@@ -1886,6 +1886,34 @@ nor affect one another. W4 closes it, opt-in and bit-compatible by default:
   head gains the SIGNAL action (9 outputs). A v3 genome auto-migrates into
   v3.5 on load. Full design: `BRAIN_V3_PROPOSAL.md` §8.
 
+### W5 — Social dynamics & open-endedness instruments
+
+W5 adds the *capability* to share inventory and the *measurements* needed to
+detect division of labor — no observation/genome change. Both pieces are
+ablatable.
+
+- **Trade via USE** (`social.transfer_enabled`): the existing USE action
+  checks the tile in front first; if a living agent is there with inventory
+  space, USE hands them the first inventory item (logged as
+  `interaction_kind="give"`). Trade carries no built-in reward — any
+  protocol (request via SIGNAL, donor specialisation, reciprocity) must
+  emerge from selection. Off by default → bit-compatible with W4.
+- **🧬 SOCIETY / ROLES analyzer section** (no config). The analyzer derives
+  four division-of-labor instruments from the existing log schema:
+  - *Role-entropy* — normalised Shannon entropy over agents' dominant
+    actions. 1.0 = roles spread across the action vocabulary; 0 = single
+    role.
+  - *Behavioural novelty* — mean pairwise Jensen-Shannon divergence (bits)
+    of agent action distributions.
+  - *Territory* — per-agent centroid/bbox/visited-cells and aggregate mean
+    Jaccard overlap. (No spatial index needed; derived from the position
+    fields already in the action log.)
+  - *Trade* — give counts, distinct givers, recipient sites and a
+    give/signal ratio for emergence diagnosis.
+- **Deferred (Brain v3.6 / Observation v3):** a `nearest_agent_kin`
+  similarity sense. Append-only and migration-safe, but kept off until the
+  next batched genome bump rather than slipped in mid-cycle.
+
 ### Verified dynamics-bug fixes
 
 - **B1 — moisture only ever rose.** The legacy soil model added a constant

@@ -375,6 +375,7 @@ Examples:
             agents_visible=world_cfg.get("agents_visible", False),
             agent_collision=world_cfg.get("agent_collision", False),
             signal_config=config.get("signal", None),
+            social_config=config.get("social", None),
             # System configuration parameters
             plant_mature_age=plant_cfg["mature_age"],
             plant_max_age=plant_cfg["max_age"],

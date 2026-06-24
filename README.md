@@ -408,6 +408,22 @@ Off by default, agents may overlap exactly as before.
 > landed as **Brain v3.5** (`brain.version: 3.5`; see the Neural Architecture
 > section and [BRAIN_V3_PROPOSAL.md §8](docs/BRAIN_V3_PROPOSAL.md)).
 
+### 15. Inventory transfer — `social.transfer_enabled` (W5)
+
+**Enable:** `social.transfer_enabled: true`.
+**What happens:** the existing USE action now checks the tile in front first;
+if a living agent is there with inventory space, USE hands them the first
+inventory item (logged as `interaction_kind="give"`). Trade carries no
+built-in reward — any protocol (request via SIGNAL, donor specialisation,
+reciprocity) must emerge from selection. Off by default → legacy USE
+behaviour, bit-compatible with W4 runs.
+
+> **W5 status:** trade is shipped, and the analyzer's new **🧬 SOCIETY /
+> ROLES** section prints role-entropy, behavioural novelty (mean pairwise JS),
+> territory (bbox + Jaccard overlap) and trade counts on every run with ≥2
+> agents — no flag required. A `nearest_agent_kin` similarity sense is
+> deferred to the next batched genome bump (Brain v3.6 / Observation v3).
+
 ### Supporting flags & settings
 
 | Switch | Effect |
@@ -730,6 +746,7 @@ drive a day/night/seasonal/weather climate. Every parameter below lives in
 | `world.allow_stacking` | false | If false, one object per tile (overflow placed nearby) |
 | `world.agents_visible` | false | (W4) Other living agents appear in vision as encoding 0.40 with their energy ratio (the P3 unblock) |
 | `world.agent_collision` | false | (W4) A living agent blocks a tile, so space becomes contested |
+| `social.transfer_enabled` | false | (W5) USE on a facing agent transfers the first inventory item (recipient must have space). Logged as `interaction_kind="give"` |
 | `world.seed` | null | RNG seed (null = random each run) |
 | `terrain.soil_ratio` | 0.695 | Fraction of plantable soil tiles |
 | `terrain.rock_ratio` | 0.20 | Impassable rock (blocks movement) |
@@ -937,6 +954,11 @@ phases — plus two Brain-v3-era sections:
   entropy** (shared behaviour vs specialists), and an **agent-proximity
   response** (action mix bucketed by how close other agents are) — does
   signalling rise in company?
+- **🧬 Society / Roles** (W5) — **role-entropy** (normalised Shannon over
+  agents' dominant actions: division of labor), **behavioural novelty**
+  (mean pairwise Jensen-Shannon divergence between agent action
+  distributions), **territory** (per-agent bbox + mean Jaccard overlap),
+  and **trade** counts (gives, givers, recipient sites, give/signal ratio).
 
 ### Observation Sensitivity
 ```bash

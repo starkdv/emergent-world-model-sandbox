@@ -330,6 +330,15 @@ signal:
   decay: 0.9       # Per-tick geometric decay of the field
   diffuse: 0.0     # Fraction spread to the 4-neighbourhood each tick (0 = none)
 
+# Social dynamics (World upgrade W5) — opt-in capabilities, NO built-in
+# rewards. transfer_enabled extends the USE action with a "give" path: when
+# the agent is facing a living agent, USE transfers the first inventory item
+# to that neighbour (recipient must have space). Pair with signal.enabled
+# (so requesters can advertise) for emergent trade. Disabled = legacy USE,
+# bit-compatible with W4 and earlier.
+social:
+  transfer_enabled: false
+
 # Logging Settings
 logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR

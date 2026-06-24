@@ -324,12 +324,27 @@ new analyzer sections.
 > (migration identity; per-agent senses/signal are observable — a dedicated
 > signal-entropy analyzer view is a small follow-up).
 
-**W5 — Social dynamics & open-endedness instruments.**
-Kin-similarity observation feature, inventory transfer (trade via USE on
-an adjacent agent), territory readout from the pheromone field;
-role-entropy and behavioral-novelty metrics in `scripts/analyze_logs.py`.
-*Acceptance:* division-of-labor metrics computable on long runs; all
-features individually ablatable.
+**W5 — Social dynamics & open-endedness instruments.
+✅ DONE (June 2026 — see CHANGELOG "Phase W5").**
+Inventory transfer ("give" via USE on a facing agent, ablatable through
+`social.transfer_enabled`), and a new analyzer **🧬 SOCIETY / ROLES** section
+that prints role-entropy (division of labor), pairwise behavioural novelty
+(mean Jensen-Shannon divergence), per-agent territory (bounding-box area,
+visited cells, mean Jaccard overlap), and trade counts (give actions, givers,
+recipient sites, give/signal ratio). 13 new tests.
+*Acceptance:* division-of-labor metrics computable on long runs (`role_entropy_norm`,
+`novelty_mean_js`, `mean_territory_overlap` print on every run with ≥2 agents);
+all features individually ablatable (trade is its own config flag; metrics
+require no flag and are derived from the existing log schema).
+
+> **Deferred for a separate genome bump:** the kin-similarity observation
+> feature. Adding it would require an Observation v3 break — append-only and
+> migration-safe like v3 → v3.5, but a break nonetheless — so it stays
+> queued until the next batched genome refresh (call it Brain v3.6) instead
+> of being squeezed in mid-cycle. Everything kin-sense would unlock today
+> (group selection, family clusters, allele tracking) is already observable
+> through territory/overlap + lineage logs, so this is research priority
+> not a blocker.
 
 **W6 — Substrate (can interleave with any phase).**
 Spatial object index (perception + RewardShaper + spawn use it),

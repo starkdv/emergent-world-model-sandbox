@@ -82,6 +82,7 @@ class World:
         agents_visible: bool = False,
         agent_collision: bool = False,
         signal_config: dict = None,
+        social_config: dict = None,
     ):
         """
         Initialize a new world with generated terrain.
@@ -151,6 +152,13 @@ class World:
             import numpy as _np
 
             self.pheromones = _np.zeros((height, width), dtype=_np.float32)
+
+        # W5: social capabilities (opt-in). When transfer_enabled, the USE
+        # action transfers the first inventory item to a living agent on the
+        # tile directly in front of the actor (recipient must have space).
+        # Carries NO built-in reward — any trade protocol must emerge.
+        soc = social_config or {}
+        self.transfer_enabled = bool(soc.get("transfer_enabled", False))
 
         self.seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         self.allow_stacking = allow_stacking  # NEW: Store stacking configuration

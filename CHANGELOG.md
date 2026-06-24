@@ -1,8 +1,52 @@
 # Changelog
 
-## [Unreleased] — World upgrade, Phases W0–W4
+## [Unreleased] — World upgrade, Phases W0–W5
 
 Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
+
+### Phase W5 — Social dynamics & open-endedness instruments
+
+**In simple terms:** agents can now hand inventory to each other ("give"),
+and the analyzer reports the division-of-labor metrics the project needs to
+*see* whether anything social has emerged. No genome change — these are
+capability + measurement, not new perception.
+
+- **Trade via USE (opt-in).** `execute_use` now checks for a living agent on
+  the tile in front *before* falling through to seed/fertilizer logic; with
+  `social.transfer_enabled: true` it transfers the first inventory item to
+  that agent (recipient must have space) and emits `interaction_kind="give"`.
+  The action mask exposes USE whenever a trade is possible, so an agent
+  carrying a non-plantable berry can still learn the give path. Gate stays
+  off by default — bit-compatible with W4 runs.
+- **🧬 SOCIETY / ROLES analyzer section.** A new
+  `_compute_society_metrics` in `scripts/analyze_logs.py` derives four
+  division-of-labor instruments from the existing log schema (no new
+  columns needed):
+  - **Role-entropy** — normalised Shannon entropy over agents' dominant
+    actions (1.0 = roles spread evenly across the action vocabulary; 0 =
+    one shared role). Also reports the role histogram (`EAT=4, WAIT=2 …`).
+  - **Behavioural novelty** — mean pairwise Jensen-Shannon divergence
+    (bits) between agents' action-frequency distributions, sample-capped
+    at 64 agents for runtime. 0 = identical strategies; high = strategies
+    diverged.
+  - **Territory** — per-agent centroid, bbox area, visited-cell count and
+    position entropy; aggregate mean bbox + mean Jaccard overlap over
+    visited-cell sets (overlap-rate proxy without paying for a spatial
+    index).
+  - **Trade** — count + rate of `give` actions, distinct givers + recipient
+    sites, give/signal ratio, plus a "blocked: recipient full" line when
+    that path fires.
+- **Config**: new top-level `social:` block (`transfer_enabled: false`),
+  wired through `World(social_config=…)` and `main.py`. `social.transfer_enabled`
+  is the only new switch; the analyzer metrics need no config.
+- **Tests**: 13 new (`tests/test_w5_society.py`) — trade path (off,
+  recipient-full, success, fall-through to plant), mask widens when only a
+  trade is possible, and society metrics (role-entropy high/low, novelty
+  zero/positive, territory bbox/overlap, give counting, missing-column
+  guards). Full suite: **458 tests** green.
+- **Deferred for the next batched genome bump (Brain v3.6 / Observation v3):**
+  a `nearest_agent_kin` similarity sense. Append-only and migration-safe,
+  but a break — queued instead of squeezed in mid-cycle.
 
 ### Phase W4 (part 2/2) — Brain v3.5: Observation v2 + SIGNAL (the genome break)
 
