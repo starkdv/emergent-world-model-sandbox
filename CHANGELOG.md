@@ -4,6 +4,12 @@
 
 Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
 
+> **▶ Open / next up:** **Brain v3.6 — kin-similarity sense (Observation v3).**
+> The one piece deferred from W5 because it touches the genome
+> (`nearest_agent_kin`, obs 78→79). Fully designed in `BRAIN_V3_PROPOSAL.md`
+> §9; this is the next work item. A **3D / voxel frontend** proposal
+> (`FRONTEND_3D_PROPOSAL.md`) is also queued for review.
+
 ### Phase W6c — Substrate: reward-shaping diet + per-generation metrics CSV
 
 **In simple terms:** the reward the learner sees is now a choosable "diet," and

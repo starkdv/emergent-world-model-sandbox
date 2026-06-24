@@ -543,6 +543,13 @@ policy head   48 → 8                 policy head   48 → 9    (+SIGNAL action
                                      + PheromoneField (decaying signal grid)
 ```
 
+> **▶ Next up — v3.6 (the kin-similarity sense).** The one piece deferred from
+> World phase W5 because it touches the genome: a single `nearest_agent_kin`
+> input (obs 78→79, +40 params) computed from a birth-time genome fingerprint,
+> so agents can perceive how related a neighbour is and kin selection can
+> emerge. It is **designed and is the current open work item** — full design in
+> **[BRAIN_V3_PROPOSAL.md §9](docs/BRAIN_V3_PROPOSAL.md)**.
+
 #### v3 size presets — small / base / large
 
 There are no named presets in the config; the three sizes from

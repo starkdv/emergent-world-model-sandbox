@@ -1,12 +1,19 @@
 # World Upgrade — Architecture Proposal
 
-**Status:** In progress — W0 ✅ and W1 ✅ implemented (June 2026, see
-CHANGELOG); W2 partially implemented (heightmap/rivers/biomes/slope shipped;
-moisture diffusion + erosion deferred); W3 partially implemented (toxicity,
-species pack, thorns, wildfire shipped; invasive-species + flood deferred);
-W4 implemented as Brain v3.5 (agents-in-vision, tile collision, genome
-migration, Observation-v2 senses, SIGNAL + pheromone field); W5–W6 remain
-proposals
+**Status:** W0–W6 implemented (June 2026, see CHANGELOG). W0 ✅, W1 ✅;
+W2 ✅ (heightmap/rivers/biomes/slope shipped; moisture diffusion + erosion
+deferred); W3 ✅ (toxicity, species pack, thorns, wildfire shipped;
+invasive-species + flood deferred); W4 ✅ as Brain v3.5 (agents-in-vision,
+tile collision, genome migration, Observation-v2 senses, SIGNAL + pheromone
+field); W5 ✅ (inventory transfer + SOCIETY/ROLES analyzer); W6 ✅ (spatial
+index, checkpointing, reward diet + metrics CSV).
+
+> **▶ OPEN / NEXT UP — Brain v3.6 (kin-similarity sense / Observation v3).**
+> The one piece deferred from W5 because it touches the genome: a
+> `nearest_agent_kin` input. It is fully designed and is **the next work item**
+> — see `BRAIN_V3_PROPOSAL.md` §9. (A separate **3D / voxel frontend** proposal
+> — `FRONTEND_3D_PROPOSAL.md` — is also queued for review.)
+
 **Branch:** `claude/world-upgrade`
 **Scope:** `world/` (tiles, systems, world, object registry), `utils/agents/`
 (perception, reward shaping, action execution), `config/default.yaml`
