@@ -57,6 +57,50 @@ let signalGroup = new THREE.Group();
 scene.add(signalGroup);
 let followIds = [];
 let followIdx = -1;
+let bornReady = false; // suppress birth bursts while applying the initial snapshot
+
+// ---- particle bursts (lifecycle effects, derived from deltas) --------------
+const particles = []; // { mesh, life, maxLife, vel }
+const _particleGeo = new THREE.SphereGeometry(0.09, 6, 6);
+
+function spawnBurst(pos, colorHex, count = 8, speed = 2.0) {
+  for (let i = 0; i < count; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: colorHex,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+    });
+    const m = new THREE.Mesh(_particleGeo, mat);
+    m.position.copy(pos);
+    m.position.y += 0.5;
+    const vel = new THREE.Vector3(
+      (Math.random() - 0.5) * speed,
+      Math.random() * speed * 0.9 + 0.5,
+      (Math.random() - 0.5) * speed,
+    );
+    scene.add(m);
+    particles.push({ mesh: m, life: 0.8, maxLife: 0.8, vel });
+  }
+}
+
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt;
+    if (p.life <= 0) {
+      scene.remove(p.mesh);
+      p.mesh.material.dispose();
+      particles.splice(i, 1);
+      continue;
+    }
+    p.vel.y -= 6 * dt; // gravity
+    p.mesh.position.addScaledVector(p.vel, dt);
+    const f = p.life / p.maxLife;
+    p.mesh.material.opacity = f;
+    p.mesh.scale.setScalar(0.5 + f);
+  }
+}
 
 const hud = {
   tick: document.getElementById("hud-tick"),
@@ -291,6 +335,7 @@ function placeOnSurface(obj3d, x, y, yOffset = 0) {
 // ---- snapshot / delta application ------------------------------------------
 
 function applySnapshot(snap) {
+  bornReady = false; // no birth bursts for the initial population
   buildTerrain(snap.terrain);
   // clear entities
   for (const a of agents.values()) scene.remove(a.group);
@@ -302,6 +347,7 @@ function applySnapshot(snap) {
   updateSky(snap.sky);
   hud.objects.textContent = objects.size;
   hud.tick.textContent = snap.tick;
+  bornReady = true;
 }
 
 function upsertObject(o) {
@@ -331,6 +377,7 @@ function upsertAgent(a) {
     };
     rec.group.position.set(worldX(a.x), surfaceY(a.x, a.y), worldZ(a.y));
     agents.set(a.id, rec);
+    if (bornReady) spawnBurst(rec.group.position, 0x8ef0a0, 8); // birth pop
   }
   rec.target.set(worldX(a.x), surfaceY(a.x, a.y), worldZ(a.y));
   // yaw from direction (dx,dy): face +Z when dir=(0,1)
@@ -357,6 +404,7 @@ function applyDelta(d) {
   for (const id of d.removed_objects || []) {
     const m = objects.get(id);
     if (m) {
+      spawnBurst(m.position, 0xffb24a, 5, 1.4); // consumed/decayed puff
       scene.remove(m);
       objects.delete(id);
     }
@@ -365,8 +413,13 @@ function applyDelta(d) {
   for (const id of d.removed_agents || []) {
     const r = agents.get(id);
     if (r) {
+      spawnBurst(r.group.position, 0x9aa0a6, 12, 2.2); // death puff
       scene.remove(r.group);
       agents.delete(id);
+      if (selectedId === id) {
+        selectedId = null;
+        updateInspector(null);
+      }
     }
   }
   updateSignals(d.signals || []);
@@ -520,6 +573,8 @@ function animate() {
       rec.bob.position.y = Math.sin(elapsed * 4 + rec.group.userData.phase) * 0.05;
     }
   }
+
+  updateParticles(dt);
 
   // signal glow pulse
   const pulse = 0.75 + 0.25 * Math.sin(elapsed * 3);
