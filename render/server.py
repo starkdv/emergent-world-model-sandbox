@@ -206,9 +206,19 @@ def main(argv=None):
         default=None,
         help="Resume a W6b checkpoint instead of a fresh demo world",
     )
+    p.add_argument(
+        "--replay",
+        default=None,
+        help="Play back a recording (JSONL from render.recorder) on a loop",
+    )
     args = p.parse_args(argv)
 
-    if args.checkpoint:
+    if args.replay:
+        from render.recorder import replay_session_from_file
+
+        session = replay_session_from_file(args.replay)
+        print(f"Replaying recording: {args.replay}")
+    elif args.checkpoint:
         from render.sim_session import session_from_checkpoint
 
         session = session_from_checkpoint(args.checkpoint)

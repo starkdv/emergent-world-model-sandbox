@@ -114,6 +114,10 @@ python -m render.server                       # → http://127.0.0.1:8000
 python -m render.server --width 100 --height 100 --agents 30 --tps 15
 python -m render.server --checkpoint data/states/run.pkl   # fly around a saved run (W6b)
 
+# record a run's render stream, then replay it on a loop (no re-simulation)
+python -m render.recorder --out run.jsonl --ticks 600
+python -m render.server --replay run.jsonl     # → http://127.0.0.1:8000
+
 # offline: export a frame to a colored PLY (opens in Blender / MeshLab)
 python -m render.voxel_export --out world.ply
 python -m render.voxel_export --checkpoint data/states/run.pkl --out run.ply

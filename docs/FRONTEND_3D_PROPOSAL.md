@@ -3,10 +3,12 @@
 **Status:** IN PROGRESS — review complete (decisions in §10). **Shipped:**
 F0 (state bridge), F3a (live SSE server), F3b (Three.js voxel web client),
 F1 (offline PLY voxel export), F4 (click-to-inspect, chase-follow camera, idle
-bob + smooth yaw, signal pulse) — a live voxel view runs today via
-`python -m render.server`. **Next:** F5 (multi-client + replay scrubbing),
-trade/fire particle effects (needs a read-only event channel on the bridge),
-then optional smooth terrain (§11). Author: Karan Vasa.
+bob + smooth yaw, signal pulse, lifecycle particles), fire visualization
+(read-only), and F5 (recording + looping replay via `render.recorder` /
+`render.server --replay`; multi-client already supported). A live voxel view
+runs via `python -m render.server`. **Next:** trade/give particle effects
+(needs a read-only event channel on the bridge), timeline-scrub UI on the
+replay client, and optional smooth terrain (§11). Author: Karan Vasa.
 
 **Branch:** `claude/frontend-3d`
 **Scope (proposed):** a new renderer package; a read-only **world→render state

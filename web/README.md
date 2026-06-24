@@ -19,6 +19,10 @@ Useful flags:
 ```bash
 python -m render.server --width 100 --height 100 --agents 30 --tps 15
 python -m render.server --checkpoint data/states/run.pkl   # fly around a saved run (W6b)
+
+# record a run, then replay it on a loop (no re-simulation)
+python -m render.recorder --out run.jsonl --ticks 600
+python -m render.server --replay run.jsonl
 ```
 
 ## Controls
