@@ -67,6 +67,29 @@ const hud = {
   conn: document.getElementById("hud-conn"),
 };
 
+const inspectorEl = document.getElementById("inspector");
+const ins = {
+  id: document.getElementById("ins-id"),
+  energy: document.getElementById("ins-energy"),
+  lineage: document.getElementById("ins-lineage"),
+  gen: document.getElementById("ins-gen"),
+  pos: document.getElementById("ins-pos"),
+};
+let selectedId = null;
+
+function updateInspector(d) {
+  if (!d) {
+    inspectorEl.classList.add("hidden");
+    return;
+  }
+  inspectorEl.classList.remove("hidden");
+  ins.id.textContent = d.id;
+  ins.energy.textContent = (d.energy * 100).toFixed(0) + "%";
+  ins.lineage.textContent = d.lineage;
+  ins.gen.textContent = d.generation;
+  ins.pos.textContent = `${d.x},${d.y}`;
+}
+
 // ---- helpers ---------------------------------------------------------------
 
 function decodeGrid(packed) {
@@ -197,23 +220,26 @@ function buildTerrain(pack) {
 function makeAgentModel(lineage) {
   const group = new THREE.Group();
   const color = lineageColor(lineage);
+  // inner group bobs/yaws; the energy bar stays put on the outer group
+  const bob = new THREE.Group();
+  group.add(bob);
   const bodyMat = new THREE.MeshLambertMaterial({ color });
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), bodyMat);
   body.position.y = 0.3;
-  group.add(body);
+  bob.add(body);
   const head = new THREE.Mesh(
     new THREE.BoxGeometry(0.34, 0.34, 0.34),
     new THREE.MeshLambertMaterial({ color: color.clone().offsetHSL(0, 0, 0.12) }),
   );
   head.position.y = 0.78;
-  group.add(head);
-  // facing marker (snout)
+  bob.add(head);
+  // facing marker (snout) — points +Z, the yaw reference
   const snout = new THREE.Mesh(
     new THREE.BoxGeometry(0.12, 0.12, 0.22),
     new THREE.MeshLambertMaterial({ color: 0x222222 }),
   );
   snout.position.set(0, 0.78, 0.24);
-  group.add(snout);
+  bob.add(snout);
   // energy bar
   const bar = new THREE.Mesh(
     new THREE.BoxGeometry(0.7, 0.08, 0.08),
@@ -221,7 +247,12 @@ function makeAgentModel(lineage) {
   );
   bar.position.y = 1.15;
   group.add(bar);
+  // make the whole agent pickable → store a back-reference for raycasting
+  body.userData.agentGroup = group;
+  head.userData.agentGroup = group;
   group.userData.energyBar = bar;
+  group.userData.bob = bob;
+  group.userData.phase = Math.random() * Math.PI * 2;
   return group;
 }
 
@@ -288,19 +319,37 @@ function upsertAgent(a) {
   if (!rec) {
     const group = makeAgentModel(a.lineage);
     scene.add(group);
-    rec = { group, target: new THREE.Vector3(), energyBar: group.userData.energyBar };
+    rec = {
+      id: a.id,
+      group,
+      target: new THREE.Vector3(),
+      energyBar: group.userData.energyBar,
+      bob: group.userData.bob,
+      yaw: 0,
+      targetYaw: 0,
+      data: {},
+    };
     rec.group.position.set(worldX(a.x), surfaceY(a.x, a.y), worldZ(a.y));
     agents.set(a.id, rec);
   }
   rec.target.set(worldX(a.x), surfaceY(a.x, a.y), worldZ(a.y));
   // yaw from direction (dx,dy): face +Z when dir=(0,1)
   const [dx, dy] = a.dir;
-  rec.group.rotation.y = Math.atan2(dx, dy);
+  rec.targetYaw = Math.atan2(dx, dy);
   // energy bar scale + color
   const e = Math.max(0, Math.min(1, a.energy));
   rec.energyBar.scale.x = Math.max(0.02, e);
   rec.energyBar.material.color.setHSL(0.33 * e, 0.7, 0.5);
   rec.group.visible = a.alive !== false;
+  rec.data = {
+    id: a.id,
+    energy: e,
+    lineage: a.lineage,
+    generation: a.generation,
+    x: a.x,
+    y: a.y,
+  };
+  if (selectedId === a.id) updateInspector(rec.data);
 }
 
 function applyDelta(d) {
@@ -333,13 +382,15 @@ function updateSignals(signals) {
   signalGroup = new THREE.Group();
   const geo = new THREE.PlaneGeometry(1, 1);
   for (const [x, y, v] of signals) {
+    const base = Math.min(0.7, 0.15 + 0.6 * v);
     const mat = new THREE.MeshBasicMaterial({
       color: 0x66e0ff,
       transparent: true,
-      opacity: Math.min(0.7, 0.15 + 0.6 * v),
+      opacity: base,
       depthWrite: false,
     });
     const m = new THREE.Mesh(geo, mat);
+    m.userData.base = base;
     m.rotation.x = -Math.PI / 2;
     m.position.set(worldX(x), surfaceY(x, y) + 0.05, worldZ(y));
     signalGroup.add(m);
@@ -390,7 +441,42 @@ function cycleFollow() {
   if (followIds.length === 0) return;
   followIdx = (followIdx + 1) % (followIds.length + 1);
   if (followIdx === followIds.length) followIdx = -1; // wrap to free cam
+  if (followIdx >= 0) selectedId = followIds[followIdx];
 }
+
+// click-to-inspect (raycast against agent meshes)
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let dragMoved = false;
+canvas.addEventListener("pointerdown", () => (dragMoved = false));
+canvas.addEventListener("pointermove", () => (dragMoved = true));
+canvas.addEventListener("pointerup", (e) => {
+  if (dragMoved) return; // it was an orbit drag, not a click
+  pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+  pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const meshes = [];
+  for (const rec of agents.values()) rec.group.traverse((o) => o.isMesh && meshes.push(o));
+  const hits = raycaster.intersectObjects(meshes, false);
+  if (hits.length > 0) {
+    let g = hits[0].object;
+    while (g && !g.userData.agentGroup) g = g.parent;
+    const grp = g && g.userData.agentGroup;
+    if (grp) {
+      // find the rec for this group
+      for (const rec of agents.values()) {
+        if (rec.group === grp) {
+          selectedId = rec.id;
+          updateInspector(rec.data);
+          break;
+        }
+      }
+      return;
+    }
+  }
+  selectedId = null;
+  updateInspector(null);
+});
 
 function applyFreeFly(dt) {
   const speed = 20 * dt;
@@ -414,18 +500,39 @@ function applyFreeFly(dt) {
 // ---- animation loop --------------------------------------------------------
 
 const clock = new THREE.Clock();
+let elapsed = 0;
+const _chaseTmp = new THREE.Vector3();
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(0.05, clock.getDelta());
+  elapsed += dt;
 
-  // tween agents toward targets (smooth motion over elevation)
+  // tween agents toward targets (smooth motion over elevation), smooth yaw,
+  // and a gentle idle bob on the inner group
   for (const rec of agents.values()) {
     rec.group.position.lerp(rec.target, 0.18);
+    // shortest-arc yaw lerp
+    let dyaw = rec.targetYaw - rec.yaw;
+    dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+    rec.yaw += dyaw * 0.25;
+    rec.group.rotation.y = rec.yaw;
+    if (rec.bob) {
+      rec.bob.position.y = Math.sin(elapsed * 4 + rec.group.userData.phase) * 0.05;
+    }
   }
+
+  // signal glow pulse
+  const pulse = 0.75 + 0.25 * Math.sin(elapsed * 3);
+  signalGroup.children.forEach((m) => (m.material.opacity = m.userData.base * pulse));
 
   if (followIdx >= 0 && followIds[followIdx] !== undefined) {
     const rec = agents.get(followIds[followIdx]);
-    if (rec) controls.target.lerp(rec.group.position, 0.2);
+    if (rec) {
+      controls.target.lerp(rec.group.position, 0.2);
+      // chase: keep the camera trailing the agent at a fixed offset
+      _chaseTmp.copy(rec.group.position).add(new THREE.Vector3(6, 7, 6));
+      camera.position.lerp(_chaseTmp, 0.06);
+    }
   } else {
     applyFreeFly(dt);
   }

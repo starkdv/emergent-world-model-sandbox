@@ -1,11 +1,12 @@
 # Frontend 3D / Voxel World — Architecture Proposal
 
 **Status:** IN PROGRESS — review complete (decisions in §10). **Shipped:**
-F0 (state bridge), F3a (live SSE server), F3b (Three.js voxel web client) — a
-live voxel view runs today via `python -m render.server`. **Next:** F4 (richer
-per-species models, follow-cam polish, trade/fire particles), F1 (offline
-glTF/`.vox` export), F5 (multi-client + replay scrubbing), then optional smooth
-terrain (§11). Author: Karan Vasa.
+F0 (state bridge), F3a (live SSE server), F3b (Three.js voxel web client),
+F1 (offline PLY voxel export), F4 (click-to-inspect, chase-follow camera, idle
+bob + smooth yaw, signal pulse) — a live voxel view runs today via
+`python -m render.server`. **Next:** F5 (multi-client + replay scrubbing),
+trade/fire particle effects (needs a read-only event channel on the bridge),
+then optional smooth terrain (§11). Author: Karan Vasa.
 
 **Branch:** `claude/frontend-3d`
 **Scope (proposed):** a new renderer package; a read-only **world→render state

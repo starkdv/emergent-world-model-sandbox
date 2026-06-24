@@ -28,8 +28,9 @@ python -m render.server --checkpoint data/states/run.pkl   # fly around a saved 
 | drag | orbit |
 | scroll | zoom |
 | WASD / Q,E | free-fly (move / down,up) |
-| F | follow the next agent (cycles, then back to free cam) |
+| F | follow the next agent (chase cam; cycles, then back to free cam) |
 | R | reset camera |
+| click an agent | open the inspector (id, energy, lineage, generation, pos); click empty space to clear |
 
 ## What you see
 

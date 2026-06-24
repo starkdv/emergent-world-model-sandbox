@@ -26,8 +26,17 @@
       <div class="row"><span>conn</span><b id="hud-conn">connecting…</b></div>
       <div id="hud-help">
         drag: orbit · scroll: zoom · WASD/QE: fly · F: follow next agent · R:
-        reset cam
+        reset cam · click an agent to inspect
       </div>
+    </div>
+    <div id="inspector" class="hidden">
+      <div id="inspect-title">agent</div>
+      <div class="row"><span>id</span><b id="ins-id">—</b></div>
+      <div class="row"><span>energy</span><b id="ins-energy">—</b></div>
+      <div class="row"><span>lineage</span><b id="ins-lineage">—</b></div>
+      <div class="row"><span>gen</span><b id="ins-gen">—</b></div>
+      <div class="row"><span>pos</span><b id="ins-pos">—</b></div>
+      <div id="ins-hint">F: follow · click empty space to clear</div>
     </div>
     <canvas id="view"></canvas>
     <script type="module" src="/main.js"></script>
