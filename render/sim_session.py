@@ -58,15 +58,18 @@ class SimSession:
 
 
 def build_demo_world(
-    width: int = 64,
-    height: int = 64,
-    n_agents: int = 12,
+    width: int = 96,
+    height: int = 96,
+    n_agents: int = 24,
     seed: int = 7,
-    brain_version=2,
+    brain_version=3,
 ):
     """
-    Build a fresh heightmap world (elevation + biomes), a day/night sky, signals
-    on, and a handful of agents — a self-contained scene for the viewer.
+    Build a fresh, *populated* heightmap world for the viewer: elevation +
+    biomes, a day/night sky, signalling on, a scatter of plants ("trees"),
+    berries, and seeds (so agents have something to forage and the scene isn't
+    barren), and a handful of agents. Resource spawning is on so food
+    regenerates over a long watch.
     """
     import numpy as np
 
@@ -74,6 +77,7 @@ def build_demo_world(
     from agents.genome import Genome
     from agents.brain import calculate_weight_count_for_config
     from world.world import World
+    from world.objects import PlantComponent
     from world.object_registry import ObjectRegistry, register_builtin_objects
 
     if not ObjectRegistry._definitions:
@@ -87,14 +91,43 @@ def build_demo_world(
         environment_config={"enabled": True, "day_length": 200},
         signal_config={"enabled": True},
         performance_config={"spatial_index": True},
+        safety_spawn_rate=0.02,
+        min_resources=max(20, (width * height) // 200),
         parallel=False,
     )
+
+    rng = np.random.RandomState(seed)
+    area = width * height
+
+    def _scatter(type_id, count, mature=False):
+        placed = 0
+        attempts = 0
+        while placed < count and attempts < count * 40:
+            attempts += 1
+            x = int(rng.randint(0, width))
+            y = int(rng.randint(0, height))
+            tile = world.tiles[y][x]
+            if not tile.can_support_plant():
+                continue
+            obj = ObjectRegistry.create(type_id, x, y)
+            if mature:
+                pc = obj.get_component(PlantComponent)
+                if pc is not None:
+                    pc.age = pc.mature_age  # immediately fruit-bearing
+            if world.add_object(obj):
+                placed += 1
+        return placed
+
+    # "trees" (berry plants), half already mature; berries; a few seeds.
+    _scatter("berry_plant", int(area * 0.012), mature=False)
+    _scatter("berry_plant", int(area * 0.012), mature=True)
+    _scatter("berry", int(area * 0.02))
+    _scatter("berry_seed", int(area * 0.008))
 
     brain_cfg = {"version": brain_version}
     prev_cfg = getattr(Agent, "brain_config", None)
     Agent.brain_config = brain_cfg
     try:
-        rng = np.random.RandomState(seed)
         weight_count = calculate_weight_count_for_config(brain_cfg)
         placed = 0
         attempts = 0

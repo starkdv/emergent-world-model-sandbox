@@ -1,6 +1,24 @@
 # Changelog
 
-## [Unreleased] — 3D voxel frontend (Phases F0–F4)
+## [Unreleased] — config default + 3D viewer fixes
+
+- **Default brain is now v3** (the attention brain) in `config/default.yaml`
+  — was v2. Set `brain.version: 2` for the legacy baseline, `3.5` for the
+  social brain. README/table/snippets updated to match.
+- **3D viewer demo world is now populated and larger** (`render/sim_session.py`
+  `build_demo_world`): it previously generated terrain but **no objects**, so
+  the scene was empty (no trees/food) — fixed by scattering berry-plants
+  ("trees", half pre-matured to bear fruit), berries, and seeds, with resource
+  spawning on so food regenerates. Default size 64²→**96²**, agents 12→**24**,
+  demo brain v2→**v3**. Server CLI defaults match.
+- **3D viewer camera & lighting fixes**: the camera now frames the world by its
+  size (was a fixed faraway position → the map looked tiny), an always-on
+  ambient light plus higher hemisphere/sun floors keep the scene readable, and
+  the night sky floor was lifted (deep night was rendering near-black). These
+  address the "agents not moving / only night / map too small" reports — agents
+  were in fact moving in the sim; the empty, dark, distant view hid it.
+
+## 3D voxel frontend (Phases F0–F5)
 
 Plan, decisions, and roadmap: `docs/FRONTEND_3D_PROPOSAL.md` · run guide:
 `web/README.md`. A live Minecraft-style voxel view of the world, rendered in

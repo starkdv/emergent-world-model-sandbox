@@ -191,7 +191,7 @@ can be run as a controlled experiment. Quick map:
 | # | Mode | Switch | Default | Requires |
 |---|------|--------|---------|----------|
 | 1 | Evolution mode | `--mode rl\|neuroevolution` / `evolution.mode` | `rl` | — |
-| 2 | Brain version | `brain.version: 2\|3\|3.5` | `2` | 3.5 adds social senses + SIGNAL |
+| 2 | Brain version | `brain.version: 2\|3\|3.5` | `3` | 3.5 adds social senses + SIGNAL |
 | 2b | Signalling (v3.5) | `signal.enabled` | off | `brain.version: 3.5` |
 | 3 | Fading instincts | `brain.instincts` | on, fade at 150 | — |
 | 4 | Learning algorithm | `learning.algorithm: a2c\|ppo` | `a2c` | RL mode; PPO needs torch |
@@ -558,7 +558,7 @@ Why v3 (full rationale in [BRAIN_V3_PROPOSAL.md](docs/BRAIN_V3_PROPOSAL.md)):
 
 ```yaml
 brain:
-  version: 3        # 2 (default) = legacy baseline, 3 = attention brain
+  version: 3        # 3 (default) = attention brain, 2 = legacy GRU-MLP baseline
   v3:
     embed_dim: 8
     state_dim: 40

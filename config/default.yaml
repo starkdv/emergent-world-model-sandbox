@@ -61,7 +61,9 @@ brain:
   #         SIGNAL action with a pheromone field (policy head 9). The
   #         observation grows to 78; v3 genomes auto-migrate on load.
   #         See docs/BRAIN_V3_PROPOSAL.md §8. Pair with signal.enabled.
-  version: 2
+  # Default is the v3 attention brain (the recommended architecture). Set
+  # version: 2 for the legacy GRU-MLP baseline, or 3.5 for the social brain.
+  version: 3
 
   # --- v2 sizes (used when version: 2) ---
   input_size: 72  # calculated from observation vector (8 agent + 50 vision + 8 stimulus + 6 inventory)

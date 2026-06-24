@@ -197,9 +197,9 @@ def main(argv=None):
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--tps", type=float, default=10.0, help="sim ticks per second")
-    p.add_argument("--width", type=int, default=64)
-    p.add_argument("--height", type=int, default=64)
-    p.add_argument("--agents", type=int, default=12)
+    p.add_argument("--width", type=int, default=96)
+    p.add_argument("--height", type=int, default=96)
+    p.add_argument("--agents", type=int, default=24)
     p.add_argument("--seed", type=int, default=7)
     p.add_argument(
         "--checkpoint",

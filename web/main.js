@@ -39,11 +39,28 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.maxPolarAngle = Math.PI * 0.49;
 
-const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x4a4030, 0.8);
+const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x4a4030, 0.9);
 scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xfff2d8, 1.1);
+const sun = new THREE.DirectionalLight(0xfff2d8, 1.2);
 sun.position.set(50, 80, 30);
 scene.add(sun);
+// always-on ambient so geometry stays readable even at deep night
+const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambient);
+
+function frameCamera() {
+  // place the camera relative to the world size so it isn't tiny / clipped
+  const span = Math.max(gridW, gridH, 16);
+  controls.target.set(0, MAX_H * 0.3, 0);
+  camera.position.set(span * 0.55, span * 0.6, span * 0.55);
+  camera.far = span * 6;
+  camera.updateProjectionMatrix();
+  if (scene.fog) {
+    scene.fog.near = span * 0.9;
+    scene.fog.far = span * 3.2;
+  }
+  controls.update();
+}
 
 // ---- module state ----------------------------------------------------------
 
@@ -256,8 +273,7 @@ function buildTerrain(pack) {
   scene.add(terrainMesh);
   scene.add(waterMesh);
 
-  controls.target.set(0, 0, 0);
-  controls.update();
+  frameCamera();
 }
 
 // ---- entity models ---------------------------------------------------------
@@ -477,11 +493,12 @@ function updateSky(sky) {
   const light = sky.light ?? 1;
   // sun arcs across the sky over a day
   const ang = t * Math.PI * 2 - Math.PI / 2;
-  sun.position.set(Math.cos(ang) * 80, Math.max(5, Math.sin(ang) * 90), 30);
-  sun.intensity = 0.3 + 1.0 * light;
-  hemi.intensity = 0.3 + 0.6 * light;
-  // background: night blue -> day blue by light
-  const night = new THREE.Color(0x0b1430);
+  sun.position.set(Math.cos(ang) * 80, Math.max(10, Math.sin(ang) * 90), 30);
+  sun.intensity = 0.5 + 0.9 * light;
+  hemi.intensity = 0.5 + 0.5 * light;
+  ambient.intensity = 0.3 + 0.25 * light;
+  // background: dusk blue -> day blue by light (night floor kept visible)
+  const night = new THREE.Color(0x1b2b4a);
   const day = new THREE.Color(0x8fbcd4);
   const bg = night.clone().lerp(day, light);
   scene.background = bg;
@@ -505,8 +522,7 @@ window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
 
 function resetCamera() {
   followIdx = -1;
-  camera.position.set(40, 50, 40);
-  controls.target.set(0, 0, 0);
+  frameCamera();
 }
 
 function cycleFollow() {

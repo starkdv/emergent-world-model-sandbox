@@ -70,13 +70,15 @@ def test_session_from_checkpoint(tmp_path):
     import os
     from world.checkpoint import save_state
 
+    # build_demo_world uses the v3 brain by default → checkpoint round-trip
+    # must rebuild with the matching brain config.
     s = build_demo_world(width=20, height=20, n_agents=4, seed=8)
     s.snapshot()
     s.step(n=3)
     path = os.path.join(str(tmp_path), "ck.pkl")
-    save_state(s.world, path, config={"brain": {"version": 2}})
+    save_state(s.world, path, config={"brain": {"version": 3}})
 
-    s2 = session_from_checkpoint(path, config={"brain": {"version": 2}})
+    s2 = session_from_checkpoint(path, config={"brain": {"version": 3}})
     assert isinstance(s2, SimSession)
     assert s2.tick == s.tick
     snap = s2.snapshot()
