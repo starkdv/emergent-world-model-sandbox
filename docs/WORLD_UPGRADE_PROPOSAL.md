@@ -340,11 +340,15 @@ require no flag and are derived from the existing log schema).
 > **Deferred for a separate genome bump:** the kin-similarity observation
 > feature. Adding it would require an Observation v3 break — append-only and
 > migration-safe like v3 → v3.5, but a break nonetheless — so it stays
-> queued until the next batched genome refresh (call it Brain v3.6) instead
-> of being squeezed in mid-cycle. Everything kin-sense would unlock today
-> (group selection, family clusters, allele tracking) is already observable
-> through territory/overlap + lineage logs, so this is research priority
-> not a blocker.
+> queued until the next batched genome refresh (**Brain v3.6**) instead of
+> being squeezed in mid-cycle. The full design is on record:
+> **`BRAIN_V3_PROPOSAL.md` §9 (Brain v3.6 — the kin-similarity sense)** —
+> a single `nearest_agent_kin` input (idx 78, obs grows 78→79) computed from
+> a birth-time genome fingerprint, +40 params, migrated by the existing
+> `migrate_genome`. Everything kin-sense would unlock today (group selection,
+> family clusters, allele tracking) is already observable through
+> territory/overlap + lineage logs, so this is research priority not a
+> blocker.
 
 **W6 — Substrate (can interleave with any phase).**
 Spatial object index (perception + RewardShaper + spawn use it),

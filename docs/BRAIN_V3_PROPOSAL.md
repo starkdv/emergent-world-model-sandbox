@@ -1,4 +1,4 @@
-# Brain v3 → v3.5 — Architecture Proposal
+# Brain v3 → v3.5 → v3.6 — Architecture Proposal
 
 **Status:**
 - **v3 — ALL phases implemented**, including dream-based evolution
@@ -9,6 +9,11 @@
   collision; **Part 2 shipped the Observation-v2 input block + the SIGNAL
   action / pheromone field** (`brain.version: 3.5`). See ../CHANGELOG.md
   ("Phase W4") and §8 below, which now documents the *as-built* design.
+- **v3.6 — DESIGNED, not yet built** (the kin-similarity sense / Observation
+  v3, deferred from World-upgrade **W5**). A single append-only input feature
+  — `nearest_agent_kin` — bundled as the next batched genome bump rather than
+  slipped in mid-cycle. Full design in **§9**; tracked in
+  `WORLD_UPGRADE_PROPOSAL.md` (W5 "Deferred").
 
 **Scope:** `agents/brain.py`, `utils/agents/brain_utils.py`, `agents/learning.py`,
 `utils/agents/perception.py`, plus new modules under `agents/brain/`
@@ -552,3 +557,156 @@ are both met.
 | New EXTRA inputs destabilise evolved foragers | Migration zero-inits their rows → bit-identical start; they only matter once selection finds them useful; `observation.version` is an ablation switch |
 | Pheromone field cost at thousands of agents | One `float` grid, vectorised decay; sensing is an O(1) tile read (or a tiny local max); diffusion optional |
 | "Two genome breaks" if obs-v2 and SIGNAL ship separately | They are deliberately bundled into v3.5 as a *single* break, exactly as W4 intended |
+
+---
+
+## 9. Brain v3.6 — the kin-similarity sense (Observation v3, World phase W5)
+
+> **Status: DESIGNED, not yet built.** This section is a *proposal* in the same
+> sense §3 was a proposal before v3 shipped — it documents the next batched
+> genome bump so it is on record, reviewable, and ready to build, but no code
+> for it exists yet. W5 shipped its non-genome half (inventory transfer + the
+> SOCIETY/ROLES analyzer); the genome-touching half — a kin sense — is parked
+> here for Brain v3.6.
+
+### 9.1 Why a v3.6 (and why it was deferred)
+
+W5 opened **division of labor and trade**. The capability (give via USE) and
+the instruments (role-entropy, behavioural novelty, territory) shipped without
+touching the genome. But the deepest social question — **kin selection** (do
+agents treat genetic relatives differently from strangers?) — needs the brain
+to *perceive relatedness*, which it currently cannot. Everything an agent
+senses about another agent today is phenotypic (their position, energy, signal);
+nothing tells it "this neighbour shares my lineage."
+
+Adding that perception is, again, an **observation break**: a new input wire.
+Per the W4 lesson, we do not slip input changes in mid-cycle — we batch them
+into a named version with a migration. So rather than tack `nearest_agent_kin`
+onto v3.5 (orphaning every v3.5 genome the same way an unplanned obs change
+would), we reserve it for **v3.6 / Observation v3**. Until then, kin dynamics
+remain *observable from outside* (lineage logs + the W5 territory/overlap
+metrics) even though agents can't yet *act on* kinship — research priority, not
+a blocker (`WORLD_UPGRADE_PROPOSAL.md`, W5 "Deferred").
+
+| Brain | Perception | Inputs | Actions | Role |
+|---|---|---|---|---|
+| v3 | tokenised-vision attention | 72 | 8 | attention baseline |
+| v3.5 | + agent-aware vision + EXTRA block | 78 | 9 (+SIGNAL) | the social world (W4) |
+| **v3.6** | **+ kin-similarity scalar** | **79** | **9** | **kin selection (W5)** |
+
+### 9.2 Architecture diagram (v3.6)
+
+```
+        Observation v3 (79 = 78 v2 prefix ⧺ 1 new)  ── ObservationSpec(version=3)
+        │
+        ├─ vision 5×5×2 (50)  ── agent-aware (unchanged from v3.5)
+        │        ▼
+        │   per-tile embed → 25 tile tokens → attention pool → e (E)
+        │
+        ├─ STATE block (29)  = agent_state(8) ⧺ stimulus(8) ⧺ inventory(6)
+        │        │                              ⧺ EXTRA(6) ⧺ KIN(1)  ◄── NEW v3.6
+        │        │      KIN = [ nearest_agent_kin ]   (idx 78)
+        │        ▼
+        │   state encoder (29→S)  ──► attention query ──► pool ─► e
+        │        │                                              │
+        └────────┴──────────── concat → latent z = [s ‖ e] ────┘
+                                        │
+                          Memory core:  GRU (H) ─► policy(9) / value / dynamics
+```
+
+Identical to v3.5 except the **state encoder input grows 28 → 29**. The policy
+head, value MLP, attention, GRU, and dynamics head are byte-for-byte v3.5. No
+new action — kin perception changes *how* agents use the actions they already
+have (give to kin, signal to kin, contest strangers), not the action set.
+
+### 9.3 The new observation feature (KIN block, index 78)
+
+Appended after the v2 layout so the 0–77 prefix is unchanged. In [0, 1].
+
+| Idx | Field | Meaning / source |
+|----|-------|------------------|
+| 78 | `nearest_agent_kin` | genetic similarity (0 = unrelated/none, 1 = clone) to the **same** nearest other agent already used by `nearest_agent_proximity` (idx 75) |
+
+Pairing it with the existing proximity feature is deliberate: the brain gets
+"someone is *this* close (75) and *this* related (78)" as two scalars about one
+neighbour, so it can condition behaviour on kinship without spatial decoding.
+
+### 9.4 How kin similarity is computed (the fingerprint trick)
+
+Comparing two full genomes per agent per tick (thousands of weights × N²
+neighbours) is far too expensive. The design uses a **birth-time genetic
+fingerprint**: a small fixed-dim vector `f ∈ R^k` (k≈8) computed **once** when
+a genome is created, as a deterministic random projection of the weight vector
+(seeded by a fixed matrix, so it is stable across the run):
+
+```
+f = normalize(P · weights)      # P: fixed (k × W) projection, computed once
+                                # f cached on the genome; recomputed only on
+                                # mutation/crossover (i.e. at birth)
+kin(a, b) = clip( (f_a · f_b + 1) / 2 , 0, 1 )   # cosine → [0,1]
+```
+
+Per-tick cost is then **one k-dim dot product** against the already-located
+nearest neighbour — O(k), not O(W). Properties:
+- **Clones / un-mutated offspring** share `f` exactly → kin ≈ 1.
+- **Distant lineages** project to near-orthogonal fingerprints → kin ≈ 0.5
+  (random) and below; the value is a smooth genetic-distance proxy, not a
+  hard "same lineage" bit, which is what kin-selection theory actually wants.
+- A cheaper **lineage-only** fallback (`parent_ids`/`generation` overlap) is
+  available as an ablation, but the projection captures *graded* relatedness
+  that lineage IDs cannot.
+
+The fingerprint lives on `Genome` (alongside `lineage_id`); perception reads
+`world`'s already-computed nearest-other-agent (shared with idx 75) and does
+the single dot product in `_encode_extra`.
+
+### 9.5 Genome layout & migration
+
+v3.6 reuses `build_brain_v3_param_spec` with `state_inputs=29` (everything else
+unchanged from v3.5). Exactly one tensor changes shape, append-only:
+
+| Tensor | v3.5 shape | v3.6 shape | Δ params (base S=40) |
+|--------|-----------|-----------|----------------------|
+| `state_enc.W` | (28, S) | (29, S) | +1·S = **+40** |
+
+So **v3.6-base ≈ 17,666 params** (v3.5-base 17,626 + 40; +0.2%). Migration is
+the *same* shipped `migrate_genome` top-left copy: the new `state_enc.W` row is
+zero, so a migrated v3.5 (or v3) genome produces **bit-identical behaviour to
+float tolerance** until selection/learning fills the kin row in. The
+fingerprint matrix `P` is a fixed constant (not part of the genome), so it adds
+no weights and needs no migration.
+
+### 9.6 Implementation plan (as-planned checklist)
+
+When built, v3.6 follows the v3.5 recipe exactly — this is why it was made a
+*minor* bump:
+
+1. ⏳ **ObservationSpec v3** — `build_observation_spec(version=3)` extends the
+   `extra` slice to 72:79 with a `nearest_agent_kin` index (78);
+   `OBSERVATION_SPEC_V3`; `set_observation_version(3)`.
+2. ⏳ **Genome fingerprint** — `Genome.fingerprint` (k-dim), computed at
+   `__init__`/`offspring`/mutation via a module-level fixed projection `P`.
+3. ⏳ **Perception** — `_encode_extra` appends `nearest_agent_kin` under v3,
+   reusing the nearest-other-agent already found for idx 75.
+4. ⏳ **BrainV3 in v3.6 mode** — `state_inputs=29` via the active spec;
+   `create_brain`/`calculate_weight_count` select v3.6 via `brain.version: 3.6`.
+5. ⏳ **Migration on load** — `adapt_loaded_genome` already generic; add the
+   v3.5→v3.6 spec pair so loaded weights migrate.
+6. ⏳ **Learner parity** — the A2C-v3 and PPO batched forwards already slice
+   `obs[:, spec.extra]`; widening the EXTRA slice to 7 is automatic once the
+   spec changes (verify, no new code expected).
+7. ⏳ **Config + tests** — `brain.version: 3.6` docs; `tests/test_brain_v36.py`
+   (spec v3 layout, fingerprint determinism + clone=1/unrelated<1, migration
+   bit-identity v3.5→v3.6, end-to-end).
+8. ⏳ **Analyzer** — a **kin-conditioned behaviour** view: give-rate and
+   signal-rate bucketed by `nearest_agent_kin` (do agents favour relatives?) —
+   the W5 kin-selection acceptance criterion, made measurable.
+
+### 9.7 Risks specific to v3.6
+
+| Risk | Mitigation |
+|---|---|
+| Fingerprint projection too lossy → kin signal is noise | k is tunable; validate clones→1 and unrelated→~0.5 in a unit test; lineage-only fallback for ablation |
+| Per-tick cost at high agent counts | O(k) dot product against the *one* already-located nearest neighbour; no extra neighbour scan (shares idx 75's) |
+| "Yet another genome break" | Same discipline as v3.5: one batched, append-only, migration-safe break; v3.5 genomes load bit-identically |
+| Kin sense hard-codes nepotism | Like SIGNAL, the feature is a *capability*, not an incentive — favouring kin must emerge; `observation.version` ablates it |
