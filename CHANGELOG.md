@@ -1,14 +1,41 @@
 # Changelog
 
-## [Unreleased] — World upgrade, Phases W0–W6 (complete)
+## [Unreleased] — 3D voxel frontend (Phases F0–F4)
+
+Plan, decisions, and roadmap: `docs/FRONTEND_3D_PROPOSAL.md` · run guide:
+`web/README.md`. A live Minecraft-style voxel view of the world, rendered in
+the browser. The sim is unchanged — a **read-only** bridge streams its state.
+
+- **F0 — state bridge** (`render/state_bridge.py`): `world_snapshot` (terrain
+  packed as base64 byte-grids from the W2 elevation field, plus objects/agents/
+  sky) + `StateTracker.delta` (per-tick moves/spawns/removals, pheromone cells,
+  sky scalars). Read-only — never mutates the world. 8 tests.
+- **F3a — live server** (`render/server.py`, `render/sim_session.py`):
+  Server-Sent-Events over the stdlib HTTP server (no new deps), `/api/snapshot`
+  + `/api/stream`; `SimSession` (snapshot/step) with demo-world and
+  checkpoint-resume factories. `python -m render.server`. 5 tests.
+- **F3b — web client** (`web/`): Three.js voxel renderer — chunk-free instanced
+  terrain columns (blocky) with biome palette + water, per-lineage agents
+  grounded on the surface and tweened between ticks, distinct per-category
+  object models, pheromone glow, W1 day/night sky; orbit/free-fly/follow camera.
+- **F1 — offline export** (`render/voxel_export.py`): snapshot → colored ASCII
+  PLY (Blender/MeshLab) with exposed-face culling. `python -m render.voxel_export`.
+  5 tests.
+- **F4 — polish**: click-to-inspect agents, chase-follow camera, idle bob +
+  smooth yaw, signal pulse, and lifecycle particle bursts (birth/death/consume)
+  derived from deltas. Multi-client streaming verified.
+
+18 new render tests (full suite 497). **Next:** F5 (replay scrubbing),
+trade/fire particles (needs a read-only event channel), optional smooth terrain.
+
+## World upgrade, Phases W0–W6 (complete)
 
 Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
 
-> **▶ Open / next up:** **Brain v3.6 — kin-similarity sense (Observation v3).**
-> The one piece deferred from W5 because it touches the genome
-> (`nearest_agent_kin`, obs 78→79). Fully designed in `BRAIN_V3_PROPOSAL.md`
-> §9; this is the next work item. A **3D / voxel frontend** proposal
-> (`FRONTEND_3D_PROPOSAL.md`) is also queued for review.
+> **▶ Open / next up (sim side):** **Brain v3.6 — kin-similarity sense
+> (Observation v3).** The one piece deferred from W5 because it touches the
+> genome (`nearest_agent_kin`, obs 78→79). Fully designed in
+> `BRAIN_V3_PROPOSAL.md` §9; this is the next sim work item.
 
 ### Phase W6c — Substrate: reward-shaping diet + per-generation metrics CSV
 
