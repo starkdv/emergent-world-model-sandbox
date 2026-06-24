@@ -532,10 +532,17 @@ tile collision (`world.agent_collision`). Part 2 (✅, this is now built):
    migration bit-identity, SIGNAL masking, pheromone decay, end-to-end);
    A2C + PPO end-to-end runs verified; full suite green.
 
-**Follow-up (not blocking):** a dedicated analyzer section for signal
-*entropy* and an agent-proximity-response breakdown. SIGNAL usage already
-shows up in the existing action-distribution output; the richer measurement
-view is a small additive analyzer change.
+9. ✅ **Analyzer** — `scripts/analyze_logs.py` gained a **SOCIAL / SIGNAL**
+   section: SIGNAL usage rate, **signal entropy** (normalised Shannon entropy
+   of emissions across signalling agents — shared behaviour vs specialists),
+   and an **agent-proximity response** breakdown (action mix and SIGNAL rate
+   bucketed by `nearest_agent_proximity`, plus mean proximity when signalling
+   vs overall). This is the W4 "signal entropy and agent-proximity response
+   measurable" acceptance criterion. (`tests/test_signal_analyzer.py`.)
+
+All eight original checklist items and the analyzer follow-up are now done;
+the W4 acceptance criteria (migration identity; signal/proximity measurable)
+are both met.
 
 ### 8.7 Risks specific to v3.5
 

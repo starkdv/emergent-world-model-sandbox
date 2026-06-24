@@ -552,6 +552,86 @@ def _compute_species_consumption(df: pd.DataFrame) -> dict:
     return {"total_eats": total, "distinct_species": len(rows), "by_species": rows}
 
 
+def _compute_social_metrics(df: pd.DataFrame) -> dict:
+    """
+    SIGNAL usage, signal entropy, and agent-proximity response (Brain v3.5 /
+    World phase W4). This is the W4 "signal entropy and agent-proximity
+    response measurable" acceptance criterion.
+
+    - SIGNAL usage: count + rate of the SIGNAL action.
+    - Signal entropy: normalised Shannon entropy of how SIGNAL emissions are
+      distributed across the agents that signalled — 1.0 = every signaller
+      uses it equally (a shared behaviour); →0 = concentrated in a few
+      specialists. Returned in bits and normalised to [0, 1].
+    - Agent-proximity response: bucket actions by the EXTRA
+      ``nearest_agent_proximity`` observation (only present in v2/v3.5
+      transition logs) into alone / near / close, and report the dominant
+      action and SIGNAL rate per bucket — does behaviour change with company?
+
+    Returns an empty-ish dict when there is no signalling and no proximity
+    column, so the printer can skip the section for non-social runs.
+    """
+    out: dict = {"signal_actions": 0}
+    if "action" not in df.columns:
+        return out
+
+    # SIGNAL may be logged as the action name ("SIGNAL", action logs) or its
+    # value ("8", transition logs); interaction_kind=="signal" is also set.
+    act = df["action"].astype(str)
+    is_signal = (act == "SIGNAL") | (act == "8")
+    if "interaction_kind" in df.columns:
+        is_signal = is_signal | (df["interaction_kind"].astype(str) == "signal")
+    n_signal = int(is_signal.sum())
+    total = len(df)
+    out["signal_actions"] = n_signal
+    out["signal_rate_pct"] = round(100.0 * n_signal / max(total, 1), 3)
+
+    if n_signal > 0 and "agent_id" in df.columns:
+        per_agent = df.loc[is_signal].groupby("agent_id").size().to_numpy(dtype=float)
+        out["signallers"] = int(per_agent.size)
+        p = per_agent / per_agent.sum()
+        h = float(-np.sum(p * np.log2(p)))
+        h_max = float(np.log2(len(p))) if len(p) > 1 else 1.0
+        out["signal_entropy_bits"] = round(h, 3)
+        out["signal_entropy_norm"] = round(h / h_max if h_max > 0 else 0.0, 3)
+
+    # Agent-proximity response (needs the v2 EXTRA observation column)
+    try:
+        from agents.brain.spec import OBSERVATION_SPEC_V2
+
+        prox_col = f"obs_{OBSERVATION_SPEC_V2.nearest_agent_proximity}"
+    except Exception:
+        prox_col = "obs_75"
+    if prox_col in df.columns:
+        prox = pd.to_numeric(df[prox_col], errors="coerce").fillna(0.0)
+        buckets = pd.cut(
+            prox,
+            [-0.01, 1e-9, 0.5, 1.01],
+            labels=["alone", "near", "close"],
+        )
+        response = []
+        for label in ("alone", "near", "close"):
+            mask = buckets == label
+            count = int(mask.sum())
+            if count == 0:
+                continue
+            sig_rate = 100.0 * int((is_signal & mask).sum()) / count
+            top_action = df.loc[mask, "action"].astype(str).value_counts().idxmax()
+            response.append(
+                {
+                    "bucket": label,
+                    "count": count,
+                    "signal_pct": round(sig_rate, 2),
+                    "top_action": top_action,
+                }
+            )
+        out["proximity_response"] = response
+        if n_signal > 0:
+            out["mean_prox_when_signalling"] = round(float(prox[is_signal].mean()), 3)
+            out["mean_prox_overall"] = round(float(prox.mean()), 3)
+    return out
+
+
 def _compute_action_sequences(df: pd.DataFrame, top_n: int = 10) -> dict:
     """Most common 2-gram and 3-gram action sequences."""
     from collections import Counter
@@ -711,8 +791,10 @@ if "reward" in df.columns:
     print("\n  Reward by action:")
     reward_by_action = df.groupby("action")["reward"].agg(["mean", "sum", "count"])
     for action, row in reward_by_action.iterrows():
+        # action may be a name (action logs) or an int code (transition logs)
         print(
-            f"    {action:15s}: avg={row['mean']:+.3f}, total={row['sum']:+.1f}, count={int(row['count'])}"
+            f"    {str(action):15s}: avg={row['mean']:+.3f}, "
+            f"total={row['sum']:+.1f}, count={int(row['count'])}"
         )
 
 print("\n🎯 ACTION DISTRIBUTION")
@@ -981,6 +1063,38 @@ if species_m.get("by_species"):
             f"  {r['species']:<16}{r['eaten']:>8}{r['share_pct']:>7.1f}%"
             f"{net:>12}  {note}"
         )
+
+# ── NEW: SOCIAL / SIGNAL (Brain v3.5 / W4) ───────────────────────────
+
+social_m = _compute_social_metrics(df)
+if social_m.get("signal_actions", 0) > 0 or social_m.get("proximity_response"):
+    print("\n🛰️  SOCIAL / SIGNAL")
+    print(
+        f"  SIGNAL actions:         {social_m.get('signal_actions', 0)} "
+        f"({social_m.get('signal_rate_pct', 0.0):.2f}% of actions)"
+    )
+    if social_m.get("signal_actions", 0) > 0:
+        print(f"  Signalling agents:      {social_m.get('signallers', 0)}")
+        print(
+            f"  Signal entropy:         {social_m.get('signal_entropy_bits', 0.0):.3f} "
+            f"bits ({social_m.get('signal_entropy_norm', 0.0) * 100:.1f}% of max — "
+            f"1.0 = signalling shared evenly, →0 = few specialists)"
+        )
+    if "mean_prox_when_signalling" in social_m:
+        print(
+            f"  Nearest-agent proximity when signalling: "
+            f"{social_m['mean_prox_when_signalling']:.3f} "
+            f"(overall {social_m['mean_prox_overall']:.3f}) — "
+            f"higher = agents signal more in company"
+        )
+    if social_m.get("proximity_response"):
+        print("  Agent-proximity response (action mix by how close others are):")
+        print(f"    {'proximity':<10}{'actions':>10}{'SIGNAL%':>9}  dominant")
+        for r in social_m["proximity_response"]:
+            print(
+                f"    {r['bucket']:<10}{r['count']:>10}{r['signal_pct']:>8.2f}%"
+                f"  {r['top_action']}"
+            )
 
 # ── NEW: BEHAVIORAL DIVERSITY ────────────────────────────────────────
 

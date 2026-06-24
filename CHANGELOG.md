@@ -37,8 +37,15 @@ unchanged and bit-compatible.
 - **Tests**: 19 new (`tests/test_brain_v35.py`) — spec, perception features,
   weight count, migration bit-identity (v3→v3.5), SIGNAL masking, pheromone
   decay, end-to-end. A2C + PPO end-to-end runs verified. Full suite: 439.
-- **Follow-up (not blocking):** a dedicated analyzer section for signal entropy
-  / agent-proximity response (SIGNAL already appears in the action distribution).
+- **Analyzer** — `scripts/analyze_logs.py` gained a **SOCIAL / SIGNAL** section:
+  SIGNAL usage rate, **signal entropy** (how evenly signalling is shared across
+  agents vs concentrated in specialists), and an **agent-proximity response**
+  breakdown (action mix / SIGNAL rate bucketed by nearest-agent proximity, and
+  mean proximity when signalling vs overall) — the W4 "signal entropy and
+  agent-proximity response measurable" criterion. The world-model logger now
+  sizes its `obs_*` columns *after* the v3.5 observation layout is active (so
+  the EXTRA features are logged), and a pre-existing crash on int-coded action
+  columns in transition logs was fixed. 6 tests (`tests/test_signal_analyzer.py`).
 
 ### Phase W4 (part 1/2) — Agents in each other's world + genome-migration tool
 

@@ -931,6 +931,12 @@ phases — plus two Brain-v3-era sections:
 - **💀 Death analysis** — death reasons and age-at-death distribution
   (transitions format; e.g. a starvation spike just past fade_age means
   agents aren't learning to eat before the training wheels come off)
+- **🍽️ Per-species consumption** (W3) — what gets eaten, with net energy and a
+  toxic-food flag, so species preference / poison-avoidance is measurable
+- **🛰️ Social / SIGNAL** (Brain v3.5 / W4) — SIGNAL usage rate, **signal
+  entropy** (shared behaviour vs specialists), and an **agent-proximity
+  response** (action mix bucketed by how close other agents are) — does
+  signalling rise in company?
 
 ### Observation Sensitivity
 ```bash

@@ -237,6 +237,16 @@ Examples:
         if args.save_weights:
             print("Weight saving: Enabled (will save best agents at end)")
 
+        # Activate the observation layout BEFORE any logger is created, so the
+        # world-model logger sizes its obs_* columns to the active vector
+        # (78-dim under Brain v3.5, 72 otherwise).
+        from agents.brain import _is_v35 as _is_v35_early
+        from agents.brain.spec import set_observation_version as _set_obs_ver_early
+
+        _set_obs_ver_early(
+            2 if _is_v35_early(config.get("brain", {}).get("version", 2)) else 1
+        )
+
         # Initialize agent logger if requested
         agent_logger = None
         if args.log:
