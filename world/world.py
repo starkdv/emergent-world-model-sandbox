@@ -83,6 +83,7 @@ class World:
         agent_collision: bool = False,
         signal_config: dict = None,
         social_config: dict = None,
+        performance_config: dict = None,
     ):
         """
         Initialize a new world with generated terrain.
@@ -159,6 +160,19 @@ class World:
         # Carries NO built-in reward — any trade protocol must emerge.
         soc = social_config or {}
         self.transfer_enabled = bool(soc.get("transfer_enabled", False))
+
+        # W6a: coarse-cell spatial index of edible objects (acceleration for
+        # the nearest-food scans in perception + RewardShaper). On by default;
+        # results are identical to the tile scan (it's a candidate filter, not
+        # the source of truth). performance.spatial_index: false disables it.
+        perf = performance_config or {}
+        self.food_index = None
+        if bool(perf.get("spatial_index", True)):
+            from world.spatial_index import SpatialIndex
+
+            self.food_index = SpatialIndex(
+                width, height, cell_size=int(perf.get("spatial_index_cell", 8))
+            )
 
         self.seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         self.allow_stacking = allow_stacking  # NEW: Store stacking configuration
@@ -500,6 +514,7 @@ class World:
                                     obj.y = ny
                                     self.objects[obj.id] = obj
                                     nearby_tile.add_object(obj.id)
+                                    self._index_add(obj)
                                     return True
 
                     # No empty nearby tiles - don't add object
@@ -510,6 +525,7 @@ class World:
         self.objects[obj.id] = obj
         if tile:
             tile.add_object(obj.id)
+        self._index_add(obj)
 
         # Maintain tile-effect index
         try:
@@ -538,6 +554,7 @@ class World:
         tile = self.get_tile(obj.x, obj.y)
         if tile:
             tile.remove_object(object_id)
+        self._index_remove(object_id)
 
         # Maintain tile-effect index
         if object_id in self._tile_effect_object_ids:
@@ -550,6 +567,100 @@ class World:
     def tile_effect_object_ids(self) -> set[int]:
         """Set of object IDs that have tile effects (read-only view)."""
         return self._tile_effect_object_ids
+
+    # -- spatial index maintenance (W6a) ----------------------------------
+    # The index tracks edible objects *while they sit on a tile*. Edibility is
+    # stable per object (a berry stays edible until removed/picked up), so the
+    # only transitions to mirror are: enters world/tile, leaves world, moves,
+    # picked up (off-tile into inventory), dropped (back onto a tile).
+
+    @staticmethod
+    def _is_edible(obj) -> bool:
+        if obj is None or getattr(obj, "is_terrain", False):
+            return False
+        from world.objects import EdibleComponent
+
+        return obj.get_component(EdibleComponent) is not None
+
+    def _index_add(self, obj) -> None:
+        """Track an object if the index is on and the object is edible."""
+        if self.food_index is not None and self._is_edible(obj):
+            self.food_index.add(obj.id, obj.x, obj.y)
+
+    def _index_remove(self, obj_id: int) -> None:
+        if self.food_index is not None:
+            self.food_index.remove(obj_id)
+
+    def _index_move(self, obj) -> None:
+        if self.food_index is not None and self._is_edible(obj):
+            self.food_index.move(obj.id, obj.x, obj.y)
+
+    def nearest_edible(self, ax: int, ay: int, scan_r: int):
+        """
+        Nearest edible object to (ax, ay) within the square window
+        [ax±scan_r] × [ay±scan_r], ranked by Manhattan distance.
+
+        Returns ``(dist, fx, fy)`` for the nearest edible (dist = Manhattan,
+        fx/fy = its tile), or ``None`` if the window holds no edible. Ties are
+        broken in row-major order (smallest y, then smallest x) — identical to
+        the legacy per-tile scans this consolidates, so perception/reward
+        features are unchanged whether or not the index is enabled.
+
+        Uses the W6a spatial index when present (visits only objects in the
+        overlapping coarse cells); falls back to a bounded tile scan otherwise.
+        Every candidate is verified against live world state, so the index can
+        never return a stale or picked-up item.
+        """
+        x0, x1 = ax - scan_r, ax + scan_r
+        y0, y1 = ay - scan_r, ay + scan_r
+
+        best = None  # (dist, y, x)
+        if self.food_index is not None:
+            for oid in self.food_index.query_box(x0, y0, x1, y1):
+                obj = self.objects.get(oid)
+                if obj is None or getattr(obj, "is_terrain", False):
+                    continue
+                ox, oy = obj.x, obj.y
+                if not (x0 <= ox <= x1 and y0 <= oy <= y1):
+                    continue  # cell overlap can spill past the box
+                # Verify the item is still on its tile (defensive against any
+                # unhooked mutation) — keeps results identical to a live scan.
+                if 0 <= oy < self.height and 0 <= ox < self.width:
+                    if oid not in self.tiles[oy][ox].object_ids:
+                        continue
+                else:
+                    continue
+                d = abs(ox - ax) + abs(oy - ay)
+                key = (d, oy, ox)
+                if best is None or key < best:
+                    best = key
+        else:
+            from world.objects import EdibleComponent
+
+            cy0 = max(0, y0)
+            cy1 = min(self.height - 1, y1)
+            cx0 = max(0, x0)
+            cx1 = min(self.width - 1, x1)
+            for y in range(cy0, cy1 + 1):
+                row = self.tiles[y]
+                for x in range(cx0, cx1 + 1):
+                    tile = row[x]
+                    if not tile.object_ids:
+                        continue
+                    for oid in tile.object_ids:
+                        o = self.objects.get(oid)
+                        if o is None or getattr(o, "is_terrain", False):
+                            continue
+                        if o.get_component(EdibleComponent) is not None:
+                            d = abs(x - ax) + abs(y - ay)
+                            key = (d, y, x)
+                            if best is None or key < best:
+                                best = key
+                            break
+
+        if best is None:
+            return None
+        return (float(best[0]), best[2], best[1])  # (dist, fx, fy)
 
     def move_object(self, object_id: int, new_x: int, new_y: int) -> bool:
         """
@@ -584,6 +695,7 @@ class World:
         new_tile = self.get_tile(new_x, new_y)
         if new_tile:
             new_tile.add_object(object_id)
+        self._index_move(obj)
 
         return True
 

@@ -339,6 +339,16 @@ signal:
 social:
   transfer_enabled: false
 
+# Performance / substrate (World upgrade W6) — pure acceleration, no behaviour
+# change. The spatial index buckets edible objects into coarse cells so the
+# nearest-food scans in perception and the reward shaper visit only objects in
+# nearby cells instead of every tile in a 11×11 / 21×21 window. Results are
+# identical to the legacy tile scan (the index is a candidate filter verified
+# against live world state); disable it to A/B the speedup or for debugging.
+performance:
+  spatial_index: true       # Maintain the W6a edible-object spatial index
+  spatial_index_cell: 8     # Coarse cell edge in tiles (bigger = fatter buckets)
+
 # Logging Settings
 logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR

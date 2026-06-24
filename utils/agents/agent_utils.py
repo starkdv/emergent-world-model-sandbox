@@ -355,6 +355,9 @@ def execute_pick_up(agent: "Agent", world: "World") -> ActionResult:
     # Add to inventory and remove from world tile
     agent.inventory.append(obj_id_to_pick)
     tile.object_ids.remove(obj_id_to_pick)
+    # W6a: the item left the tile for an inventory — drop it from the food index
+    if getattr(world, "food_index", None) is not None:
+        world._index_remove(obj_id_to_pick)
 
     obj_type = _get_object_type(obj)
     return ActionResult(
@@ -391,6 +394,8 @@ def execute_drop(agent: "Agent", world: "World") -> ActionResult:
         tile.object_ids.add(obj_id)
         obj.x = agent.x
         obj.y = agent.y
+        if getattr(world, "food_index", None) is not None:
+            world._index_add(obj)  # W6a: item re-entered a tile
         return ActionResult(
             True,
             0.1,
@@ -418,6 +423,8 @@ def execute_drop(agent: "Agent", world: "World") -> ActionResult:
                 nearby_tile.object_ids.add(obj_id)
                 obj.x = nx
                 obj.y = ny
+                if getattr(world, "food_index", None) is not None:
+                    world._index_add(obj)  # W6a: item re-entered a tile
                 return ActionResult(
                     True,
                     0.1,

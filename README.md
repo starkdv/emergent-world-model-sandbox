@@ -759,6 +759,8 @@ drive a day/night/seasonal/weather climate. Every parameter below lives in
 | `terrain.heightmap.octaves` | 4 | Heightmap: layered noise detail levels |
 | `terrain.heightmap.persistence` | 0.5 | Heightmap: amplitude falloff per octave (lower = smoother) |
 | `terrain.heightmap.river_sources` | 6 | Heightmap: how many downhill rivers to trace from the peaks |
+| `performance.spatial_index` | true | (W6a) Coarse-cell index of edible objects — speeds the nearest-food scans ~3.5× with identical results. Disable to A/B or debug |
+| `performance.spatial_index_cell` | 8 | (W6a) Index cell edge in tiles (bigger = fatter buckets) |
 
 ### Plants & seeds (`plants:`)
 

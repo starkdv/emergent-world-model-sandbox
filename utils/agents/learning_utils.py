@@ -547,47 +547,15 @@ class RewardShaper:
             Implementation: bounded local tile scan around the agent.
             Returns a Manhattan distance (cheap) or None if no food is found.
         """
-        from world.objects import EdibleComponent
-
-        if not hasattr(world, "tiles"):
+        if not hasattr(world, "tiles") or not hasattr(world, "nearest_edible"):
             return None
 
-        # 10 => 21x21 = 441 tiles max per call.
+        # 10 => 21x21 = 441 tiles max per call. Delegated to the World helper,
+        # which uses the W6a spatial index when present (O(objects nearby)) and
+        # an identical bounded tile scan otherwise.
         scan_r = 10
-        ax, ay = agent.x, agent.y
-
-        best_dist: Optional[int] = None
-
-        y0 = max(0, ay - scan_r)
-        y1 = min(world.height - 1, ay + scan_r)
-        x0 = max(0, ax - scan_r)
-        x1 = min(world.width - 1, ax + scan_r)
-
-        for y in range(y0, y1 + 1):
-            row = world.tiles[y]
-            dy = abs(y - ay)
-            for x in range(x0, x1 + 1):
-                dx = abs(x - ax)
-                d = dx + dy
-                if best_dist is not None and d >= best_dist:
-                    continue
-
-                tile = row[x]
-                if not tile.object_ids:
-                    continue
-
-                for oid in tile.object_ids:
-                    o = world.objects.get(oid)
-                    if o is None or getattr(o, "is_terrain", False):
-                        continue
-                    if o.get_component(EdibleComponent) is not None:
-                        best_dist = d
-                        break
-
-                if best_dist == 0:
-                    return 0.0
-
-        return float(best_dist) if best_dist is not None else None
+        nearest = world.nearest_edible(agent.x, agent.y, scan_r)
+        return None if nearest is None else nearest[0]
 
     def _compute_food_dir_match(self, agent: "Agent", world: "World") -> float:
         """
@@ -595,35 +563,17 @@ class RewardShaper:
 
         Returns 0.5 (neutral) when no food is nearby.
         """
-        from world.objects import EdibleComponent
         import math
 
-        if not hasattr(world, "tiles"):
+        if not hasattr(world, "tiles") or not hasattr(world, "nearest_edible"):
             return 0.5  # minimal/mock world
 
-        best_dist = float("inf")
-        best_fx, best_fy = 0, 0
         scan_r = 5
-        for sy in range(
-            max(0, agent.y - scan_r), min(world.height, agent.y + scan_r + 1)
-        ):
-            for sx in range(
-                max(0, agent.x - scan_r), min(world.width, agent.x + scan_r + 1)
-            ):
-                stile = world.tiles[sy][sx]
-                for oid in stile.object_ids:
-                    o = world.objects.get(oid)
-                    if o is None or getattr(o, "is_terrain", False):
-                        continue
-                    if o.get_component(EdibleComponent) is not None:
-                        d = abs(sx - agent.x) + abs(sy - agent.y)
-                        if d < best_dist:
-                            best_dist = d
-                            best_fx, best_fy = sx, sy
-
-        if best_dist >= float("inf"):
+        nearest = world.nearest_edible(agent.x, agent.y, scan_r)
+        if nearest is None:
             return 0.5  # neutral — no food visible
 
+        _, best_fx, best_fy = nearest
         diff_x = best_fx - agent.x
         diff_y = best_fy - agent.y
         mag = math.sqrt(diff_x * diff_x + diff_y * diff_y)

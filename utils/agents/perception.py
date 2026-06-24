@@ -352,27 +352,13 @@ def _encode_stimulus(agent: "Agent", world: "World") -> list[float]:
                 features[3] = 1.0  # resource_ahead
 
     # --- Nearest food scan (within vision radius 5) ---
-    best_dist = float("inf")
-    best_fx, best_fy = 0, 0
+    # Consolidated into World.nearest_edible: it uses the W6a spatial index
+    # when present (O(objects nearby)) and an identical tile scan otherwise.
     scan_r = 5
-    for sy in range(max(0, agent.y - scan_r), min(world.height, agent.y + scan_r + 1)):
-        for sx in range(
-            max(0, agent.x - scan_r), min(world.width, agent.x + scan_r + 1)
-        ):
-            stile = world.tiles[sy][sx]
-            for oid in stile.object_ids:
-                o = world.objects.get(oid)
-                if o is None:
-                    continue
-                if getattr(o, "is_terrain", False):
-                    continue
-                if o.get_component(EdibleComponent) is not None:
-                    d = abs(sx - agent.x) + abs(sy - agent.y)  # Manhattan
-                    if d < best_dist:
-                        best_dist = d
-                        best_fx, best_fy = sx, sy
+    nearest = world.nearest_edible(agent.x, agent.y, scan_r)
 
-    if best_dist < float("inf"):
+    if nearest is not None:
+        best_dist, best_fx, best_fy = nearest
         # Proximity: 1.0 when on the food, ~0 at scan_r distance
         features[4] = max(0.0, 1.0 - best_dist / scan_r)
 

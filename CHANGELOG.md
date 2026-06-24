@@ -1,8 +1,45 @@
 # Changelog
 
-## [Unreleased] — World upgrade, Phases W0–W5
+## [Unreleased] — World upgrade, Phases W0–W6
 
 Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
+
+### Phase W6a — Substrate: spatial index for the nearest-food scans
+
+**In simple terms:** the single biggest tick-rate sink was three "where's the
+nearest food?" scans that walked up to 21×21 = 441 tiles each, several times
+per agent per tick, mostly over empty tiles. W6a replaces those walks with a
+coarse-cell index that only looks where food actually is — **~3.5× faster** on
+the radius-10 reward scan — with **bit-identical results**.
+
+- **`world/spatial_index.py`** — `SpatialIndex`, a coarse square-cell bucket
+  (`cell_size` default 8) of edible-object ids by position, with
+  add/remove/move/query_box. Tracks only edible objects (membership is stable
+  while they sit in the world), so maintenance is a few hooks, not a per-tile
+  mirror.
+- **Maintenance** — hooked into `World.add_object` / `remove_object` /
+  `move_object` and the two agent sites that move a berry between a tile and an
+  inventory (`execute_pick_up`, `execute_drop`). All system removals already
+  route through `remove_object`, so the index cannot go stale.
+- **`World.nearest_edible(ax, ay, scan_r)`** — one helper consolidating the
+  three duplicated scans (perception stimulus, RewardShaper distance +
+  direction). Uses the index when present (visits only objects in overlapping
+  cells) and an identical bounded tile scan otherwise. It is an *acceleration
+  structure, not a source of truth*: every candidate is verified against live
+  tile state and ties break row-major (min y, then x), so the nearest-food
+  result is identical with the index on or off.
+- **Call sites refactored** — `perception._encode_stimulus`,
+  `RewardShaper._find_nearest_food_distance`,
+  `RewardShaper._compute_food_dir_match` all delegate to `nearest_edible`.
+- **Config**: new `performance:` block (`spatial_index: true`,
+  `spatial_index_cell: 8`); wired through `World(performance_config=…)` and
+  `main.py`.
+- **Tests**: 11 new (`tests/test_spatial_index.py`) — index unit behaviour,
+  **index-on == index-off across 20 random worlds** (the contract),
+  row-major tie-break, maintenance through add/remove/move/pickup/drop, and an
+  end-to-end run with the index on and off. Full suite: **469 tests**.
+- **Deferred (W6b/c)**: full checkpointing (`--save-state/--load-state`),
+  per-generation metrics CSV, reward-shaping config + `minimal` preset.
 
 ### Phase W5 — Social dynamics & open-endedness instruments
 

@@ -357,6 +357,22 @@ CSV, reward-shaping config + `minimal` preset.
 *Acceptance:* ≥3× tick-rate improvement at 100 agents on 100×100;
 checkpoint→resume reproduces identical state in serial mode.
 
+> **Shipped (W6a — spatial index).** `world/spatial_index.py`: a coarse-cell
+> bucket of edible objects, maintained by `add/remove/move_object` plus the
+> pickup/drop sites. The three nearest-food scans (perception stimulus,
+> RewardShaper distance + direction) now delegate to a single
+> `World.nearest_edible(ax, ay, scan_r)` that queries the index when present
+> and falls back to an identical bounded tile scan otherwise. It is an
+> *acceleration structure, not a source of truth* — every candidate is
+> verified against live tile state and tie-breaks row-major — so results are
+> bit-identical with the index on or off (asserted over 20 random worlds).
+> Benchmarked **~3.5× faster** on the radius-10 reward scan with sparse food.
+> `performance.spatial_index` (default on) toggles it. 11 tests
+> (`tests/test_spatial_index.py`).
+>
+> **Remaining (W6b/c):** full checkpointing (`--save-state/--load-state`),
+> per-generation metrics CSV, and the reward-shaping config + `minimal` preset.
+
 **Suggested order:** W0 + W6a (spatial index) → W1 → W2 → W3 → W4 → W5, with
 W6b/c (checkpointing, reward diet) slotted between. W1–W3 are pure
 selection-pressure upgrades that the *existing* brains can be re-evaluated
