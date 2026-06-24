@@ -623,6 +623,50 @@ input/output layers grow):**
 | `policy.W` / `policy.b` | (H, 8)/(8,) | (H, 9)/(9,) | +H+1 = **+49** |
 | **total** | 17 337 | **17 626** | **+289 (<2%)** |
 
+**Worked example — running the social brain end to end.** Turn on the v3.5
+brain together with the world features it perceives, run headless with logging,
+then read the social metrics:
+
+```bash
+# 1) Enable the social stack in config/default.yaml (or a copy):
+#      brain.version: 3.5
+#      signal:  {enabled: true}        # SIGNAL action + pheromone field
+#      world:   {agents_visible: true, agent_collision: true}
+#      environment: {enabled: true}    # day/night so the clock senses vary
+#
+# 2) Run with RL + per-action logging:
+python main.py --no-viz --mode rl --log --config config/default.yaml
+
+# 3) Read what emerged (the analyzer auto-picks the latest log):
+python scripts/analyze_logs.py
+```
+
+The analyzer prints two social sections that are meaningful only for v3.5 runs:
+
+```
+🛰️  SOCIAL / SIGNAL
+  SIGNAL actions:         1843 (4.21% of actions)
+  Signalling agents:      18
+  Signal entropy:         3.94 bits (92.1% of max — 1.0 = shared evenly)
+  Agent-proximity response (action mix by how close others are):
+    proximity   actions  SIGNAL%  dominant
+    alone         30214    1.10%  MOVE_FORWARD
+    near          11883    6.40%  MOVE_FORWARD
+    close          4120   18.07%  SIGNAL          ← agents signal far more in company
+
+🧬 SOCIETY / ROLES
+  Role entropy:           0.91 bits (45% of max — division of labor)
+  Behavioural novelty:    mean pairwise JS = 0.23 bits
+  Territory:              mean bbox = 1483 tiles, mean Jaccard overlap = 0.04
+```
+
+(Numbers are illustrative — a real run varies.) The signalling-rises-with-
+proximity pattern and a non-trivial role entropy are the emergence signals
+v3.5 exists to make measurable. To *watch* the same run as a 3D voxel world,
+add `--save-state run.pkl` and open it with
+`python -m render.server --checkpoint run.pkl` (see the
+[3D Voxel Frontend](#3d-voxel-frontend-minecraft-like-in-the-browser) section).
+
 > **▶ Next up — v3.6 (the kin-similarity sense).** The one piece deferred from
 > World phase W5 because it touches the genome: a single `nearest_agent_kin`
 > input (obs 78→79, +40 params) computed from a birth-time genome fingerprint,
