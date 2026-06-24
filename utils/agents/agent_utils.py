@@ -169,7 +169,10 @@ def get_action_mask(agent: "Agent", world: "World") -> np.ndarray:
         tx, ty = agent.x + fx, agent.y + fy
         if 0 <= tx < world.width and 0 <= ty < world.height:
             recipient = _find_agent_at(world, tx, ty, exclude=agent)
-            if recipient is not None and len(recipient.inventory) < recipient.inventory_size:
+            if (
+                recipient is not None
+                and len(recipient.inventory) < recipient.inventory_size
+            ):
                 can_use = True
 
     tile_can_plant_here = tile.can_support_plant()
@@ -533,8 +536,11 @@ def execute_use(agent: "Agent", world: "World") -> ActionResult:
             if recipient is not None:
                 if len(recipient.inventory) >= recipient.inventory_size:
                     return ActionResult(
-                        False, 0.05, "Recipient inventory full",
-                        target_x=tx, target_y=ty,
+                        False,
+                        0.05,
+                        "Recipient inventory full",
+                        target_x=tx,
+                        target_y=ty,
                         interaction_kind="give_full",
                     )
                 obj_id = agent.inventory.pop(0)
@@ -544,10 +550,13 @@ def execute_use(agent: "Agent", world: "World") -> ActionResult:
                     obj.x = recipient.x
                     obj.y = recipient.y
                 return ActionResult(
-                    True, 0.12, f"Gave {obj_id} to agent {recipient.id}",
+                    True,
+                    0.12,
+                    f"Gave {obj_id} to agent {recipient.id}",
                     object_id=obj_id,
                     object_type=_get_object_type(obj) if obj is not None else "",
-                    target_x=tx, target_y=ty,
+                    target_x=tx,
+                    target_y=ty,
                     interaction_kind="give",
                 )
 

@@ -185,7 +185,6 @@ def load_state(path: str, *, config: Optional[dict] = None):
     # Build a World shell with the saved parameters. Its __init__ generates
     # terrain and consumes RNG, but we overwrite the grid below and restore the
     # RNG streams last, so that churn is harmless.
-    world_cfg = cfg.get("world", {}) if cfg else {}
     terrain_cfg = cfg.get("terrain", {}) if cfg else {}
     world = World(
         w["width"],

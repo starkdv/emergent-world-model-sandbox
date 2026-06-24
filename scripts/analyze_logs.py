@@ -669,9 +669,8 @@ def _compute_society_metrics(df: pd.DataFrame) -> dict:
         return out
 
     # ----- role-entropy: dominant action per agent -----
-    dominant = (
-        df.groupby("agent_id")["action"]
-        .agg(lambda s: s.astype(str).value_counts().idxmax())
+    dominant = df.groupby("agent_id")["action"].agg(
+        lambda s: s.astype(str).value_counts().idxmax()
     )
     role_counts = dominant.value_counts().to_numpy(dtype=float)
     p = role_counts / role_counts.sum()
@@ -706,6 +705,7 @@ def _compute_society_metrics(df: pd.DataFrame) -> dict:
 
     def _js(p_: np.ndarray, q_: np.ndarray) -> float:
         m = 0.5 * (p_ + q_)
+
         # KL with 0 log 0 ≡ 0
         def _kl(a, b):
             mask = a > 0
@@ -752,7 +752,10 @@ def _compute_society_metrics(df: pd.DataFrame) -> dict:
                 per_agent_terr.append(
                     {
                         "agent_id": int(aid),
-                        "centroid": (round(float(xs.mean()), 1), round(float(ys.mean()), 1)),
+                        "centroid": (
+                            round(float(xs.mean()), 1),
+                            round(float(ys.mean()), 1),
+                        ),
                         "bbox_area": int(bbox_area),
                         "visited_cells": int(len(visited)),
                         "position_entropy_bits": round(ent, 2),
@@ -802,7 +805,10 @@ def _compute_society_metrics(df: pd.DataFrame) -> dict:
                 out["distinct_recipients"] = int(pairs.nunique())
             # Co-occurrence with SIGNAL: ratio of gives to signals
             sig_count = int(
-                ((df["action"].astype(str) == "SIGNAL") | (df["action"].astype(str) == "8")).sum()
+                (
+                    (df["action"].astype(str) == "SIGNAL")
+                    | (df["action"].astype(str) == "8")
+                ).sum()
             )
             if sig_count > 0:
                 out["give_per_signal"] = round(n_give / sig_count, 3)

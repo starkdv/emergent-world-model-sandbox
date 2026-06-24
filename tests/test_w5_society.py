@@ -30,7 +30,6 @@ from world.tiles import TerrainType
 from world.world import World
 from world.object_registry import ObjectRegistry, register_builtin_objects
 
-
 # --- analyzer prefix loader ------------------------------------------------
 
 _PATH = pathlib.Path("scripts/analyze_logs.py").resolve()
@@ -256,10 +255,9 @@ class TestSocietyMetrics:
         assert out["novelty_mean_js"] == 0.0
 
     def test_novelty_positive_when_distributions_disjoint(self):
-        rows = (
-            [{"action": "EAT", "agent_id": 1}] * 10
-            + [{"action": "WAIT", "agent_id": 2}] * 10
-        )
+        rows = [{"action": "EAT", "agent_id": 1}] * 10 + [
+            {"action": "WAIT", "agent_id": 2}
+        ] * 10
         out = _compute_society_metrics(_df(rows))
         assert out["novelty_mean_js"] > 0.5  # ~1.0 for disjoint binary dists
 
@@ -281,12 +279,27 @@ class TestSocietyMetrics:
 
     def test_trade_metrics_count_give_actions(self):
         rows = [
-            {"action": "USE", "agent_id": 1, "interaction_kind": "give",
-             "target_x": 4, "target_y": 3},
-            {"action": "USE", "agent_id": 1, "interaction_kind": "give",
-             "target_x": 4, "target_y": 3},
-            {"action": "USE", "agent_id": 2, "interaction_kind": "give",
-             "target_x": 5, "target_y": 5},
+            {
+                "action": "USE",
+                "agent_id": 1,
+                "interaction_kind": "give",
+                "target_x": 4,
+                "target_y": 3,
+            },
+            {
+                "action": "USE",
+                "agent_id": 1,
+                "interaction_kind": "give",
+                "target_x": 4,
+                "target_y": 3,
+            },
+            {
+                "action": "USE",
+                "agent_id": 2,
+                "interaction_kind": "give",
+                "target_x": 5,
+                "target_y": 5,
+            },
             {"action": "SIGNAL", "agent_id": 1, "interaction_kind": "signal"},
             {"action": "WAIT", "agent_id": 1, "interaction_kind": ""},
             {"action": "WAIT", "agent_id": 2, "interaction_kind": ""},
@@ -301,6 +314,4 @@ class TestSocietyMetrics:
         # No action column
         assert _compute_society_metrics(pd.DataFrame({"x": [1, 2]})) == {}
         # No agent_id column
-        assert (
-            _compute_society_metrics(pd.DataFrame({"action": ["EAT", "WAIT"]})) == {}
-        )
+        assert _compute_society_metrics(pd.DataFrame({"action": ["EAT", "WAIT"]})) == {}

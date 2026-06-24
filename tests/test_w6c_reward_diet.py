@@ -32,8 +32,16 @@ def _reset_reward_cfg():
 
 def _agent(energy=100.0, max_energy=200.0, alive=True, x=5, y=5):
     return SimpleNamespace(
-        x=x, y=y, energy=energy, max_energy=max_energy, age=0, alive=alive,
-        direction=(0, -1), inventory=[], inventory_size=5, fitness=0.0,
+        x=x,
+        y=y,
+        energy=energy,
+        max_energy=max_energy,
+        age=0,
+        alive=alive,
+        direction=(0, -1),
+        inventory=[],
+        inventory_size=5,
+        fitness=0.0,
     )
 
 
@@ -124,7 +132,9 @@ class TestMinimalDiet:
         # Legacy heavily penalises EAT spam; minimal ignores it entirely.
         s = self._shaper()
         a = _agent(energy=100.0)
-        r = s.calculate_reward(Action.EAT, _fail("no food"), 100.0, 100.0, a, _MockWorld())
+        r = s.calculate_reward(
+            Action.EAT, _fail("no food"), 100.0, 100.0, a, _MockWorld()
+        )
         assert r == pytest.approx(0.0)
 
 

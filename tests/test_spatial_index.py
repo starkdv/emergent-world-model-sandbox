@@ -95,7 +95,7 @@ def _blank_world(n=30, spatial_index=True, seed=1):
 
 
 def _scatter_berries(world, coords):
-    for (x, y) in coords:
+    for x, y in coords:
         obj = WorldObject(x=x, y=y)
         obj.type_id = "berry"
         obj.add_component(EdibleComponent(calories=20.0, freshness=1.0))
@@ -105,7 +105,9 @@ def _scatter_berries(world, coords):
 def test_nearest_edible_matches_tile_scan_random():
     rng = random.Random(42)
     for trial in range(20):
-        coords = {(rng.randint(0, 29), rng.randint(0, 29)) for _ in range(rng.randint(0, 25))}
+        coords = {
+            (rng.randint(0, 29), rng.randint(0, 29)) for _ in range(rng.randint(0, 25))
+        }
         w_on = _blank_world(spatial_index=True, seed=trial)
         w_off = _blank_world(spatial_index=False, seed=trial)
         _scatter_berries(w_on, coords)
@@ -142,9 +144,16 @@ def test_nearest_edible_none_when_empty():
 class TestIndexMaintenance:
     def _agent(self, x, y, direction=(0, -1), inv=None):
         return SimpleNamespace(
-            id=1, x=x, y=y, direction=direction, alive=True,
-            inventory=list(inv or []), inventory_size=5,
-            energy=100.0, max_energy=200.0, fitness=0.0,
+            id=1,
+            x=x,
+            y=y,
+            direction=direction,
+            alive=True,
+            inventory=list(inv or []),
+            inventory_size=5,
+            energy=100.0,
+            max_energy=200.0,
+            fitness=0.0,
         )
 
     def test_add_remove_object_tracked(self):
@@ -216,8 +225,14 @@ def _seeded_world_run(spatial_index, ticks=15):
     Agent.brain_config = cfg
     try:
         w = World(
-            20, 20, seed=123, soil_ratio=1.0, rock_ratio=0.0,
-            water_ratio=0.0, sand_ratio=0.0, parallel=False,
+            20,
+            20,
+            seed=123,
+            soil_ratio=1.0,
+            rock_ratio=0.0,
+            water_ratio=0.0,
+            sand_ratio=0.0,
+            parallel=False,
             performance_config={"spatial_index": spatial_index},
         )
         for y in range(20):

@@ -233,7 +233,8 @@ class RewardShaper:
             reward = 0.0
             if action == Action.EAT and action_result.success and energy_gain > 0:
                 reward += (
-                    self.config.eat_base + energy_gain * self.config.eat_energy_gain_coef
+                    self.config.eat_base
+                    + energy_gain * self.config.eat_energy_gain_coef
                 )
             if energy_gain < 0 and action != Action.EAT:
                 reward -= abs(energy_gain) * self.config.metabolism_penalty_coef

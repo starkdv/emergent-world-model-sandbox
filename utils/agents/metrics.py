@@ -15,7 +15,6 @@ import csv
 import os
 from typing import Optional
 
-
 FIELDS = [
     "generation",
     "tick",

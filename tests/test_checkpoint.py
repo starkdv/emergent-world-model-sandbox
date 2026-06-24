@@ -69,7 +69,7 @@ def _make_world(seed=123):
             t.fertility = 0.6
             t.moisture = 0.6
     # Scatter some berries
-    for (x, y) in [(2, 2), (6, 8), (11, 4), (14, 14), (3, 15)]:
+    for x, y in [(2, 2), (6, 8), (11, 4), (14, 14), (3, 15)]:
         o = WorldObject(x=x, y=y)
         o.type_id = "berry"
         o.add_component(EdibleComponent(calories=20.0, freshness=1.0))
@@ -104,11 +104,7 @@ def _snapshot(world):
     objects = sorted(
         (oid, o.x, o.y, getattr(o, "type_id", "")) for oid, o in world.objects.items()
     )
-    pher = (
-        None
-        if world.pheromones is None
-        else np.round(world.pheromones, 6).tobytes()
-    )
+    pher = None if world.pheromones is None else np.round(world.pheromones, 6).tobytes()
     return (world.tick, tuple(agents), tuple(objects), pher)
 
 
