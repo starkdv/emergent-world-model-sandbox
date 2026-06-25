@@ -95,6 +95,10 @@ python main.py --no-viz --generations 1000 --log
 
 > 💡 Pause with **SPACE** then hover for easier tile inspection.
 
+**New to the project? Start with the [USER_GUIDE.md](docs/USER_GUIDE.md)** —
+which mode to pick and why, training, the dream world, planning, the 3D viewer,
+exporting the world, and Blender round-tripping.
+
 See [CLI_GUIDE.md](docs/CLI_GUIDE.md) for the full command-line reference, and
 **[Modes & Feature Toggles](#modes--feature-toggles--complete-reference)**
 below for every mode, its prerequisites, and what enabling it does.

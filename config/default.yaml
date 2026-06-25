@@ -2,10 +2,13 @@
 # Author: Karan Vasa
 
 # World Settings
+# A large, biome-rich world (heightmap) that starts with a SMALL number of
+# agents and grows through reproduction. Bigger map + fewer agents = clearer
+# emergence and an easier-to-watch 3D world.
 world:
-  width: 100
-  height: 100
-  initial_resources: 50
+  width: 160
+  height: 160
+  initial_resources: 220
   resource_spawn_rate: 0.01
   seed: null  # null for random, or specify integer for reproducible runs
   allow_stacking: false  # If false, enforces one object per tile (prevents overlapping)
@@ -14,12 +17,16 @@ world:
   agents_visible: false   # Other agents appear in vision (encoding 0.40, value = energy)
   agent_collision: false  # A living agent blocks a tile (space becomes contested)
 
-# Terrain Settings
+# Terrain Settings — biome mix for the heightmap generator.
+# Ratios become elevation/moisture quantiles: rock = mountains, water = seas/
+# rivers in basins, sand = arid lowlands/beaches, soil = everything else.
+# A bit more sand seeds deserts that the sand-spread (desertification) below
+# can grow.
 terrain:
-  soil_ratio: 0.695
-  rock_ratio: 0.2
-  water_ratio: 0.1
-  sand_ratio: 0.005
+  soil_ratio: 0.62
+  rock_ratio: 0.18
+  water_ratio: 0.12
+  sand_ratio: 0.08
   fertility_range: [0.3, 1.0]
   moisture_range: [0.2, 0.8]
   # Terrain generator (World upgrade W2):
@@ -40,7 +47,7 @@ terrain:
 
 # Agent Settings
 agents:
-  initial_population: 20
+  initial_population: 8   # start small; reproduction grows the population
   starting_energy: 100.0
   max_energy: 200.0
   metabolism_rate: 0.5
@@ -178,7 +185,7 @@ soil:
 # to water tiles (this is the fix for bug B1 — moisture used to only rise).
 # Disabled (default) = bit-compatible legacy behaviour, all multipliers 1.0.
 environment:
-  enabled: false               # Master switch (false = legacy static climate)
+  enabled: true                # Master switch (day/night, seasons, weather)
   day_length: 200              # Ticks per full day/night cycle
   min_light: 0.25              # Light level at deepest night (1.0 = noon)
   season_length: 2000          # Ticks per full seasonal cycle
@@ -291,7 +298,7 @@ learning:
 
 # Reproduction Settings
 reproduction:
-  enabled: false  # Enable in-simulation reproduction
+  enabled: true  # On: the small starting population grows by breeding
   energy_threshold: 0.60  # 60% of max_energy required
   min_age: 100  # Minimum age in ticks
   energy_split: 0.40  # Parent loses this percentage of energy
@@ -315,7 +322,7 @@ calamity:
 # from environment.temperature, dryness from each tile's moisture — so fire is
 # rare in the wet/cold and dangerous in the hot/dry. Disabled = no-op.
 fire:
-  enabled: false             # Master switch
+  enabled: true              # Master switch — wildfire on hot, dry vegetation
   ignite_chance: 0.0004      # Base per-tick ignition chance for a hot, dry plant
   spread_chance: 0.30        # Per-tick chance a burning plant ignites an adjacent plant
   burn_duration: 6           # Ticks a plant burns before it is consumed

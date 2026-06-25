@@ -1,6 +1,28 @@
 # Changelog
 
-## [Unreleased] — 3D viewer: true-to-sim fidelity pass
+## [Unreleased] — perf (instanced objects), water, large biome world, user guide
+
+- **Perf — no more lag as the world fills**: the web client now renders objects
+  with **per-category InstancedMesh** (one draw call per category instead of
+  thousands of meshes). Trees are a single merged geometry that scales with
+  maturity, so they are clearly visible. Click-to-inspect works via instance
+  ids; fire shows as flame particles at burning objects.
+- **Water**: rendered as **one flat sea-level surface** (was stair-stepped
+  per-column layers), and **WATER is now impassable** so agents stay on land
+  instead of walking on water (`Tile.is_passable` excludes water + rock).
+- **Default config = large biome world**: 160×160 heightmap with a richer biome
+  mix (more sand for **deserts**), **day/night + weather**, **wildfire**, and a
+  **small starting population (8) that breeds** (reproduction on). Tuned for a
+  watchable, self-sustaining 3D world.
+- **docs/USER_GUIDE.md** (new): task-oriented guide — which mode/brain/learner/
+  reward to pick and why; world features (biomes, weather, fire, desertification);
+  the **world model + planning**; **dream-based evolution**; the **3D viewer**;
+  **exporting** the world (checkpoint / PLY / recording); and **Blender**
+  round-tripping. Linked from the README.
+- Tests: `test_tile_passable` updated for water-impassable; full suite green
+  (510 + the known-flaky dream test which passes in isolation).
+
+## 3D viewer: true-to-sim fidelity pass
 
 The viewer is the **real simulation**, not a demo: `python -m render.server`
 runs the world from `config/default.yaml` (same `World`, systems, and configured

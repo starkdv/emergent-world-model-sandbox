@@ -1,19 +1,18 @@
-// Emergent World — 3D voxel web client (Frontend phase F2/F3b).
+// Emergent World — 3D voxel web client (Frontend).
 //
-// Consumes the F0 state bridge over the F3a SSE stream (/api/stream):
-//   - a `snapshot` event builds the voxel terrain (blocky columns from the W2
-//     elevation grid) and the initial entities;
-//   - a `delta` event per tick upserts/removes agents & objects, updates the
-//     pheromone glow, and animates the day/night sky.
-// Agents are grounded on their tile's surface height and tween between ticks so
-// movement over elevation reads smoothly. Distinct models per object category;
-// agents tinted per lineage. Camera: orbit + free-fly + follow.
+// Renders the REAL simulation streamed read-only over SSE (/api/stream): a
+// `snapshot` builds the voxel terrain + entities; a `delta` per tick updates
+// them. Objects are drawn with per-category InstancedMesh so thousands of
+// plants/berries stay fast (no lag as the world fills). Water is one flat
+// sea-level surface. Click anything to inspect it.
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 
 const MAX_H = 10; // voxel column height for elevation == 1.0 (gentle hills)
 const TERRAIN = { SOIL: 0, ROCK: 1, WATER: 2, SAND: 3 };
+const TERRAIN_NAME = { 0: "soil", 1: "rock", 2: "water", 3: "sand" };
 
 // ---- scene -----------------------------------------------------------------
 
@@ -30,9 +29,9 @@ const camera = new THREE.PerspectiveCamera(
   60,
   window.innerWidth / window.innerHeight,
   0.1,
-  1000,
+  2000,
 );
-camera.position.set(40, 50, 40);
+camera.position.set(60, 70, 60);
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
@@ -44,20 +43,18 @@ scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff2d8, 1.2);
 sun.position.set(50, 80, 30);
 scene.add(sun);
-// always-on ambient so geometry stays readable even at deep night
 const ambient = new THREE.AmbientLight(0xffffff, 0.4);
 scene.add(ambient);
 
 function frameCamera() {
-  // place the camera relative to the world size so it isn't tiny / clipped
   const span = Math.max(gridW, gridH, 16);
   controls.target.set(0, MAX_H * 0.3, 0);
   camera.position.set(span * 0.55, span * 0.6, span * 0.55);
-  camera.far = span * 6;
+  camera.far = span * 8;
   camera.updateProjectionMatrix();
   if (scene.fog) {
     scene.fog.near = span * 0.9;
-    scene.fog.far = span * 3.2;
+    scene.fog.far = span * 3.5;
   }
   controls.update();
 }
@@ -66,62 +63,20 @@ function frameCamera() {
 
 let gridW = 0;
 let gridH = 0;
-let elevation = null; // Uint8Array [h*w]
-let terrainCodes = null; // Uint8Array [h*w]
-let fertilityGrid = null; // Uint8Array [h*w] (for tile inspection)
-let moistureGrid = null; // Uint8Array [h*w]
-const TERRAIN_NAME = { 0: "soil", 1: "rock", 2: "water", 3: "sand" };
-const agents = new Map(); // id -> { group, target:THREE.Vector3, energyBar }
-const objects = new Map(); // id -> THREE.Object3D
-let burning = new Set(); // object ids currently on fire (W3)
+let elevation = null;
+let terrainCodes = null;
+let fertilityGrid = null;
+let moistureGrid = null;
+let seaLevel = 1;
+
+const agents = new Map(); // id -> {id, group, target, energyBar, bob, yaw, targetYaw, data}
+let burning = new Set();
 let signalGroup = new THREE.Group();
 scene.add(signalGroup);
 let followIds = [];
 let followIdx = -1;
-let bornReady = false; // suppress birth bursts while applying the initial snapshot
-
-// ---- particle bursts (lifecycle effects, derived from deltas) --------------
-const particles = []; // { mesh, life, maxLife, vel }
-const _particleGeo = new THREE.SphereGeometry(0.09, 6, 6);
-
-function spawnBurst(pos, colorHex, count = 8, speed = 2.0) {
-  for (let i = 0; i < count; i++) {
-    const mat = new THREE.MeshBasicMaterial({
-      color: colorHex,
-      transparent: true,
-      opacity: 1,
-      depthWrite: false,
-    });
-    const m = new THREE.Mesh(_particleGeo, mat);
-    m.position.copy(pos);
-    m.position.y += 0.5;
-    const vel = new THREE.Vector3(
-      (Math.random() - 0.5) * speed,
-      Math.random() * speed * 0.9 + 0.5,
-      (Math.random() - 0.5) * speed,
-    );
-    scene.add(m);
-    particles.push({ mesh: m, life: 0.8, maxLife: 0.8, vel });
-  }
-}
-
-function updateParticles(dt) {
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.life -= dt;
-    if (p.life <= 0) {
-      scene.remove(p.mesh);
-      p.mesh.material.dispose();
-      particles.splice(i, 1);
-      continue;
-    }
-    p.vel.y -= 6 * dt; // gravity
-    p.mesh.position.addScaledVector(p.vel, dt);
-    const f = p.life / p.maxLife;
-    p.mesh.material.opacity = f;
-    p.mesh.scale.setScalar(0.5 + f);
-  }
-}
+let bornReady = false;
+let weatherRaining = false;
 
 const hud = {
   tick: document.getElementById("hud-tick"),
@@ -136,95 +91,21 @@ const hud = {
 const inspectorEl = document.getElementById("inspector");
 const inspectTitle = document.getElementById("inspect-title");
 const inspectBody = document.getElementById("inspect-body");
-// selection: {kind:'agent'|'object'|'tile', id?, x?, y?}
-let selected = null;
-let selectedId = null; // back-compat alias for agent following
-
-function showInspector(title, rows) {
-  inspectorEl.classList.remove("hidden");
-  inspectTitle.textContent = title;
-  inspectBody.innerHTML = rows
-    .map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`)
-    .join("");
-}
-
-function clearInspector() {
-  selected = null;
-  selectedId = null;
-  inspectorEl.classList.add("hidden");
-}
-
-function renderInspector() {
-  if (!selected) return;
-  if (selected.kind === "agent") {
-    const rec = agents.get(selected.id);
-    if (!rec) return clearInspector();
-    const d = rec.data;
-    const carry =
-      d.inv > 0
-        ? `${d.inv}` +
-          (d.has_food ? " 🍒" : "") +
-          (d.has_seed ? " 🌱" : "")
-        : "empty";
-    showInspector(`agent #${d.id}`, [
-      ["energy", (d.energy * 100).toFixed(0) + "%"],
-      ["age", (d.age * 100).toFixed(0) + "% of max"],
-      ["last action", d.action || "—"],
-      ["carrying", carry],
-      ["lineage", d.lineage],
-      ["generation", d.generation],
-      ["position", `${d.x}, ${d.y}`],
-    ]);
-  } else if (selected.kind === "object") {
-    const m = objects.get(selected.id);
-    if (!m || !m.userData.objData) return clearInspector();
-    const o = m.userData.objData;
-    const cat = (o.category || "").toLowerCase();
-    const valLabel = cat.includes("food")
-      ? "freshness"
-      : cat.includes("plant")
-        ? "maturity"
-        : cat.includes("seed")
-          ? "viability"
-          : "value";
-    showInspector(`${o.type_id || o.category} #${o.id}`, [
-      ["category", o.category],
-      ["type", o.type_id || "—"],
-      [valLabel, ((o.value || 0) * 100).toFixed(0) + "%"],
-      ["planted by agent", o.planted ? "yes" : "no"],
-      ["position", `${o.x}, ${o.y}`],
-      ["on fire", burning.has(o.id) ? "yes" : "no"],
-    ]);
-  } else if (selected.kind === "tile") {
-    const { x, y } = selected;
-    if (!terrainCodes) return;
-    const i = y * gridW + x;
-    showInspector(`tile ${x}, ${y}`, [
-      ["terrain", TERRAIN_NAME[terrainCodes[i]] || "?"],
-      ["elevation", (elevation[i] / 255).toFixed(2)],
-      ["fertility", (fertilityGrid[i] / 255).toFixed(2)],
-      ["moisture", (moistureGrid[i] / 255).toFixed(2)],
-    ]);
-  }
-}
+let selected = null; // {kind:'agent'|'object'|'tile', id?, x?, y?}
+let selectedId = null;
 
 // ---- helpers ---------------------------------------------------------------
 
 function decodeGrid(packed) {
-  // base64 -> Uint8Array, row-major [shape[0]=h, shape[1]=w]
   const bin = atob(packed.b64);
   const arr = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
   return arr;
 }
-
 function colBlocks(x, y) {
   if (!elevation) return 1;
-  const e = elevation[y * gridW + x] / 255;
-  return Math.max(1, Math.round(e * MAX_H));
+  return Math.max(1, Math.round((elevation[y * gridW + x] / 255) * MAX_H));
 }
-
-// world grid (x,y) -> centered three position helpers
 function worldX(x) {
   return x + 0.5 - gridW / 2;
 }
@@ -232,7 +113,13 @@ function worldZ(y) {
   return y + 0.5 - gridH / 2;
 }
 function surfaceY(x, y) {
-  return colBlocks(x, y); // top of the column (base at 0)
+  if (x < 0 || y < 0 || x >= gridW || y >= gridH) return 1;
+  return colBlocks(x, y);
+}
+function lineageColor(lineage) {
+  if (lineage < 0) return new THREE.Color(0x9aa0a6);
+  const h = ((lineage * 47) % 360) / 360;
+  return new THREE.Color().setHSL(h < 0 ? h + 1 : h, 0.55, 0.55);
 }
 
 const TERRAIN_COLOR = {
@@ -242,14 +129,7 @@ const TERRAIN_COLOR = {
   [TERRAIN.SAND]: new THREE.Color(0xd7c489),
 };
 
-function lineageColor(lineage) {
-  if (lineage < 0) return new THREE.Color(0x9aa0a6); // unknown lineage → grey
-  // stable hue from the lineage id
-  const h = ((lineage * 47) % 360) / 360;
-  return new THREE.Color().setHSL(h < 0 ? h + 1 : h, 0.55, 0.55);
-}
-
-// ---- terrain ---------------------------------------------------------------
+// ---- terrain + flat water --------------------------------------------------
 
 let terrainMesh = null;
 let waterMesh = null;
@@ -261,7 +141,6 @@ function buildTerrain(pack) {
   terrainCodes = decodeGrid(pack.terrain);
   fertilityGrid = decodeGrid(pack.fertility);
   moistureGrid = decodeGrid(pack.moisture);
-  const fertility = fertilityGrid;
 
   if (terrainMesh) {
     scene.remove(terrainMesh);
@@ -274,80 +153,239 @@ function buildTerrain(pack) {
     waterMesh.material.dispose();
   }
 
-  const box = new THREE.BoxGeometry(1, 1, 1);
-  // No vertexColors: per-instance color comes from instanceColor (set via
-  // setColorAt). Enabling vertexColors would look for geometry colors the box
-  // doesn't have and render every tile black.
-  const landMat = new THREE.MeshLambertMaterial({});
   const n = gridW * gridH;
-  terrainMesh = new THREE.InstancedMesh(box, landMat, n);
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  terrainMesh = new THREE.InstancedMesh(box, new THREE.MeshLambertMaterial({}), n);
 
-  const waterBox = new THREE.BoxGeometry(1, 1, 1);
-  const waterMat = new THREE.MeshLambertMaterial({
-    color: 0x2f6fb0,
-    transparent: true,
-    opacity: 0.6,
-  });
-  // count water tiles
-  let waterCount = 0;
-  for (let i = 0; i < n; i++) if (terrainCodes[i] === TERRAIN.WATER) waterCount++;
-  waterMesh = new THREE.InstancedMesh(waterBox, waterMat, Math.max(1, waterCount));
+  // sea level = mean height of water columns (a single flat surface)
+  let wsum = 0;
+  let wcount = 0;
+  for (let i = 0; i < n; i++) {
+    if (terrainCodes[i] === TERRAIN.WATER) {
+      wsum += Math.max(1, Math.round((elevation[i] / 255) * MAX_H));
+      wcount++;
+    }
+  }
+  seaLevel = wcount ? Math.max(1, Math.round(wsum / wcount) + 0.5) : 1;
 
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const s = new THREE.Vector3();
   const p = new THREE.Vector3();
   const col = new THREE.Color();
-  let wi = 0;
 
   for (let y = 0; y < gridH; y++) {
     for (let x = 0; x < gridW; x++) {
       const idx = y * gridW + x;
       const h = Math.max(1, Math.round((elevation[idx] / 255) * MAX_H));
       const code = terrainCodes[idx];
-
-      // land column (full height; water gets a dirt/sand base under the water)
-      const baseCode = code === TERRAIN.WATER ? TERRAIN.SAND : code;
+      const baseCode = code === TERRAIN.WATER ? TERRAIN.SAND : code; // lakebed
       col.copy(TERRAIN_COLOR[baseCode] || TERRAIN_COLOR[TERRAIN.SOIL]);
-      // shade by fertility for soil/sand
       if (baseCode === TERRAIN.SOIL || baseCode === TERRAIN.SAND) {
-        const f = 0.7 + 0.3 * (fertility[idx] / 255);
-        col.multiplyScalar(f);
+        col.multiplyScalar(0.7 + 0.3 * (fertilityGrid[idx] / 255));
       }
       p.set(worldX(x), h / 2, worldZ(y));
       s.set(1, h, 1);
       m.compose(p, q, s);
       terrainMesh.setMatrixAt(idx, m);
       terrainMesh.setColorAt(idx, col);
-
-      if (code === TERRAIN.WATER) {
-        const wh = Math.max(1, h + 1); // a shallow translucent layer on top
-        p.set(worldX(x), wh - 0.25, worldZ(y));
-        s.set(1, 0.5, 1);
-        m.compose(p, q, s);
-        waterMesh.setMatrixAt(wi++, m);
-      }
     }
   }
   terrainMesh.instanceMatrix.needsUpdate = true;
   if (terrainMesh.instanceColor) terrainMesh.instanceColor.needsUpdate = true;
-  waterMesh.instanceMatrix.needsUpdate = true;
   scene.add(terrainMesh);
+
+  // one flat translucent water surface over the whole map at sea level
+  const waterGeo = new THREE.PlaneGeometry(gridW, gridH);
+  waterMesh = new THREE.Mesh(
+    waterGeo,
+    new THREE.MeshLambertMaterial({
+      color: 0x2f6fb0,
+      transparent: true,
+      opacity: 0.7,
+      depthWrite: false,
+    }),
+  );
+  waterMesh.rotation.x = -Math.PI / 2;
+  waterMesh.position.set(0, seaLevel, 0);
   scene.add(waterMesh);
 
+  ObjLayer.reset();
   frameCamera();
 }
 
-// ---- entity models ---------------------------------------------------------
+// ---- objects: per-category InstancedMesh layer (perf) ----------------------
+
+function _treeGeometry() {
+  const trunk = new THREE.CylinderGeometry(0.13, 0.18, 0.8, 5).translate(0, 0.4, 0);
+  const foliage = new THREE.ConeGeometry(0.55, 1.2, 7).translate(0, 1.25, 0);
+  return BufferGeometryUtils.mergeGeometries([trunk, foliage], false);
+}
+
+const OBJ_CATS = {
+  food: { geo: () => new THREE.IcosahedronGeometry(0.26, 0), color: 0xe23b3b },
+  toxic: { geo: () => new THREE.IcosahedronGeometry(0.26, 0), color: 0x9b30c0 },
+  plant: { geo: _treeGeometry, color: 0x2f8f3a },
+  seed: { geo: () => new THREE.BoxGeometry(0.2, 0.2, 0.2), color: 0xcdb079 },
+  fertilizer: { geo: () => new THREE.BoxGeometry(0.28, 0.18, 0.28), color: 0x6b4a2b },
+  hazard: { geo: () => new THREE.ConeGeometry(0.3, 0.6, 4), color: 0x3a2a2a },
+  other: { geo: () => new THREE.BoxGeometry(0.26, 0.26, 0.26), color: 0xb0b0b0 },
+};
+
+function categoryOf(o) {
+  const cat = (o.category || "").toLowerCase();
+  const tid = (o.type_id || "").toLowerCase();
+  if (tid.includes("night") || tid.includes("toxic")) return "toxic";
+  if (cat.includes("food") || tid.includes("berry") || tid.includes("fruit"))
+    return "food";
+  if (cat.includes("plant") || tid.includes("tree") || tid.includes("shrub"))
+    return "plant";
+  if (cat.includes("seed")) return "seed";
+  if (cat.includes("fertil")) return "fertilizer";
+  if (cat.includes("hazard") || tid.includes("thorn")) return "hazard";
+  return "other";
+}
+
+// One growable InstancedMesh per category with slot bookkeeping.
+const ObjLayer = {
+  cats: {},
+  byId: new Map(), // objId -> {cat, slot}
+  data: new Map(), // objId -> object view (for inspector)
+
+  reset() {
+    for (const k of Object.keys(this.cats)) {
+      const c = this.cats[k];
+      if (c.mesh) scene.remove(c.mesh);
+    }
+    this.cats = {};
+    this.byId.clear();
+    this.data.clear();
+  },
+
+  _ensure(cat) {
+    if (this.cats[cat]) return this.cats[cat];
+    const spec = OBJ_CATS[cat] || OBJ_CATS.other;
+    const c = { spec, capacity: 256, count: 0, slotToId: [], mesh: null };
+    c.mesh = new THREE.InstancedMesh(
+      spec.geo(),
+      new THREE.MeshLambertMaterial({ color: spec.color }),
+      c.capacity,
+    );
+    c.mesh.count = 0;
+    c.mesh.userData.cat = cat;
+    scene.add(c.mesh);
+    this.cats[cat] = c;
+    return c;
+  },
+
+  _grow(c) {
+    const newCap = c.capacity * 2;
+    const mesh = new THREE.InstancedMesh(c.mesh.geometry, c.mesh.material, newCap);
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < c.count; i++) {
+      c.mesh.getMatrixAt(i, m);
+      mesh.setMatrixAt(i, m);
+    }
+    mesh.count = c.count;
+    mesh.userData.cat = c.mesh.userData.cat;
+    scene.remove(c.mesh);
+    scene.add(mesh);
+    c.mesh = mesh;
+    c.capacity = newCap;
+  },
+
+  _matrix(o) {
+    const m = new THREE.Matrix4();
+    const cat = categoryOf(o);
+    let sc = 1;
+    if (cat === "plant") sc = 0.5 + 0.7 * (o.value || 0); // grow with maturity
+    const yOff = cat === "plant" ? 0 : 0.3;
+    m.compose(
+      new THREE.Vector3(worldX(o.x), surfaceY(o.x, o.y) + yOff, worldZ(o.y)),
+      new THREE.Quaternion(),
+      new THREE.Vector3(sc, sc, sc),
+    );
+    return m;
+  },
+
+  upsert(o) {
+    this.data.set(o.id, o);
+    const cat = categoryOf(o);
+    const existing = this.byId.get(o.id);
+    if (existing && existing.cat === cat) {
+      const c = this.cats[cat];
+      c.mesh.setMatrixAt(existing.slot, this._matrix(o));
+      c.mesh.instanceMatrix.needsUpdate = true;
+      return;
+    }
+    if (existing) this.remove(o.id, true); // category changed → re-add
+    const c = this._ensure(cat);
+    if (c.count >= c.capacity) this._grow(c);
+    const slot = c.count++;
+    c.slotToId[slot] = o.id;
+    c.mesh.setMatrixAt(slot, this._matrix(o));
+    c.mesh.count = c.count;
+    c.mesh.instanceMatrix.needsUpdate = true;
+    this.byId.set(o.id, { cat, slot });
+  },
+
+  remove(id, keepData) {
+    const rec = this.byId.get(id);
+    if (!rec) return;
+    const c = this.cats[rec.cat];
+    const last = c.count - 1;
+    const m = new THREE.Matrix4();
+    if (rec.slot !== last) {
+      c.mesh.getMatrixAt(last, m);
+      c.mesh.setMatrixAt(rec.slot, m);
+      const movedId = c.slotToId[last];
+      c.slotToId[rec.slot] = movedId;
+      const movedRec = this.byId.get(movedId);
+      if (movedRec) movedRec.slot = rec.slot;
+    }
+    c.count = last;
+    c.mesh.count = last;
+    c.slotToId.length = last;
+    c.mesh.instanceMatrix.needsUpdate = true;
+    this.byId.delete(id);
+    if (!keepData) this.data.delete(id);
+  },
+
+  positionOf(id) {
+    const o = this.data.get(id);
+    if (!o) return null;
+    return new THREE.Vector3(worldX(o.x), surfaceY(o.x, o.y) + 0.3, worldZ(o.y));
+  },
+
+  count() {
+    return this.byId.size;
+  },
+
+  raycast(raycaster) {
+    for (const k of Object.keys(this.cats)) {
+      const c = this.cats[k];
+      if (!c.count) continue;
+      const hits = raycaster.intersectObject(c.mesh, false);
+      if (hits.length && hits[0].instanceId != null) {
+        const id = c.slotToId[hits[0].instanceId];
+        if (id !== undefined) return id;
+      }
+    }
+    return null;
+  },
+};
+
+// ---- agents ----------------------------------------------------------------
 
 function makeAgentModel(lineage) {
   const group = new THREE.Group();
   const color = lineageColor(lineage);
-  // inner group bobs/yaws; the energy bar stays put on the outer group
   const bob = new THREE.Group();
   group.add(bob);
-  const bodyMat = new THREE.MeshLambertMaterial({ color });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), bodyMat);
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 0.6, 0.6),
+    new THREE.MeshLambertMaterial({ color }),
+  );
   body.position.y = 0.3;
   bob.add(body);
   const head = new THREE.Mesh(
@@ -356,134 +394,24 @@ function makeAgentModel(lineage) {
   );
   head.position.y = 0.78;
   bob.add(head);
-  // facing marker (snout) — points +Z, the yaw reference
   const snout = new THREE.Mesh(
     new THREE.BoxGeometry(0.12, 0.12, 0.22),
     new THREE.MeshLambertMaterial({ color: 0x222222 }),
   );
   snout.position.set(0, 0.78, 0.24);
   bob.add(snout);
-  // energy bar
   const bar = new THREE.Mesh(
     new THREE.BoxGeometry(0.7, 0.08, 0.08),
     new THREE.MeshBasicMaterial({ color: 0x6bd06b }),
   );
   bar.position.y = 1.15;
   group.add(bar);
-  // make the whole agent pickable → store a back-reference for raycasting
   body.userData.agentGroup = group;
   head.userData.agentGroup = group;
   group.userData.energyBar = bar;
   group.userData.bob = bob;
   group.userData.phase = Math.random() * Math.PI * 2;
   return group;
-}
-
-// distinct per-category object models
-function makeObjectModel(o) {
-  const cat = (o.category || "object").toLowerCase();
-  const tid = (o.type_id || "").toLowerCase();
-  let geo, mat;
-  if (cat.includes("food") || tid.includes("berry") || tid.includes("fruit")) {
-    geo = new THREE.IcosahedronGeometry(0.22, 0);
-    const toxic = tid.includes("night") || tid.includes("toxic");
-    mat = new THREE.MeshLambertMaterial({ color: toxic ? 0x9b30c0 : 0xe23b3b });
-  } else if (cat.includes("plant") || tid.includes("tree") || tid.includes("shrub")) {
-    // a proper little tree: brown trunk + green foliage, tall enough to read
-    const tree = new THREE.Group();
-    const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.12, 0.16, 0.7, 5),
-      new THREE.MeshLambertMaterial({ color: 0x6b4a2b }),
-    );
-    trunk.position.y = 0.35;
-    tree.add(trunk);
-    const foliage = new THREE.Mesh(
-      new THREE.ConeGeometry(0.5, 1.0, 7),
-      new THREE.MeshLambertMaterial({ color: 0x2f8f3a }),
-    );
-    foliage.position.y = 1.1;
-    tree.add(foliage);
-    return tree;
-  } else if (cat.includes("seed")) {
-    geo = new THREE.BoxGeometry(0.18, 0.18, 0.18);
-    mat = new THREE.MeshLambertMaterial({ color: 0xcdb079 });
-  } else if (cat.includes("fertil")) {
-    geo = new THREE.BoxGeometry(0.26, 0.16, 0.26);
-    mat = new THREE.MeshLambertMaterial({ color: 0x6b4a2b });
-  } else if (cat.includes("hazard") || tid.includes("thorn")) {
-    geo = new THREE.ConeGeometry(0.26, 0.5, 4);
-    mat = new THREE.MeshLambertMaterial({ color: 0x3a2a2a });
-  } else {
-    geo = new THREE.BoxGeometry(0.24, 0.24, 0.24);
-    mat = new THREE.MeshLambertMaterial({ color: 0xb0b0b0 });
-  }
-  return new THREE.Mesh(geo, mat);
-}
-
-function placeOnSurface(obj3d, x, y, yOffset = 0) {
-  obj3d.position.set(worldX(x), surfaceY(x, y) + yOffset, worldZ(y));
-}
-
-// ---- snapshot / delta application ------------------------------------------
-
-function applySnapshot(snap) {
-  bornReady = false; // no birth bursts for the initial population
-  buildTerrain(snap.terrain);
-  // clear entities
-  for (const a of agents.values()) scene.remove(a.group);
-  agents.clear();
-  for (const o of objects.values()) scene.remove(o);
-  objects.clear();
-  for (const o of snap.objects) upsertObject(o);
-  for (const a of snap.agents) upsertAgent(a);
-  applyBurning(snap.burning || []);
-  updateSky(snap.sky);
-  hud.objects.textContent = objects.size;
-  hud.tick.textContent = snap.tick;
-  // brain architecture + social features (true to the running sim)
-  const out = snap.brain_output_size;
-  const isV3 = snap.brain_class === "BrainV3";
-  const ver = out === 9 ? "v3.5" : isV3 ? "v3" : out === 8 ? "v2" : out ? `out=${out}` : "—";
-  const feats = [];
-  if (snap.signal_enabled) feats.push("signal");
-  if (snap.transfer_enabled) feats.push("trade");
-  hud.brain.textContent = ver + (feats.length ? " · " + feats.join("+") : "");
-  bornReady = true;
-}
-
-function applyBurning(ids) {
-  const next = new Set(ids);
-  // newly extinguished → clear emissive
-  for (const id of burning) {
-    if (!next.has(id)) {
-      const m = objects.get(id);
-      if (m && m.material.emissive) m.material.emissive.setHex(0x000000);
-    }
-  }
-  // currently burning → emissive orange (intensity flickers in animate)
-  for (const id of next) {
-    const m = objects.get(id);
-    if (m && m.material.emissive) m.material.emissive.setHex(0xff5a1e);
-  }
-  burning = next;
-}
-
-function upsertObject(o) {
-  let mesh = objects.get(o.id);
-  if (!mesh) {
-    mesh = makeObjectModel(o);
-    objects.set(o.id, mesh);
-    scene.add(mesh);
-  }
-  mesh.userData.objData = o; // for click-to-inspect
-  // plants grow: scale by maturity (value) so saplings are small, mature
-  // trees full-size — the world's growth dynamics made visible.
-  const cat = (o.category || "").toLowerCase();
-  if (cat.includes("plant")) {
-    const s = 0.45 + 0.55 * (o.value || 0);
-    mesh.scale.setScalar(s);
-  }
-  placeOnSurface(mesh, o.x, o.y, 0.3);
 }
 
 function upsertAgent(a) {
@@ -503,13 +431,11 @@ function upsertAgent(a) {
     };
     rec.group.position.set(worldX(a.x), surfaceY(a.x, a.y), worldZ(a.y));
     agents.set(a.id, rec);
-    if (bornReady) spawnBurst(rec.group.position, 0x8ef0a0, 8); // birth pop
+    if (bornReady) spawnBurst(rec.group.position, 0x8ef0a0, 8);
   }
   rec.target.set(worldX(a.x), surfaceY(a.x, a.y), worldZ(a.y));
-  // yaw from direction (dx,dy): face +Z when dir=(0,1)
   const [dx, dy] = a.dir;
   rec.targetYaw = Math.atan2(dx, dy);
-  // energy bar scale + color
   const e = Math.max(0, Math.min(1, a.energy));
   rec.energyBar.scale.x = Math.max(0.02, e);
   rec.energyBar.material.color.setHSL(0.33 * e, 0.7, 0.5);
@@ -527,91 +453,52 @@ function upsertAgent(a) {
     x: a.x,
     y: a.y,
   };
-  if (selected && selected.kind === "agent" && selected.id === a.id) {
-    renderInspector();
-  }
+  if (selected && selected.kind === "agent" && selected.id === a.id) renderInspector();
 }
 
-function applyDelta(d) {
-  for (const o of d.objects || []) upsertObject(o);
-  for (const id of d.removed_objects || []) {
-    const m = objects.get(id);
-    if (m) {
-      spawnBurst(m.position, 0xffb24a, 5, 1.4); // consumed/decayed puff
-      scene.remove(m);
-      objects.delete(id);
-    }
-  }
-  for (const a of d.agents || []) upsertAgent(a);
-  for (const id of d.removed_agents || []) {
-    const r = agents.get(id);
-    if (r) {
-      spawnBurst(r.group.position, 0x9aa0a6, 12, 2.2); // death puff
-      scene.remove(r.group);
-      agents.delete(id);
-      if (selected && selected.kind === "agent" && selected.id === id) {
-        clearInspector();
-      }
-    }
-  }
-  applyBurning(d.burning || []);
-  updateSignals(d.signals || []);
-  updateSky(d.sky);
-  hud.tick.textContent = d.tick;
-  hud.agents.textContent = agents.size;
-  hud.objects.textContent = objects.size;
-}
+// ---- particles (birth/death/consume/fire/rain) -----------------------------
 
-function updateSignals(signals) {
-  // rebuild the glow group each delta (sparse; the field decays to zero)
-  scene.remove(signalGroup);
-  signalGroup = new THREE.Group();
-  const geo = new THREE.PlaneGeometry(1, 1);
-  for (const [x, y, v] of signals) {
-    const base = Math.min(0.7, 0.15 + 0.6 * v);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0x66e0ff,
-      transparent: true,
-      opacity: base,
-      depthWrite: false,
+const particles = [];
+const _particleGeo = new THREE.SphereGeometry(0.09, 6, 6);
+function spawnBurst(pos, colorHex, count = 8, speed = 2.0) {
+  for (let i = 0; i < count; i++) {
+    const m = new THREE.Mesh(
+      _particleGeo,
+      new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 1 }),
+    );
+    m.position.copy(pos);
+    m.position.y += 0.5;
+    scene.add(m);
+    particles.push({
+      mesh: m,
+      life: 0.8,
+      maxLife: 0.8,
+      vel: new THREE.Vector3(
+        (Math.random() - 0.5) * speed,
+        Math.random() * speed * 0.9 + 0.5,
+        (Math.random() - 0.5) * speed,
+      ),
     });
-    const m = new THREE.Mesh(geo, mat);
-    m.userData.base = base;
-    m.rotation.x = -Math.PI / 2;
-    m.position.set(worldX(x), surfaceY(x, y) + 0.05, worldZ(y));
-    signalGroup.add(m);
   }
-  scene.add(signalGroup);
+}
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt;
+    if (p.life <= 0) {
+      scene.remove(p.mesh);
+      p.mesh.material.dispose();
+      particles.splice(i, 1);
+      continue;
+    }
+    p.vel.y -= 6 * dt;
+    p.mesh.position.addScaledVector(p.vel, dt);
+    const f = p.life / p.maxLife;
+    p.mesh.material.opacity = f;
+    p.mesh.scale.setScalar(0.5 + f);
+  }
 }
 
-function updateSky(sky) {
-  if (!sky) return;
-  const t = sky.time_of_day ?? 0; // 0..1
-  const light = sky.light ?? 1;
-  // sun arcs across the sky over a day
-  const ang = t * Math.PI * 2 - Math.PI / 2;
-  sun.position.set(Math.cos(ang) * 80, Math.max(10, Math.sin(ang) * 90), 30);
-  sun.intensity = 0.5 + 0.9 * light;
-  hemi.intensity = 0.5 + 0.5 * light;
-  ambient.intensity = 0.3 + 0.25 * light;
-  // background: dusk blue -> day blue by light (night floor kept visible)
-  const night = new THREE.Color(0x1b2b4a);
-  const day = new THREE.Color(0x8fbcd4);
-  let bg = night.clone().lerp(day, light);
-  if (sky.drought) bg = bg.lerp(new THREE.Color(0xb98a4a), 0.35); // dusty haze
-  if (sky.raining) bg = bg.lerp(new THREE.Color(0x4a5566), 0.45); // grey overcast
-  scene.background = bg;
-  if (scene.fog) scene.fog.color = bg;
-  weatherRaining = !!sky.raining;
-  hud.season.textContent = (sky.season ?? 0).toFixed(2);
-  let w = "clear";
-  if (sky.raining) w = "rain";
-  else if (sky.drought) w = "drought";
-  hud.weather.textContent = w;
-}
-
-// Rain: spawn short-lived falling streaks above the terrain while raining.
-let weatherRaining = false;
 const rainDrops = [];
 const _rainGeo = new THREE.BoxGeometry(0.04, 0.5, 0.04);
 const _rainMat = new THREE.MeshBasicMaterial({
@@ -619,20 +506,19 @@ const _rainMat = new THREE.MeshBasicMaterial({
   transparent: true,
   opacity: 0.5,
 });
-function spawnRain(n) {
-  for (let i = 0; i < n; i++) {
-    const m = new THREE.Mesh(_rainGeo, _rainMat);
-    m.position.set(
-      (Math.random() - 0.5) * gridW,
-      MAX_H + 6 + Math.random() * 6,
-      (Math.random() - 0.5) * gridH,
-    );
-    scene.add(m);
-    rainDrops.push({ mesh: m, vy: -18 - Math.random() * 6 });
-  }
-}
 function updateRain(dt) {
-  if (weatherRaining && rainDrops.length < 240) spawnRain(8);
+  if (weatherRaining && rainDrops.length < 300) {
+    for (let i = 0; i < 10; i++) {
+      const m = new THREE.Mesh(_rainGeo, _rainMat);
+      m.position.set(
+        (Math.random() - 0.5) * gridW,
+        MAX_H + 6 + Math.random() * 6,
+        (Math.random() - 0.5) * gridH,
+      );
+      scene.add(m);
+      rainDrops.push({ mesh: m, vy: -18 - Math.random() * 6 });
+    }
+  }
   for (let i = rainDrops.length - 1; i >= 0; i--) {
     const r = rainDrops[i];
     r.mesh.position.y += r.vy * dt;
@@ -643,7 +529,168 @@ function updateRain(dt) {
   }
 }
 
-// ---- input: free-fly + follow ---------------------------------------------
+// ---- signals ---------------------------------------------------------------
+
+function updateSignals(signals) {
+  scene.remove(signalGroup);
+  signalGroup = new THREE.Group();
+  const geo = new THREE.PlaneGeometry(1, 1);
+  for (const [x, y, v] of signals) {
+    const base = Math.min(0.7, 0.15 + 0.6 * v);
+    const m = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({
+        color: 0x66e0ff,
+        transparent: true,
+        opacity: base,
+        depthWrite: false,
+      }),
+    );
+    m.userData.base = base;
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(worldX(x), surfaceY(x, y) + 0.05, worldZ(y));
+    signalGroup.add(m);
+  }
+  scene.add(signalGroup);
+}
+
+// ---- sky / weather ---------------------------------------------------------
+
+function updateSky(sky) {
+  if (!sky) return;
+  const t = sky.time_of_day ?? 0;
+  const light = sky.light ?? 1;
+  const ang = t * Math.PI * 2 - Math.PI / 2;
+  sun.position.set(Math.cos(ang) * 80, Math.max(10, Math.sin(ang) * 90), 30);
+  sun.intensity = 0.5 + 0.9 * light;
+  hemi.intensity = 0.5 + 0.5 * light;
+  ambient.intensity = 0.3 + 0.25 * light;
+  const night = new THREE.Color(0x1b2b4a);
+  const day = new THREE.Color(0x8fbcd4);
+  let bg = night.clone().lerp(day, light);
+  if (sky.drought) bg = bg.lerp(new THREE.Color(0xb98a4a), 0.35);
+  if (sky.raining) bg = bg.lerp(new THREE.Color(0x4a5566), 0.45);
+  scene.background = bg;
+  if (scene.fog) scene.fog.color = bg;
+  weatherRaining = !!sky.raining;
+  hud.season.textContent = (sky.season ?? 0).toFixed(2);
+  hud.weather.textContent = sky.raining ? "rain" : sky.drought ? "drought" : "clear";
+}
+
+// ---- inspector -------------------------------------------------------------
+
+function showInspector(title, rows) {
+  inspectorEl.classList.remove("hidden");
+  inspectTitle.textContent = title;
+  inspectBody.innerHTML = rows
+    .map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`)
+    .join("");
+}
+function clearInspector() {
+  selected = null;
+  selectedId = null;
+  inspectorEl.classList.add("hidden");
+}
+function renderInspector() {
+  if (!selected) return;
+  if (selected.kind === "agent") {
+    const rec = agents.get(selected.id);
+    if (!rec) return clearInspector();
+    const d = rec.data;
+    const carry =
+      d.inv > 0
+        ? `${d.inv}${d.has_food ? " 🍒" : ""}${d.has_seed ? " 🌱" : ""}`
+        : "empty";
+    showInspector(`agent #${d.id}`, [
+      ["energy", (d.energy * 100).toFixed(0) + "%"],
+      ["age", (d.age * 100).toFixed(0) + "% of max"],
+      ["last action", d.action || "—"],
+      ["carrying", carry],
+      ["lineage", d.lineage],
+      ["generation", d.generation],
+      ["position", `${d.x}, ${d.y}`],
+    ]);
+  } else if (selected.kind === "object") {
+    const o = ObjLayer.data.get(selected.id);
+    if (!o) return clearInspector();
+    const cat = (o.category || "").toLowerCase();
+    const valLabel = cat.includes("food")
+      ? "freshness"
+      : cat.includes("plant")
+        ? "maturity"
+        : cat.includes("seed")
+          ? "viability"
+          : "value";
+    showInspector(`${o.type_id || o.category} #${o.id}`, [
+      ["category", o.category],
+      ["type", o.type_id || "—"],
+      [valLabel, ((o.value || 0) * 100).toFixed(0) + "%"],
+      ["planted by agent", o.planted ? "yes" : "no"],
+      ["on fire", burning.has(o.id) ? "yes" : "no"],
+      ["position", `${o.x}, ${o.y}`],
+    ]);
+  } else if (selected.kind === "tile") {
+    const { x, y } = selected;
+    if (!terrainCodes) return;
+    const i = y * gridW + x;
+    showInspector(`tile ${x}, ${y}`, [
+      ["terrain", TERRAIN_NAME[terrainCodes[i]] || "?"],
+      ["elevation", (elevation[i] / 255).toFixed(2)],
+      ["fertility", (fertilityGrid[i] / 255).toFixed(2)],
+      ["moisture", (moistureGrid[i] / 255).toFixed(2)],
+    ]);
+  }
+}
+
+// ---- snapshot / delta ------------------------------------------------------
+
+function applySnapshot(snap) {
+  bornReady = false;
+  buildTerrain(snap.terrain);
+  for (const a of agents.values()) scene.remove(a.group);
+  agents.clear();
+  for (const o of snap.objects) ObjLayer.upsert(o);
+  for (const a of snap.agents) upsertAgent(a);
+  burning = new Set(snap.burning || []);
+  updateSky(snap.sky);
+  hud.objects.textContent = ObjLayer.count();
+  hud.tick.textContent = snap.tick;
+  const out = snap.brain_output_size;
+  const isV3 = snap.brain_class === "BrainV3";
+  const ver = out === 9 ? "v3.5" : isV3 ? "v3" : out === 8 ? "v2" : "—";
+  const feats = [];
+  if (snap.signal_enabled) feats.push("signal");
+  if (snap.transfer_enabled) feats.push("trade");
+  hud.brain.textContent = ver + (feats.length ? " · " + feats.join("+") : "");
+  bornReady = true;
+}
+
+function applyDelta(d) {
+  for (const o of d.objects || []) ObjLayer.upsert(o);
+  for (const id of d.removed_objects || []) {
+    const pos = ObjLayer.positionOf(id);
+    if (pos) spawnBurst(pos, 0xffb24a, 5, 1.4);
+    ObjLayer.remove(id);
+  }
+  for (const a of d.agents || []) upsertAgent(a);
+  for (const id of d.removed_agents || []) {
+    const r = agents.get(id);
+    if (r) {
+      spawnBurst(r.group.position, 0x9aa0a6, 12, 2.2);
+      scene.remove(r.group);
+      agents.delete(id);
+      if (selected && selected.kind === "agent" && selected.id === id) clearInspector();
+    }
+  }
+  if (d.burning) burning = new Set(d.burning);
+  updateSignals(d.signals || []);
+  updateSky(d.sky);
+  hud.tick.textContent = d.tick;
+  hud.agents.textContent = agents.size;
+  hud.objects.textContent = ObjLayer.count();
+}
+
+// ---- input -----------------------------------------------------------------
 
 const keys = new Set();
 window.addEventListener("keydown", (e) => {
@@ -657,12 +704,11 @@ function resetCamera() {
   followIdx = -1;
   frameCamera();
 }
-
 function cycleFollow() {
   followIds = Array.from(agents.keys());
-  if (followIds.length === 0) return;
+  if (!followIds.length) return;
   followIdx = (followIdx + 1) % (followIds.length + 1);
-  if (followIdx === followIds.length) followIdx = -1; // wrap to free cam
+  if (followIdx === followIds.length) followIdx = -1;
   if (followIdx >= 0) {
     selected = { kind: "agent", id: followIds[followIdx] };
     selectedId = followIds[followIdx];
@@ -670,19 +716,17 @@ function cycleFollow() {
   }
 }
 
-// click-to-inspect: raycast agents → objects → terrain (in that priority)
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 let dragMoved = false;
 canvas.addEventListener("pointerdown", () => (dragMoved = false));
 canvas.addEventListener("pointermove", () => (dragMoved = true));
 canvas.addEventListener("pointerup", (e) => {
-  if (dragMoved) return; // it was an orbit drag, not a click
+  if (dragMoved) return;
   pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
   pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
 
-  // agents (their child meshes carry a back-reference)
   const agentMeshes = [];
   for (const rec of agents.values())
     rec.group.traverse((o) => o.isMesh && agentMeshes.push(o));
@@ -699,22 +743,12 @@ canvas.addEventListener("pointerup", (e) => {
       }
     }
   }
-
-  // objects (trees, berries, …)
-  const objMeshes = [];
-  for (const m of objects.values()) m.traverse((o) => o.isMesh && objMeshes.push(o));
-  hits = raycaster.intersectObjects(objMeshes, false);
-  if (hits.length) {
-    let g = hits[0].object;
-    while (g && !(g.userData && g.userData.objData) && g.parent) g = g.parent;
-    if (g.userData && g.userData.objData) {
-      selected = { kind: "object", id: g.userData.objData.id };
-      renderInspector();
-      return;
-    }
+  const oid = ObjLayer.raycast(raycaster);
+  if (oid != null) {
+    selected = { kind: "object", id: oid };
+    renderInspector();
+    return;
   }
-
-  // terrain (InstancedMesh) → tile via instanceId
   if (terrainMesh) {
     hits = raycaster.intersectObject(terrainMesh, false);
     if (hits.length && hits[0].instanceId != null) {
@@ -724,12 +758,11 @@ canvas.addEventListener("pointerup", (e) => {
       return;
     }
   }
-
   clearInspector();
 });
 
 function applyFreeFly(dt) {
-  const speed = 20 * dt;
+  const speed = 28 * dt;
   const forward = new THREE.Vector3();
   camera.getWorldDirection(forward);
   const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
@@ -747,55 +780,47 @@ function applyFreeFly(dt) {
   }
 }
 
-// ---- animation loop --------------------------------------------------------
+// ---- animation -------------------------------------------------------------
 
 const clock = new THREE.Clock();
 let elapsed = 0;
-const _chaseTmp = new THREE.Vector3();
+const _chase = new THREE.Vector3();
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(0.05, clock.getDelta());
   elapsed += dt;
 
-  // tween agents toward targets (smooth motion over elevation), smooth yaw,
-  // and a gentle idle bob on the inner group
   for (const rec of agents.values()) {
     rec.group.position.lerp(rec.target, 0.18);
-    // shortest-arc yaw lerp
     let dyaw = rec.targetYaw - rec.yaw;
     dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
     rec.yaw += dyaw * 0.25;
     rec.group.rotation.y = rec.yaw;
-    if (rec.bob) {
-      rec.bob.position.y = Math.sin(elapsed * 4 + rec.group.userData.phase) * 0.05;
-    }
+    if (rec.bob) rec.bob.position.y = Math.sin(elapsed * 4 + rec.group.userData.phase) * 0.05;
   }
 
   updateParticles(dt);
   updateRain(dt);
 
-  // fire flicker + occasional flame particles on burning objects
-  if (burning.size) {
-    const flick = 0.6 + 0.4 * Math.abs(Math.sin(elapsed * 12));
+  // fire: flame particles at burning object positions
+  if (burning.size && Math.random() < 0.5) {
     for (const id of burning) {
-      const m = objects.get(id);
-      if (!m || !m.material.emissive) continue;
-      m.material.emissiveIntensity = flick;
-      if (Math.random() < 0.15) spawnBurst(m.position, 0xff7a1e, 1, 1.6);
+      const pos = ObjLayer.positionOf(id);
+      if (pos && Math.random() < 0.2) spawnBurst(pos, 0xff7a1e, 1, 1.6);
     }
   }
 
-  // signal glow pulse
   const pulse = 0.75 + 0.25 * Math.sin(elapsed * 3);
   signalGroup.children.forEach((m) => (m.material.opacity = m.userData.base * pulse));
+
+  if (waterMesh) waterMesh.position.y = seaLevel + Math.sin(elapsed * 1.5) * 0.05;
 
   if (followIdx >= 0 && followIds[followIdx] !== undefined) {
     const rec = agents.get(followIds[followIdx]);
     if (rec) {
       controls.target.lerp(rec.group.position, 0.2);
-      // chase: keep the camera trailing the agent at a fixed offset
-      _chaseTmp.copy(rec.group.position).add(new THREE.Vector3(6, 7, 6));
-      camera.position.lerp(_chaseTmp, 0.06);
+      _chase.copy(rec.group.position).add(new THREE.Vector3(6, 7, 6));
+      camera.position.lerp(_chase, 0.06);
     }
   } else {
     applyFreeFly(dt);
@@ -811,7 +836,7 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// ---- SSE connection --------------------------------------------------------
+// ---- SSE -------------------------------------------------------------------
 
 function connect() {
   const es = new EventSource("/api/stream");
