@@ -193,6 +193,36 @@ class TestDelta:
             [s[0], s[1], pytest.approx(s[2], abs=1e-3)] for s in d["signals"]
         ]
 
+    def test_agent_view_carries_full_state(self):
+        from types import SimpleNamespace
+
+        w = _world()
+        bid = _berry(w, 1, 1)
+        ag = SimpleNamespace(
+            id=5, x=1, y=1, direction=(0, -1), energy=150.0, max_energy=200.0,
+            age=250, max_age=1000, alive=True, inventory=[bid],
+            genome=SimpleNamespace(lineage_id=2, generation=4),
+            _previous_action=SimpleNamespace(name="EAT"),
+        )
+        w.agents = {5: ag}
+        a = world_snapshot(w)["agents"][0]
+        assert a["age"] == pytest.approx(0.25)
+        assert a["action"] == "EAT"
+        assert a["inv"] == 1 and a["has_food"] is True and a["has_seed"] is False
+
+    def test_object_view_carries_value(self):
+        w = _world()
+        _berry(w, 2, 2)  # freshness 1.0
+        o = world_snapshot(w)["objects"][0]
+        assert o["value"] == pytest.approx(1.0)  # freshness
+        assert "planted" in o
+
+    def test_snapshot_reports_feature_flags(self):
+        w = _world(signal_config={"enabled": True}, social_config={"transfer_enabled": True})
+        snap = world_snapshot(w)
+        assert snap["signal_enabled"] is True
+        assert snap["transfer_enabled"] is True
+
     def test_burning_ids_reported_when_fire_on(self):
         # FireSystem off by default → empty; turning it on and marking a plant
         # burning surfaces its id read-only in snapshot + delta.

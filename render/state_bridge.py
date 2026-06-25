@@ -82,6 +82,28 @@ def _object_category(world, obj) -> str:
     return "object"
 
 
+def _object_value(world, obj) -> float:
+    """
+    A 0–1 'state' scalar for an object so the view can show growth/decay:
+    food → freshness, plant → maturity, seed → viability. 0 when N/A.
+    """
+    try:
+        from world.objects import EdibleComponent, PlantComponent, SeedComponent
+
+        e = obj.get_component(EdibleComponent)
+        if e is not None:
+            return round(max(0.0, min(1.0, float(getattr(e, "freshness", 0.0)))), 3)
+        p = obj.get_component(PlantComponent)
+        if p is not None and getattr(p, "mature_age", 0):
+            return round(max(0.0, min(1.0, p.age / p.mature_age)), 3)
+        s = obj.get_component(SeedComponent)
+        if s is not None and getattr(s, "max_age", 0):
+            return round(max(0.0, min(1.0, 1.0 - s.time_in_soil / s.max_age)), 3)
+    except Exception:
+        pass
+    return 0.0
+
+
 def _object_view(world, obj) -> dict:
     """Render fields for one WorldObject. ``type_id`` selects the model."""
     return {
@@ -91,20 +113,56 @@ def _object_view(world, obj) -> dict:
         "type_id": getattr(obj, "type_id", "") or "",
         "category": _object_category(world, obj),
         "terrain": bool(getattr(obj, "is_terrain", False)),
+        "value": _object_value(world, obj),  # freshness / maturity / viability
+        "planted": bool(getattr(obj, "planted_by_agent", False)),
     }
 
 
-def _agent_view(agent) -> dict:
-    """Render fields for one agent. ``lineage`` lets the client tint families."""
+def _agent_view(agent, world=None) -> dict:
+    """
+    Render fields for one agent — a faithful slice of its real state so the 3D
+    view mirrors the simulation: position/facing, energy, age, what it's
+    carrying, its last action, and lineage. ``lineage`` lets the client tint
+    families. All read-only.
+    """
     max_e = getattr(agent, "max_energy", 0.0) or 1.0
+    max_a = getattr(agent, "max_age", 0) or 1
     g = getattr(agent, "genome", None)
+
+    # last action (the brain's most recent decision), name if available
+    pa = getattr(agent, "_previous_action", None)
+    action = getattr(pa, "name", None)
+
+    # inventory composition (read-only component lookups)
+    inv = list(getattr(agent, "inventory", []) or [])
+    has_food = has_seed = False
+    if world is not None and inv:
+        try:
+            from world.objects import EdibleComponent, SeedComponent
+
+            for oid in inv:
+                o = world.objects.get(oid)
+                if o is None:
+                    continue
+                if o.get_component(EdibleComponent) is not None:
+                    has_food = True
+                if o.get_component(SeedComponent) is not None:
+                    has_seed = True
+        except Exception:
+            pass
+
     return {
         "id": int(agent.id),
         "x": int(agent.x),
         "y": int(agent.y),
         "dir": [int(agent.direction[0]), int(agent.direction[1])],
         "energy": round(float(agent.energy) / float(max_e), 4),
+        "age": round(float(getattr(agent, "age", 0)) / float(max_a), 4),
         "alive": bool(getattr(agent, "alive", True)),
+        "action": action,
+        "inv": len(inv),
+        "has_food": has_food,
+        "has_seed": has_seed,
         "lineage": int(getattr(g, "lineage_id", -1)) if g is not None else -1,
         "generation": int(getattr(g, "generation", 0)) if g is not None else 0,
     }
@@ -204,8 +262,17 @@ def world_snapshot(world) -> dict:
         for o in world.objects.values()
         if not getattr(o, "is_terrain", False)
     ]
-    agents = [_agent_view(a) for a in world.agents.values()]
+    agents = [_agent_view(a, world) for a in world.agents.values()]
     pher = getattr(world, "pheromones", None)
+    # brain architecture of the running agents (true to the sim): the class
+    # name separates v2 (Brain) from v3/v3.5 (BrainV3), output_size 9 = v3.5.
+    brain_out = None
+    brain_cls = None
+    for a in world.agents.values():
+        b = getattr(a, "brain", None)
+        brain_out = getattr(b, "output_size", None)
+        brain_cls = type(b).__name__ if b is not None else None
+        break
     return {
         "type": "snapshot",
         "version": BRIDGE_VERSION,
@@ -216,6 +283,10 @@ def world_snapshot(world) -> dict:
         "sky": _sky_view(world),
         "burning": _burning_ids(world),
         "has_pheromones": pher is not None,
+        "signal_enabled": bool(getattr(world, "signal_enabled", False)),
+        "transfer_enabled": bool(getattr(world, "transfer_enabled", False)),
+        "brain_output_size": brain_out,
+        "brain_class": brain_cls,
     }
 
 
@@ -261,7 +332,7 @@ class StateTracker:
         for a in world.agents.values():
             aid = int(a.id)
             seen_ag.add(aid)
-            view = _agent_view(a)
+            view = _agent_view(a, world)
             if self._agents.get(aid) != view:
                 agent_upserts.append(view)
                 self._agents[aid] = view

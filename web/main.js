@@ -129,6 +129,7 @@ const hud = {
   objects: document.getElementById("hud-objects"),
   season: document.getElementById("hud-season"),
   weather: document.getElementById("hud-weather"),
+  brain: document.getElementById("hud-brain"),
   conn: document.getElementById("hud-conn"),
 };
 
@@ -159,8 +160,17 @@ function renderInspector() {
     const rec = agents.get(selected.id);
     if (!rec) return clearInspector();
     const d = rec.data;
+    const carry =
+      d.inv > 0
+        ? `${d.inv}` +
+          (d.has_food ? " 🍒" : "") +
+          (d.has_seed ? " 🌱" : "")
+        : "empty";
     showInspector(`agent #${d.id}`, [
       ["energy", (d.energy * 100).toFixed(0) + "%"],
+      ["age", (d.age * 100).toFixed(0) + "% of max"],
+      ["last action", d.action || "—"],
+      ["carrying", carry],
       ["lineage", d.lineage],
       ["generation", d.generation],
       ["position", `${d.x}, ${d.y}`],
@@ -169,9 +179,19 @@ function renderInspector() {
     const m = objects.get(selected.id);
     if (!m || !m.userData.objData) return clearInspector();
     const o = m.userData.objData;
+    const cat = (o.category || "").toLowerCase();
+    const valLabel = cat.includes("food")
+      ? "freshness"
+      : cat.includes("plant")
+        ? "maturity"
+        : cat.includes("seed")
+          ? "viability"
+          : "value";
     showInspector(`${o.type_id || o.category} #${o.id}`, [
       ["category", o.category],
       ["type", o.type_id || "—"],
+      [valLabel, ((o.value || 0) * 100).toFixed(0) + "%"],
+      ["planted by agent", o.planted ? "yes" : "no"],
       ["position", `${o.x}, ${o.y}`],
       ["on fire", burning.has(o.id) ? "yes" : "no"],
     ]);
@@ -419,6 +439,14 @@ function applySnapshot(snap) {
   updateSky(snap.sky);
   hud.objects.textContent = objects.size;
   hud.tick.textContent = snap.tick;
+  // brain architecture + social features (true to the running sim)
+  const out = snap.brain_output_size;
+  const isV3 = snap.brain_class === "BrainV3";
+  const ver = out === 9 ? "v3.5" : isV3 ? "v3" : out === 8 ? "v2" : out ? `out=${out}` : "—";
+  const feats = [];
+  if (snap.signal_enabled) feats.push("signal");
+  if (snap.transfer_enabled) feats.push("trade");
+  hud.brain.textContent = ver + (feats.length ? " · " + feats.join("+") : "");
   bornReady = true;
 }
 
@@ -447,6 +475,13 @@ function upsertObject(o) {
     scene.add(mesh);
   }
   mesh.userData.objData = o; // for click-to-inspect
+  // plants grow: scale by maturity (value) so saplings are small, mature
+  // trees full-size — the world's growth dynamics made visible.
+  const cat = (o.category || "").toLowerCase();
+  if (cat.includes("plant")) {
+    const s = 0.45 + 0.55 * (o.value || 0);
+    mesh.scale.setScalar(s);
+  }
   placeOnSurface(mesh, o.x, o.y, 0.3);
 }
 
@@ -481,6 +516,11 @@ function upsertAgent(a) {
   rec.data = {
     id: a.id,
     energy: e,
+    age: a.age,
+    action: a.action,
+    inv: a.inv,
+    has_food: a.has_food,
+    has_seed: a.has_seed,
     lineage: a.lineage,
     generation: a.generation,
     x: a.x,
@@ -556,14 +596,50 @@ function updateSky(sky) {
   // background: dusk blue -> day blue by light (night floor kept visible)
   const night = new THREE.Color(0x1b2b4a);
   const day = new THREE.Color(0x8fbcd4);
-  const bg = night.clone().lerp(day, light);
+  let bg = night.clone().lerp(day, light);
+  if (sky.drought) bg = bg.lerp(new THREE.Color(0xb98a4a), 0.35); // dusty haze
+  if (sky.raining) bg = bg.lerp(new THREE.Color(0x4a5566), 0.45); // grey overcast
   scene.background = bg;
   if (scene.fog) scene.fog.color = bg;
+  weatherRaining = !!sky.raining;
   hud.season.textContent = (sky.season ?? 0).toFixed(2);
   let w = "clear";
   if (sky.raining) w = "rain";
   else if (sky.drought) w = "drought";
   hud.weather.textContent = w;
+}
+
+// Rain: spawn short-lived falling streaks above the terrain while raining.
+let weatherRaining = false;
+const rainDrops = [];
+const _rainGeo = new THREE.BoxGeometry(0.04, 0.5, 0.04);
+const _rainMat = new THREE.MeshBasicMaterial({
+  color: 0x9ec4ff,
+  transparent: true,
+  opacity: 0.5,
+});
+function spawnRain(n) {
+  for (let i = 0; i < n; i++) {
+    const m = new THREE.Mesh(_rainGeo, _rainMat);
+    m.position.set(
+      (Math.random() - 0.5) * gridW,
+      MAX_H + 6 + Math.random() * 6,
+      (Math.random() - 0.5) * gridH,
+    );
+    scene.add(m);
+    rainDrops.push({ mesh: m, vy: -18 - Math.random() * 6 });
+  }
+}
+function updateRain(dt) {
+  if (weatherRaining && rainDrops.length < 240) spawnRain(8);
+  for (let i = rainDrops.length - 1; i >= 0; i--) {
+    const r = rainDrops[i];
+    r.mesh.position.y += r.vy * dt;
+    if (r.mesh.position.y < 0) {
+      scene.remove(r.mesh);
+      rainDrops.splice(i, 1);
+    }
+  }
 }
 
 // ---- input: free-fly + follow ---------------------------------------------
@@ -695,6 +771,7 @@ function animate() {
   }
 
   updateParticles(dt);
+  updateRain(dt);
 
   // fire flicker + occasional flame particles on burning objects
   if (burning.size) {

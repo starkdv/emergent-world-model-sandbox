@@ -1,6 +1,31 @@
 # Changelog
 
-## [Unreleased] — 3D viewer: config-driven world, clickable, visual fixes
+## [Unreleased] — 3D viewer: true-to-sim fidelity pass
+
+The viewer is the **real simulation**, not a demo: `python -m render.server`
+runs the world from `config/default.yaml` (same `World`, systems, and configured
+brain as `main.py`); the read-only bridge now surfaces the full per-entity state
+so every brain/world mechanic is visible.
+
+- **Bridge** (`render/state_bridge.py`, read-only): agent view gains **age**,
+  **last action** (the brain's most recent decision), **inventory** (count +
+  has_food/has_seed); object view gains **value** (food freshness / plant
+  maturity / seed viability) and **planted-by-agent**; snapshot reports
+  **brain class + output size** (v2 / v3 / v3.5) and the **signal/transfer**
+  feature flags.
+- **Client** (`web/`): inspector now shows agent age/last-action/carrying and
+  object freshness/maturity/viability; **plants scale with maturity** (saplings
+  small → mature trees full); **rain** falls and **drought** hazes the sky
+  (W1 weather, previously HUD-only); HUD shows the **brain architecture** and
+  active social features.
+- **Docs**: `web/README.md` gains a full **fidelity map** (every W0–W6 / brain
+  mechanic → how it appears in 3D) and states plainly that the default is the
+  real sim. What stays internal (neural weights, GRU/world-model latent) is
+  called out.
+- Tests: 3 new bridge assertions (agent full-state, object value, feature
+  flags). Full suite green.
+
+## 3D viewer: config-driven world, clickable, visual fixes
 
 Addresses the Codespace report (dark surfaces, no trees, no day/night,
 mountainous, agents dying, nothing clickable):

@@ -43,19 +43,42 @@ python -m render.server --replay run.jsonl
 | R | reset camera |
 | click anything | inspect it — **agent** (energy, lineage, generation), **tree/berry** (category, type, on-fire), or **tile** (terrain, elevation, fertility, moisture); click empty space to clear |
 
-## What you see
+## This is the real simulation, not a demo
 
-- **Terrain** — voxel columns whose height is the W2 `elevation` field; block
-  color by biome (soil/grass, rock, sand) shaded by fertility; water as a
-  translucent layer.
-- **Agents** — small creatures grounded on their tile's surface, tinted per
-  lineage, yawed to their facing direction, with an energy bar; they tween
-  between ticks so motion over hills is smooth.
-- **Objects** — distinct models per category (berry/fruit, toxic nightshade,
-  plant, seed, fertilizer, thorns).
-- **Signals** — a cyan ground glow where agents have emitted pheromone (W4).
-- **Sky** — skybox color, sun angle, and light follow the W1 day/night cycle;
-  HUD shows season and weather (rain/drought).
+By default the viewer runs the **actual** simulation built from
+`config/default.yaml` — the same `World`, systems, and the configured **brain**
+that `main.py` runs. The bridge is **read-only**; it never fabricates or alters
+anything. (`--demo` exists only for a fixed offline scene.) Every mechanic the
+brain/world code produces is surfaced — here is the fidelity map:
+
+| Simulation mechanic | Phase | In the 3D world |
+|---|---|---|
+| Elevation / heightmap | W2 | voxel column height |
+| Biomes (soil/rock/water/sand) | W2 | block palette; water = translucent layer |
+| Fertility / moisture | W0/W1 | terrain tint; in the tile inspector |
+| Day/night, light, season | W1 | sky color, sun angle, lighting; HUD season |
+| Weather (rain / drought) | W1 | falling rain streaks / dusty haze tint; HUD |
+| Plants growing | — | tree model **scales with maturity**; inspector shows maturity |
+| Food freshness / decay | — | inspector freshness; consumed → orange puff |
+| Seeds (viability) | — | seed model; inspector viability |
+| Hazards / thorns | W3 | spiky model; tile/agent hazard |
+| Wildfire | W3 | burning objects glow + flicker + flame particles |
+| Agents (pos/facing/energy) | — | creature grounded on the surface, yawed, energy bar |
+| Agent age | — | inspector (% of max age) |
+| Agent **current action** (brain output) | brain | inspector "last action" |
+| Inventory (carrying food/seed) | — | inspector 🍒/🌱 |
+| Lineage / generation | — | per-lineage body tint; inspector |
+| Reproduction (births) | — | green birth pop; population in HUD |
+| Death | — | grey death puff; removed |
+| SIGNAL / pheromone field | W4 | cyan ground glow; HUD "signal" |
+| Trade (give) | W5 | HUD "trade" flag (per-give particles: TODO) |
+| Brain architecture | v2/v3/3.5 | HUD `brain` (output 9 = v3.5 + SIGNAL) |
+
+Inherently internal (not directly drawable): the neural weights themselves,
+the GRU hidden state, and the world-model latent — these are *expressed*
+through the agent's behaviour and current action rather than shown as geometry.
+The kin-similarity sense is **Brain v3.6** (designed, not yet built —
+`BRAIN_V3_PROPOSAL.md` §9).
 
 ## How it connects
 
