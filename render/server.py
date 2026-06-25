@@ -50,22 +50,40 @@ _CONTENT_TYPES = {
 
 class _Broadcaster:
     """
-    Steps a SimSession on a timer and hands the latest snapshot + a running
-    delta log to clients. Each SSE client replays the current snapshot, then
-    receives every delta produced after it connected.
+    Advances a session on a timer and streams it to SSE clients.
+
+    Each client gets a **fresh snapshot of the current world at connect** plus
+    its **own delta tracker**, so a client that joins late sees the live state
+    (not a stale startup snapshot) — this is what keeps the initial population
+    from appearing frozen at tick 0. Stepping and per-client delta computation
+    happen under one lock so the world isn't mutated mid-read.
+
+    Two modes:
+      * live (the session exposes ``world``): the world is advanced once per
+        tick and each client's tracker diffs it.
+      * replay (no ``world``): recorded frames are fanned out to every client
+        (snapshots in the recording resync late joiners on loop).
     """
 
     def __init__(self, session, tps: float = 10.0):
         self.session = session
         self.interval = 1.0 / max(0.1, tps)
-        self._snapshot = session.snapshot()
-        self._listeners: list[list] = []  # each: a per-client queue (list) + lock
+        self._live = hasattr(session, "world")
+        self._clients: list[dict] = []  # {queue, tracker}
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        # replay (frame) mode: one shared opening frame
+        self._frame_snapshot = None if self._live else session.snapshot()
 
     def snapshot(self) -> dict:
-        return self._snapshot
+        """A fresh snapshot of the current world (for /api/snapshot)."""
+        if self._live:
+            from render.state_bridge import world_snapshot
+
+            with self._lock:
+                return world_snapshot(self.session.world)
+        return self._frame_snapshot
 
     def start(self) -> None:
         if self._thread is None:
@@ -76,28 +94,46 @@ class _Broadcaster:
         self._stop.set()
 
     def _run(self) -> None:
+        from render.state_bridge import world_snapshot  # noqa: F401 (live only)
+
         while not self._stop.is_set():
             t0 = time.perf_counter()
             try:
-                delta = self.session.step()
+                with self._lock:
+                    if self._live:
+                        self.session.world.update()
+                        for c in self._clients:
+                            c["queue"].append(c["tracker"].delta(self.session.world))
+                    else:
+                        frame = self.session.step()
+                        for c in self._clients:
+                            c["queue"].append(frame)
             except Exception as exc:  # keep the server alive on a sim error
-                delta = {"type": "error", "message": str(exc)}
-            with self._lock:
-                for q in self._listeners:
-                    q.append(delta)
+                with self._lock:
+                    for c in self._clients:
+                        c["queue"].append({"type": "error", "message": str(exc)})
             dt = time.perf_counter() - t0
             self._stop.wait(max(0.0, self.interval - dt))
 
-    def add_listener(self) -> list:
-        q: list = []
+    def add_client(self) -> dict:
+        """Register a client; return its record with a fresh snapshot + queue."""
         with self._lock:
-            self._listeners.append(q)
-        return q
+            if self._live:
+                from render.state_bridge import StateTracker, world_snapshot
 
-    def remove_listener(self, q: list) -> None:
+                tracker = StateTracker()
+                snap = world_snapshot(self.session.world)
+                tracker.delta(self.session.world)  # prime to current state
+                client = {"queue": [], "tracker": tracker, "snapshot": snap}
+            else:
+                client = {"queue": [], "tracker": None, "snapshot": self._frame_snapshot}
+            self._clients.append(client)
+            return client
+
+    def remove_client(self, client: dict) -> None:
         with self._lock:
-            if q in self._listeners:
-                self._listeners.remove(q)
+            if client in self._clients:
+                self._clients.remove(client)
 
 
 def _make_handler(broadcaster: "_Broadcaster"):
@@ -141,9 +177,11 @@ def _make_handler(broadcaster: "_Broadcaster"):
             self.send_header("Connection", "keep-alive")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
-            q = broadcaster.add_listener()
+            client = broadcaster.add_client()
+            q = client["queue"]
             try:
-                self._sse_send("snapshot", broadcaster.snapshot())
+                # fresh snapshot of the CURRENT world for THIS client
+                self._sse_send("snapshot", client["snapshot"])
                 while True:
                     if q:
                         msg = q.pop(0)
@@ -156,7 +194,7 @@ def _make_handler(broadcaster: "_Broadcaster"):
             except (BrokenPipeError, ConnectionResetError):
                 pass
             finally:
-                broadcaster.remove_listener(q)
+                broadcaster.remove_client(client)
 
         def _sse_send(self, event: str, data: dict):
             payload = "event: %s\ndata: %s\n\n" % (event, json.dumps(data))

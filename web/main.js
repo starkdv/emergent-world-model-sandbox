@@ -243,6 +243,7 @@ const TERRAIN_COLOR = {
 };
 
 function lineageColor(lineage) {
+  if (lineage < 0) return new THREE.Color(0x9aa0a6); // unknown lineage → grey
   // stable hue from the lineage id
   const h = ((lineage * 47) % 360) / 360;
   return new THREE.Color().setHSL(h < 0 ? h + 1 : h, 0.55, 0.55);
