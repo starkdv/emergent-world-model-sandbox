@@ -307,11 +307,16 @@ class StateTracker:
     """
 
     def __init__(self):
-        self._obj_pos: Dict[int, tuple] = {}
+        self._obj_sig: Dict[int, tuple] = {}
         self._agents: Dict[int, dict] = {}
 
     def delta(self, world) -> dict:
-        # --- objects: added / moved / removed (non-terrain only) ---
+        # --- objects: added / moved / grown / removed (non-terrain only) ---
+        # Re-send when the *render-relevant* state changes, not only position:
+        # a plant maturing or food decaying stays put but its `value` (maturity/
+        # freshness) changes, and the client needs that to grow/shrink the mesh.
+        # The value is bucketed to 0.1 so a slowly-growing plant emits ~10
+        # updates over its life, not one per tick.
         seen_obj = set()
         obj_upserts: List[dict] = []
         for o in world.objects.values():
@@ -319,13 +324,14 @@ class StateTracker:
                 continue
             oid = int(o.id)
             seen_obj.add(oid)
-            pos = (int(o.x), int(o.y))
-            if self._obj_pos.get(oid) != pos:
-                obj_upserts.append(_object_view(world, o))
-                self._obj_pos[oid] = pos
-        removed_obj = [oid for oid in self._obj_pos if oid not in seen_obj]
+            view = _object_view(world, o)
+            sig = (view["x"], view["y"], view["category"], round(view["value"], 1))
+            if self._obj_sig.get(oid) != sig:
+                obj_upserts.append(view)
+                self._obj_sig[oid] = sig
+        removed_obj = [oid for oid in self._obj_sig if oid not in seen_obj]
         for oid in removed_obj:
-            del self._obj_pos[oid]
+            del self._obj_sig[oid]
 
         # --- agents: added / changed / removed ---
         seen_ag = set()
@@ -363,5 +369,5 @@ class StateTracker:
         }
 
     def reset(self) -> None:
-        self._obj_pos.clear()
+        self._obj_sig.clear()
         self._agents.clear()

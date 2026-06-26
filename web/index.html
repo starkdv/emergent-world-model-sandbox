@@ -5,12 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Emergent World — 3D Voxel View</title>
     <link rel="stylesheet" href="/style.css" />
-    <!-- Three.js via import map (CDN). Pinned for reproducibility. -->
+    <!-- Three.js vendored locally (web/vendor/three) so the viewer works with
+         no internet / behind a firewall (Codespaces, air-gapped). Pinned to
+         r160. No CDN dependency. -->
     <script type="importmap">
       {
         "imports": {
-          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+          "three": "/vendor/three/three.module.js",
+          "three/addons/": "/vendor/three/addons/"
         }
       }
     </script>

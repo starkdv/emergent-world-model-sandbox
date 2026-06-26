@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] — fix: 3D viewer (follow marker, visible objects, live growth, offline)
+
+Diagnosed by driving the real viewer in a headless browser against a live
+`render.server` (screenshots + DOM/state probes), not by inspection.
+
+- **Follow marker never appeared → fixed.** The follow camera tracked agents by
+  a snapshot **index**, so the instant the followed agent died (avg lifespan
+  ~195 ticks → seconds of wall-clock) the camera froze on a dead id and the
+  marker vanished. Rewrote follow to track a live agent **by id** and, when it
+  dies, **auto-hand off to the nearest living agent**. The marker is now bigger,
+  drawn on top (never hidden behind hills), and the chase converges faster.
+- **Seeds / trees hard to see → enlarged + recolored.** Trees were nearly the
+  same green as the soil and all objects were small. Trees are now taller with a
+  brown trunk + dark-green canopy; berries/seeds are bigger and brighter.
+- **Plants didn't visibly grow → fixed.** `StateTracker` only re-emitted an
+  object when its **position** changed, so a plant maturing in place never
+  updated. It now re-emits when the render-relevant state changes (position,
+  category, or maturity/freshness bucketed to 0.1), so trees grow live.
+- **No more CDN dependency.** Three.js (r160) is **vendored** in
+  `web/vendor/three/` and resolved via the import map, so the viewer works with
+  **no internet** (Codespaces / firewalled). Previously a blocked `unpkg.com`
+  left the page blank.
+
 ## [Unreleased] — feature: brain-cohort competition (old vs new, in one world)
 
 - **Two brain architectures compete in a single shared world.** A new

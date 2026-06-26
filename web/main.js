@@ -38,12 +38,19 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.maxPolarAngle = Math.PI * 0.49;
 
-// floating marker shown above the currently-followed agent (visibility)
+// floating marker shown above the currently-followed agent (visibility).
+// Drawn on top (depthTest off, high renderOrder) so it is never hidden behind
+// hills or other agents — you can always spot who the camera is tracking.
 const followMarker = new THREE.Mesh(
-  new THREE.ConeGeometry(0.45, 0.9, 4),
-  new THREE.MeshBasicMaterial({ color: 0xffe14a }),
+  new THREE.ConeGeometry(0.7, 1.5, 4),
+  new THREE.MeshBasicMaterial({
+    color: 0xffe14a,
+    depthTest: false,
+    transparent: true,
+  }),
 );
 followMarker.rotation.x = Math.PI; // point down at the agent
+followMarker.renderOrder = 999;
 followMarker.visible = false;
 scene.add(followMarker);
 
@@ -82,8 +89,7 @@ const agents = new Map(); // id -> {id, group, target, energyBar, bob, yaw, targ
 let burning = new Set();
 let signalGroup = new THREE.Group();
 scene.add(signalGroup);
-let followIds = [];
-let followIdx = -1;
+let followId = null; // id of the agent the camera follows (null = free-fly)
 let bornReady = false;
 let weatherRaining = false;
 
@@ -226,19 +232,23 @@ function buildTerrain(pack) {
 // ---- objects: per-category InstancedMesh layer (perf) ----------------------
 
 function _treeGeometry() {
-  const trunk = new THREE.CylinderGeometry(0.13, 0.18, 0.8, 5).translate(0, 0.4, 0);
-  const foliage = new THREE.ConeGeometry(0.55, 1.2, 7).translate(0, 1.25, 0);
+  // Bigger than life so trees read clearly on the large map and stand out
+  // against the green soil (brown trunk + tall dark-green canopy).
+  const trunk = new THREE.CylinderGeometry(0.18, 0.26, 1.2, 6).translate(0, 0.6, 0);
+  const foliage = new THREE.ConeGeometry(0.85, 2.0, 8).translate(0, 2.1, 0);
   return BufferGeometryUtils.mergeGeometries([trunk, foliage], false);
 }
 
+// Sizes are deliberately a bit oversized so seeds/berries/trees are visible
+// from a distance on the 160×160 world (true positions, exaggerated markers).
 const OBJ_CATS = {
-  food: { geo: () => new THREE.IcosahedronGeometry(0.26, 0), color: 0xe23b3b },
-  toxic: { geo: () => new THREE.IcosahedronGeometry(0.26, 0), color: 0x9b30c0 },
-  plant: { geo: _treeGeometry, color: 0x2f8f3a },
-  seed: { geo: () => new THREE.BoxGeometry(0.2, 0.2, 0.2), color: 0xcdb079 },
-  fertilizer: { geo: () => new THREE.BoxGeometry(0.28, 0.18, 0.28), color: 0x6b4a2b },
-  hazard: { geo: () => new THREE.ConeGeometry(0.3, 0.6, 4), color: 0x3a2a2a },
-  other: { geo: () => new THREE.BoxGeometry(0.26, 0.26, 0.26), color: 0xb0b0b0 },
+  food: { geo: () => new THREE.IcosahedronGeometry(0.38, 0), color: 0xff2d2d },
+  toxic: { geo: () => new THREE.IcosahedronGeometry(0.38, 0), color: 0xb02ee0 },
+  plant: { geo: _treeGeometry, color: 0x1f7a2e },
+  seed: { geo: () => new THREE.BoxGeometry(0.34, 0.34, 0.34), color: 0xf0d27a },
+  fertilizer: { geo: () => new THREE.BoxGeometry(0.34, 0.22, 0.34), color: 0x6b4a2b },
+  hazard: { geo: () => new THREE.ConeGeometry(0.34, 0.7, 4), color: 0x3a2a2a },
+  other: { geo: () => new THREE.BoxGeometry(0.32, 0.32, 0.32), color: 0xb0b0b0 },
 };
 
 function categoryOf(o) {
@@ -712,18 +722,41 @@ window.addEventListener("keydown", (e) => {
 window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
 
 function resetCamera() {
-  followIdx = -1;
+  followId = null;
   frameCamera();
 }
+function nearestAgentId(toVec) {
+  let best = null;
+  let bestD = Infinity;
+  for (const rec of agents.values()) {
+    const d = rec.group.position.distanceToSquared(toVec);
+    if (d < bestD) {
+      bestD = d;
+      best = rec.id;
+    }
+  }
+  return best;
+}
+// F cycles to the NEXT living agent (by id), then back to free-fly.
 function cycleFollow() {
-  followIds = Array.from(agents.keys());
-  if (!followIds.length) return;
-  followIdx = (followIdx + 1) % (followIds.length + 1);
-  if (followIdx === followIds.length) followIdx = -1;
-  if (followIdx >= 0) {
-    selected = { kind: "agent", id: followIds[followIdx] };
-    selectedId = followIds[followIdx];
+  const ids = Array.from(agents.keys()).sort((a, b) => a - b);
+  if (!ids.length) {
+    followId = null;
+    return;
+  }
+  if (followId == null) {
+    followId = ids[0];
+  } else {
+    const i = ids.indexOf(followId);
+    const next = i < 0 ? 0 : i + 1;
+    followId = next >= ids.length ? null : ids[next]; // wrap → free-fly
+  }
+  if (followId != null) {
+    selected = { kind: "agent", id: followId };
+    selectedId = followId;
     renderInspector();
+  } else {
+    clearInspector();
   }
 }
 
@@ -826,17 +859,28 @@ function animate() {
 
   if (waterMesh) waterMesh.position.y = seaLevel + Math.sin(elapsed * 1.5) * 0.05;
 
-  if (followIdx >= 0 && followIds[followIdx] !== undefined) {
-    const rec = agents.get(followIds[followIdx]);
+  if (followId != null) {
+    let rec = agents.get(followId);
+    if (!rec) {
+      // the followed agent died — hand off to the nearest living one so the
+      // camera (and marker) keep tracking instead of freezing on a corpse.
+      followId = nearestAgentId(controls.target);
+      rec = followId != null ? agents.get(followId) : null;
+      if (selected && selected.kind === "agent") {
+        selected.id = followId;
+        selectedId = followId;
+        followId != null ? renderInspector() : clearInspector();
+      }
+    }
     if (rec) {
       controls.target.lerp(rec.group.position, 0.2);
       _chase.copy(rec.group.position).add(new THREE.Vector3(6, 7, 6));
-      camera.position.lerp(_chase, 0.06);
+      camera.position.lerp(_chase, 0.12);
       // bob + spin a bright marker above the followed agent for visibility
       followMarker.visible = true;
       followMarker.position.set(
         rec.group.position.x,
-        rec.group.position.y + 2.2 + Math.sin(elapsed * 4) * 0.15,
+        rec.group.position.y + 2.6 + Math.sin(elapsed * 4) * 0.2,
         rec.group.position.z,
       );
       followMarker.rotation.y = elapsed * 2;

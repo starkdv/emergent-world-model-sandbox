@@ -39,9 +39,9 @@ python -m render.server --replay run.jsonl
 | drag | orbit |
 | scroll | zoom |
 | WASD / Q,E | free-fly (move / down,up) |
-| F | follow the next agent (chase cam; cycles, then back to free cam) |
+| F | follow the next agent (chase cam; a bright **yellow marker** floats above it). When the followed agent dies, the camera **auto-hands off to the nearest living agent** so it never freezes on a corpse. Press F to cycle; cycles back to free cam |
 | R | reset camera |
-| click anything | inspect it — **agent** (energy, lineage, generation), **tree/berry** (category, type, on-fire), or **tile** (terrain, elevation, fertility, moisture); click empty space to clear |
+| click anything | inspect it — **agent** (cohort, energy, lineage, generation), **tree/berry** (category, type, maturity/freshness, on-fire), or **tile** (terrain, elevation, fertility, moisture); click empty space to clear |
 
 ## This is the real simulation, not a demo
 
@@ -88,9 +88,10 @@ Python sim ──► render/state_bridge.py ──► render/server.py (SSE) ─
 ```
 
 The bridge is **read-only** — the viewer never affects the simulation. Three.js
-loads from a CDN via an import map (no build step / `node_modules` needed).
-Blocky rendering is the default; smooth terrain is a planned client-side toggle
-over the same elevation field (proposal §11).
+(r160) is **vendored locally** in `web/vendor/three/` and resolved via an import
+map (no build step, no `node_modules`, **no internet** — works in Codespaces /
+behind a firewall). Blocky rendering is the default; smooth terrain is a planned
+client-side toggle over the same elevation field (proposal §11).
 
 **Building a different frontend (Unity, etc.)?** The full wire protocol — SSE
 framing, snapshot/delta JSON schemas, terrain-grid decoding, coordinate
