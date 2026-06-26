@@ -15,6 +15,8 @@ index, checkpointing, reward diet + metrics CSV).
 > — `FRONTEND_3D_PROPOSAL.md` — is also queued for review.)
 
 **Branch:** `claude/world-upgrade`
+**Verification:** every phase's tests are catalogued (with pass criteria) in
+[`TESTING.md`](TESTING.md).
 **Scope:** `world/` (tiles, systems, world, object registry), `utils/agents/`
 (perception, reward shaping, action execution), `config/default.yaml`
 **Inputs reviewed:** full `world/` code inventory, `docs/SUGGESTIONS.md`

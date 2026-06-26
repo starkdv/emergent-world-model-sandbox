@@ -219,3 +219,9 @@ python scripts/analyze_logs.py            # action mix, survival, society/roles,
 one aggregate row per generation. The analyzer reports action distribution,
 success rates, energy economy, per-species consumption, the 🛰️ SOCIAL/SIGNAL
 and 🧬 SOCIETY/ROLES sections, behavioural diversity, and an instinct-fade split.
+
+## 13. Tests
+
+The suite (512 tests) is documented file-by-file with pass criteria in
+**[TESTING.md](TESTING.md)**. Run it with `pytest tests/ -q`; the CI lint gate
+is `black --check . && flake8 .`.

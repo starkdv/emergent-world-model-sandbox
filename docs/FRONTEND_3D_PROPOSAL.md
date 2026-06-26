@@ -10,6 +10,9 @@ runs via `python -m render.server`. **Next:** trade/give particle effects
 (needs a read-only event channel on the bridge), timeline-scrub UI on the
 replay client, and optional smooth terrain (§11). Author: Karan Vasa.
 
+**Verification:** the render tests (bridge, session, recorder, voxel export) and
+their pass criteria are catalogued in [`TESTING.md`](TESTING.md) §9.
+
 **Branch:** `claude/frontend-3d`
 **Scope (proposed):** a new renderer package; a read-only **world→render state
 bridge**; no change to `world/`, `agents/`, or the simulation loop semantics.

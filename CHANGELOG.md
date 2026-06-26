@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased] — docs: comprehensive testing guide
+
+- **docs/TESTING.md** (new): documents the full **512-test** suite file-by-file
+  — what each file verifies and its **pass criteria** — grouped by subsystem
+  (brain/genome, world/terrain, objects/ecology, actions/rewards, learning,
+  world-model/dreams, substrate, social/analyzers, frontend, infra, scenarios).
+  Notes the one known-flaky stochastic test and how to add new tests. Linked
+  from README, USER_GUIDE, and the proposal docs.
+
 ## [Unreleased] — perf (instanced objects), water, large biome world, user guide
 
 - **Perf — no more lag as the world fills**: the web client now renders objects
