@@ -37,6 +37,52 @@ _PREFIX = _PATH.read_text(encoding="utf-8").split("\nimport argparse")[0]
 _NS: dict = {"__name__": "analyze_logs_partial", "__file__": str(_PATH)}
 exec(compile(_PREFIX, str(_PATH), "exec"), _NS)
 _compute_society_metrics = _NS["_compute_society_metrics"]
+_compute_cohort_comparison = _NS["_compute_cohort_comparison"]
+
+
+class TestCohortComparison:
+    def test_single_cohort_returns_empty(self):
+        df = pd.DataFrame(
+            {"agent_id": [1, 1], "action": ["EAT", "WAIT"], "cohort": ["v3", "v3"]}
+        )
+        assert _compute_cohort_comparison(df) == {}
+
+    def test_two_cohorts_compared(self):
+        rows = []
+        # cohort A: 2 agents, older, eat-heavy, high fitness
+        for aid in (1, 2):
+            rows += [
+                {
+                    "agent_id": aid,
+                    "action": "EAT",
+                    "success": True,
+                    "age": 300,
+                    "fitness": 50.0,
+                    "cohort": "v3-new",
+                }
+            ] * 5
+        # cohort B: 1 agent, younger, wandering, low fitness
+        rows += [
+            {
+                "agent_id": 9,
+                "action": "MOVE_FORWARD",
+                "success": True,
+                "age": 80,
+                "fitness": 5.0,
+                "cohort": "v2-old",
+            }
+        ] * 4
+        out = _compute_cohort_comparison(pd.DataFrame(rows))
+        by = {c["cohort"]: c for c in out["cohorts"]}
+        assert set(by) == {"v3-new", "v2-old"}
+        assert by["v3-new"]["agents"] == 2
+        assert by["v2-old"]["agents"] == 1
+        assert by["v3-new"]["mean_fitness"] > by["v2-old"]["mean_fitness"]
+        assert by["v3-new"]["max_age"] == 300
+        assert by["v3-new"]["eat_success_pct"] == 100.0
+
+    def test_missing_cohort_column(self):
+        assert _compute_cohort_comparison(pd.DataFrame({"action": ["EAT"]})) == {}
 
 
 @pytest.fixture(autouse=True)

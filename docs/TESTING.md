@@ -110,7 +110,10 @@ Related design: `OBJECTS_GUIDE.md`, `ECOSYSTEM.md`.
 | `test_w5_society.py` | 13 | W5 trade + society metrics. **Pass:** USE transfers the first item to a facing agent when `transfer_enabled` (recipient-full rejects; gate off → legacy plant behaviour; mask widens when only a trade is possible); analyzer role-entropy (high when roles differ, 0 when shared), behavioural-novelty JS (0 identical, >0 disjoint), territory bbox/overlap, and give-counting. |
 | `test_signal_analyzer.py` | 6 | W4 SOCIAL/SIGNAL analyzer. **Pass:** SIGNAL count/rate, normalised signal entropy (≈1 shared evenly, <0.5 concentrated), `interaction_kind="signal"` detection, agent-proximity buckets, graceful handling of a missing action column. |
 
-The analyzer itself is `scripts/analyze_logs.py`; see also `docs/sample_run/`.
+The analyzer itself is `scripts/analyze_logs.py`; see also `docs/sample_run/`
+and the brain-cohort competition sample in `docs/sample_competition/` (its
+⚔️ COHORT COMPARISON section is covered by `TestCohortComparison` in
+`tests/test_w5_society.py`).
 
 ## 9. Frontend / 3D viewer (render)
 

@@ -272,14 +272,42 @@ def session_from_config(
     _spawn("berry", max(initial // 3, 1), False)
     _spawn("berry_seed", max(initial // 4, 1), True)
 
-    # --- agents ---
-    Agent.brain_config = brain_cfg
-    Agent.instinct_config = brain_cfg.get("instincts", None)
+    # --- agents (optionally two competing brain cohorts) ---
     learning_cfg = config.get("learning", {})
     use_rl = learning and config.get("evolution", {}).get("mode", "rl") == "rl"
+    instinct_cfg = brain_cfg.get("instincts", None)
+
+    comp = config.get("competition", {}) or {}
+    comp_on = bool(comp.get("enabled", False))
+    old_brain_cfg = {"version": comp.get("old_brain_version", 2)}
+    old_label = comp.get("old_label", f"v{old_brain_cfg['version']}-old")
+    new_label = comp.get("new_label", f"v{brain_cfg.get('version', 3)}-new")
+    n = acfg.get("initial_population", 20)
+    n_old = int(round(n * float(comp.get("old_fraction", 0.15)))) if comp_on else 0
+
+    def _spawn_agent(x, y, cfg, cohort):
+        Agent.brain_config = cfg
+        Agent.instinct_config = instinct_cfg
+        g = Genome.random(calculate_weight_count_for_config(cfg), {})
+        agent = Agent(
+            x=x,
+            y=y,
+            genome=g,
+            max_energy=acfg.get("max_energy", 200.0),
+            max_age=acfg.get("max_age", 1000),
+            inventory_size=acfg.get("inventory_size", 5),
+            metabolism_rate=acfg.get("metabolism_rate", 0.5),
+        )
+        agent.cohort = cohort
+        if use_rl:
+            agent.enable_learning(
+                algorithm=learning_cfg.get("algorithm", "a2c"),
+                compute_backend=learning_cfg.get("compute_backend", "auto"),
+                compute_device=learning_cfg.get("compute_device", "auto"),
+            )
+        world.add_agent(agent)
+
     try:
-        weight_count = calculate_weight_count_for_config(brain_cfg)
-        n = acfg.get("initial_population", 20)
         placed = 0
         attempts = 0
         while placed < n and attempts < n * 60:
@@ -288,26 +316,15 @@ def session_from_config(
             y = rng.randint(0, world.height - 1)
             if not world.tiles[y][x].is_passable():
                 continue
-            g = Genome.random(weight_count, {})
-            agent = Agent(
-                x=x,
-                y=y,
-                genome=g,
-                max_energy=acfg.get("max_energy", 200.0),
-                max_age=acfg.get("max_age", 1000),
-                inventory_size=acfg.get("inventory_size", 5),
-                metabolism_rate=acfg.get("metabolism_rate", 0.5),
-            )
-            if use_rl:
-                agent.enable_learning(
-                    algorithm=learning_cfg.get("algorithm", "a2c"),
-                    compute_backend=learning_cfg.get("compute_backend", "auto"),
-                    compute_device=learning_cfg.get("compute_device", "auto"),
-                )
-            world.add_agent(agent)
+            if placed < n_old:
+                _spawn_agent(x, y, old_brain_cfg, old_label)
+            else:
+                _spawn_agent(x, y, brain_cfg, new_label)
             placed += 1
     finally:
-        pass
+        # leave the class default on the new (configured) brain for any later
+        # offspring without a recorded config
+        Agent.brain_config = brain_cfg
 
     # Reproduction / calamity from config; force reproduction on for a
     # self-sustaining population if requested (viewers watch for a long time).

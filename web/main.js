@@ -38,6 +38,15 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.maxPolarAngle = Math.PI * 0.49;
 
+// floating marker shown above the currently-followed agent (visibility)
+const followMarker = new THREE.Mesh(
+  new THREE.ConeGeometry(0.45, 0.9, 4),
+  new THREE.MeshBasicMaterial({ color: 0xffe14a }),
+);
+followMarker.rotation.x = Math.PI; // point down at the agent
+followMarker.visible = false;
+scene.add(followMarker);
+
 const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x4a4030, 0.9);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff2d8, 1.2);
@@ -450,6 +459,7 @@ function upsertAgent(a) {
     has_seed: a.has_seed,
     lineage: a.lineage,
     generation: a.generation,
+    cohort: a.cohort,
     x: a.x,
     y: a.y,
   };
@@ -602,6 +612,7 @@ function renderInspector() {
         ? `${d.inv}${d.has_food ? " 🍒" : ""}${d.has_seed ? " 🌱" : ""}`
         : "empty";
     showInspector(`agent #${d.id}`, [
+      ["cohort", d.cohort || "default"],
       ["energy", (d.energy * 100).toFixed(0) + "%"],
       ["age", (d.age * 100).toFixed(0) + "% of max"],
       ["last action", d.action || "—"],
@@ -821,8 +832,19 @@ function animate() {
       controls.target.lerp(rec.group.position, 0.2);
       _chase.copy(rec.group.position).add(new THREE.Vector3(6, 7, 6));
       camera.position.lerp(_chase, 0.06);
+      // bob + spin a bright marker above the followed agent for visibility
+      followMarker.visible = true;
+      followMarker.position.set(
+        rec.group.position.x,
+        rec.group.position.y + 2.2 + Math.sin(elapsed * 4) * 0.15,
+        rec.group.position.z,
+      );
+      followMarker.rotation.y = elapsed * 2;
+    } else {
+      followMarker.visible = false;
     }
   } else {
+    followMarker.visible = false;
     applyFreeFly(dt);
   }
 

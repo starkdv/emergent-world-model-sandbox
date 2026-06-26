@@ -374,6 +374,21 @@ reward:
   metabolism_penalty_coef: 0.01  # penalty per unit of per-step energy lost
   death_penalty: 10.0       # penalty applied on the tick an agent dies
 
+# Competition — two brain cohorts share the world (A/B test)
+# When enabled, ~old_fraction of the starting population uses the OLD brain
+# (default v2 legacy GRU-MLP) and the rest use the configured brain (v3). Both
+# cohorts breed true (offspring inherit the parent's architecture) and are
+# tagged so the analyzer can compare them and the 3D viewer can colour them.
+# Note: both brains must share the observation layout — v2 and v3 are both
+# 72-dim, so new=v3 / old=v2 is the supported default. (v3.5 uses a 78-dim
+# observation and cannot share a world with v2/v3.)
+competition:
+  enabled: true
+  old_fraction: 0.15        # 10–20% of the starting population on the old brain
+  old_brain_version: 2      # the "old" architecture
+  old_label: "v2-old"
+  new_label: "v3-new"
+
 # Performance / substrate (World upgrade W6) — pure acceleration, no behaviour
 # change. The spatial index buckets edible objects into coarse cells so the
 # nearest-food scans in perception and the reward shaper visit only objects in

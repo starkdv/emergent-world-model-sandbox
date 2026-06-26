@@ -165,6 +165,7 @@ def _agent_view(agent, world=None) -> dict:
         "has_seed": has_seed,
         "lineage": int(getattr(g, "lineage_id", -1)) if g is not None else -1,
         "generation": int(getattr(g, "generation", 0)) if g is not None else 0,
+        "cohort": str(getattr(agent, "cohort", "default")),
     }
 
 

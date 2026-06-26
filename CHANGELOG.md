@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] — feature: brain-cohort competition (old vs new, in one world)
+
+- **Two brain architectures compete in a single shared world.** A new
+  `competition:` block in `config/default.yaml` seeds ~`old_fraction` (default
+  15%) of the founding agents with the **old** brain (v2) and the rest with the
+  **new** brain (v3). Each agent records `brain_config_used` + a `cohort` label.
+- **Offspring breed true.** `clone_agent` temporarily restores the parent's
+  brain config while constructing the child, so a v2 parent produces v2 children
+  (matching genome length) and the two cohorts compete over evolutionary time.
+- **Analyzer compares the cohorts.** `scripts/analyze_logs.py` emits a new
+  **⚔️ COHORT COMPARISON** section (per-cohort agents, actions, mean/max age,
+  mean fitness, EAT%, action mix) whenever the action log has ≥2 cohorts. The
+  log gained a trailing `cohort` column (`utils/data/agent_logger.py`).
+- **UI marker on the followed agent.** The 3D web client floats a bobbing,
+  spinning cone over the agent you follow, and the inspector shows its `cohort`.
+- **Headless runner.** `scripts/competition_run.py` builds the config-driven
+  world, runs N ticks with per-action logging + per-generation metrics, then
+  writes `analysis.txt` (with the cohort section).
+- **Published sample run** in `docs/sample_competition/` (4,000 ticks): founders
+  `{v2-old:1, v3-new:7}` → `{v3-new:96, v2-old:4}`. The new architecture wins on
+  mean fitness (10.57 vs 8.95) and max lifespan (493 vs 259). Includes
+  `metrics.csv`, `analysis.txt`, and a 1-in-40 down-sampled action log.
+- Note: cohorts must share an observation layout — v2/v3 are 72-dim
+  (compatible); v3.5 is 78-dim (SIGNAL) and cannot share a world with v2/v3.
+- Tests: `TestCohortComparison` in `tests/test_w5_society.py`.
+
 ## [Unreleased] — docs: external/Unity stream protocol
 
 - **docs/UNITY_STREAM.md** (new): the wire contract for building an external

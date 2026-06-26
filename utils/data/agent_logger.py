@@ -97,6 +97,7 @@ class AgentLogger:
                 "age",
                 "fitness",
                 "inventory_count",
+                "cohort",  # A/B brain-cohort label ("default" if not set)
             ]
         )
 
@@ -189,6 +190,7 @@ class AgentLogger:
                     agent.age,
                     round(float(agent.fitness), 3),
                     len(agent.inventory),
+                    getattr(agent, "cohort", "default"),
                 ]
             )
             self._maybe_flush()
