@@ -169,6 +169,38 @@ def _agent_view(agent, world=None) -> dict:
     }
 
 
+def _brain_version_label(cls: str, out) -> str:
+    """
+    Map a brain (class name + output size) to a human version string — the same
+    rule the web HUD uses: output 9 = v3.5 (+SIGNAL); class BrainV3 = v3; the
+    legacy Brain class (output 8) = v2.
+    """
+    if out == 9:
+        return "v3.5"
+    if cls == "BrainV3":
+        return "v3"
+    if cls == "Brain" or out == 8:
+        return "v2"
+    return "?"
+
+
+def brain_version_counts(world) -> dict:
+    """
+    Count agents per brain version across the *whole* population, so a mixed
+    (cohort) world reports e.g. {"v3": 96, "v2": 4} instead of whatever brain
+    the first agent happened to have. Ordered most-common first.
+    """
+    from collections import Counter
+
+    counts: Counter = Counter()
+    for a in world.agents.values():
+        b = getattr(a, "brain", None)
+        out = getattr(b, "output_size", None)
+        cls = type(b).__name__ if b is not None else None
+        counts[_brain_version_label(cls, out)] += 1
+    return dict(counts.most_common())
+
+
 def _burning_ids(world) -> list:
     """
     Object ids currently on fire (W3 FireSystem), read-only.
@@ -265,15 +297,23 @@ def world_snapshot(world) -> dict:
     ]
     agents = [_agent_view(a, world) for a in world.agents.values()]
     pher = getattr(world, "pheromones", None)
-    # brain architecture of the running agents (true to the sim): the class
-    # name separates v2 (Brain) from v3/v3.5 (BrainV3), output_size 9 = v3.5.
+    # brain architecture of the running agents (true to the sim). In a mixed
+    # (cohort) world there is more than one — report the full distribution and,
+    # for the legacy single-value fields, the *majority* brain (not whatever the
+    # first agent happened to be).
+    versions = brain_version_counts(world)
     brain_out = None
     brain_cls = None
-    for a in world.agents.values():
-        b = getattr(a, "brain", None)
-        brain_out = getattr(b, "output_size", None)
-        brain_cls = type(b).__name__ if b is not None else None
-        break
+    if versions:
+        top = next(iter(versions))  # most-common version label
+        for a in world.agents.values():
+            b = getattr(a, "brain", None)
+            out = getattr(b, "output_size", None)
+            cls = type(b).__name__ if b is not None else None
+            if _brain_version_label(cls, out) == top:
+                brain_out = out
+                brain_cls = cls
+                break
     return {
         "type": "snapshot",
         "version": BRIDGE_VERSION,
@@ -288,6 +328,7 @@ def world_snapshot(world) -> dict:
         "transfer_enabled": bool(getattr(world, "transfer_enabled", False)),
         "brain_output_size": brain_out,
         "brain_class": brain_cls,
+        "brain_versions": versions,  # {"v3": 96, "v2": 4} — the cohort mix
     }
 
 
@@ -366,6 +407,7 @@ class StateTracker:
             "signals": signals,
             "burning": _burning_ids(world),
             "sky": _sky_view(world),
+            "brain_versions": brain_version_counts(world),  # live cohort mix
         }
 
     def reset(self) -> None:

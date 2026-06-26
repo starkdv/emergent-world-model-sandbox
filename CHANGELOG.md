@@ -22,6 +22,12 @@ Diagnosed by driving the real viewer in a headless browser against a live
   `web/vendor/three/` and resolved via the import map, so the viewer works with
   **no internet** (Codespaces / firewalled). Previously a blocked `unpkg.com`
   left the page blank.
+- **HUD brain version was wrong in cohort mode.** It sampled the *first* agent's
+  brain — and the v2-old founders are spawned first — so a 96%-v3 world showed
+  "v2". The bridge now reports the **full `brain_versions` distribution** (in
+  both snapshot and every delta) and the HUD shows the live mix
+  (e.g. `v3·96 + v2·4`); `brain_class`/`brain_output_size` now describe the
+  *majority* brain. Documented in `docs/UNITY_STREAM.md`.
 
 ## [Unreleased] — feature: brain-cohort competition (old vs new, in one world)
 

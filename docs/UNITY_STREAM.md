@@ -84,10 +84,18 @@ Rules a client must follow:
   "has_pheromones": true,
   "signal_enabled": false,            // W4 SIGNAL active?
   "transfer_enabled": false,          // W5 trade active?
-  "brain_output_size": 8,             // 9 = Brain v3.5 (+SIGNAL)
-  "brain_class": "BrainV3"            // "Brain" (v2) | "BrainV3" (v3/v3.5)
+  "brain_output_size": 8,             // 9 = Brain v3.5 (+SIGNAL); MAJORITY brain
+  "brain_class": "BrainV3",           // "Brain" (v2) | "BrainV3" (v3/v3.5); majority
+  "brain_versions": { "v3": 96, "v2": 4 } // FULL cohort mix (counts per version)
 }
 ```
+
+> In a brain-cohort competition the world runs **more than one architecture at
+> once**. `brain_versions` is the authoritative breakdown (counts per version,
+> most-common first); `brain_class`/`brain_output_size` describe only the
+> *majority* brain, kept for backward compatibility. `brain_versions` is also
+> sent on every **delta**, so it stays live as one cohort out-competes the
+> other.
 
 **`<object>`** — one world object (berry, tree/plant, seed, fertilizer, thorns…):
 
@@ -149,7 +157,8 @@ Apply on top of the last snapshot/delta you hold:
   "removed_agents":  [ <agentId>, ... ],  // delete these ids (died/left)
   "signals":         [ [x, y, v], ... ],  // pheromone cells, v in 0..1 (full set each tick)
   "burning":         [ <objectId>, ... ], // full set of burning ids this tick
-  "sky":             <sky>
+  "sky":             <sky>,
+  "brain_versions":  { "v3": 96, "v2": 4 } // live cohort mix (full map each tick)
 }
 ```
 

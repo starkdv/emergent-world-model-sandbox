@@ -676,14 +676,29 @@ function applySnapshot(snap) {
   updateSky(snap.sky);
   hud.objects.textContent = ObjLayer.count();
   hud.tick.textContent = snap.tick;
-  const out = snap.brain_output_size;
-  const isV3 = snap.brain_class === "BrainV3";
-  const ver = out === 9 ? "v3.5" : isV3 ? "v3" : out === 8 ? "v2" : "—";
   const feats = [];
   if (snap.signal_enabled) feats.push("signal");
   if (snap.transfer_enabled) feats.push("trade");
-  hud.brain.textContent = ver + (feats.length ? " · " + feats.join("+") : "");
+  brainFeats = feats.join("+");
+  setBrainHud(snap.brain_versions, snap.brain_output_size, snap.brain_class);
   bornReady = true;
+}
+
+// Brain HUD: in a mixed (cohort) world show the whole distribution
+// ("v3·96 + v2·4"), not just whatever the first agent runs. Falls back to the
+// legacy single-brain fields if brain_versions is absent (older bridge).
+let brainFeats = "";
+function brainVerLabel(versions, out, cls) {
+  if (versions && Object.keys(versions).length) {
+    const entries = Object.entries(versions).sort((a, b) => b[1] - a[1]);
+    if (entries.length === 1) return entries[0][0];
+    return entries.map(([k, c]) => `${k}·${c}`).join(" + ");
+  }
+  return out === 9 ? "v3.5" : cls === "BrainV3" ? "v3" : out === 8 ? "v2" : "—";
+}
+function setBrainHud(versions, out, cls) {
+  const v = brainVerLabel(versions, out, cls);
+  hud.brain.textContent = v + (brainFeats ? " · " + brainFeats : "");
 }
 
 function applyDelta(d) {
@@ -709,6 +724,7 @@ function applyDelta(d) {
   hud.tick.textContent = d.tick;
   hud.agents.textContent = agents.size;
   hud.objects.textContent = ObjLayer.count();
+  if (d.brain_versions) setBrainHud(d.brain_versions);
 }
 
 // ---- input -----------------------------------------------------------------
