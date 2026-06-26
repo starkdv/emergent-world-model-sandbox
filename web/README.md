@@ -19,7 +19,8 @@ map size, terrain generator (heightmap → biomes), climate, and population, the
 spawns learning agents with reproduction on so the population sustains itself
 (agents forage and breed instead of dying out).
 
-Useful flags:
+`python -m render.server --help` prints all modes with explanations. The
+common ones:
 
 ```bash
 python -m render.server --config config/training_easy.yaml   # a different world
@@ -31,6 +32,59 @@ python -m render.server --tps 15
 python -m render.recorder --out run.jsonl --ticks 600
 python -m render.server --replay run.jsonl
 ```
+
+### Brains, planning, curiosity, logging, training (what each does)
+
+The world is whatever `--config` says — pick the brain there. Learning (PPO) is
+**on by default** so agents improve while you watch (and the planner's world
+model trains); add `--no-learn` to freeze them.
+
+```bash
+# Watch the v3.5 social brain (78-dim obs + SIGNAL) learn with PPO
+python -m render.server --config config/worldmodel_v35.yaml
+
+# Watch agents PLAN + be CURIOUS with a per-agent world model.
+# planner  → each agent imagines short latent rollouts and picks the best action
+# curiosity→ intrinsic reward for surprising transitions (more exploration)
+python -m render.server --config config/planning_curiosity_v35.yaml
+
+# Capture data WHILE watching, then train an offline world model from it
+python -m render.server --config config/worldmodel_v35.yaml \
+    --world-model-log --log --log-dir data/logs
+python scripts/train_world_model.py \
+    --transitions "data/logs/transitions_*.csv" \
+    --config config/worldmodel_v35.yaml \
+    --out data/world_models/wm.pt --report data/world_models/wm.txt
+
+# Analyse behaviour (e.g. planning vs not — see docs/sample_planning_curiosity/)
+python scripts/analyze_logs.py --file data/logs/agent_actions_*.csv
+
+# Start agents from pre-trained genome weights (.npz) instead of random
+python -m render.server --config config/worldmodel_v35.yaml \
+    --load-weights data/weights/best.npz
+```
+
+| Flag | What happens |
+|---|---|
+| `--config FILE` | Builds the real world from that YAML — **the brain version lives here** (`config/worldmodel_v35.yaml` = v3.5 + PPO; `config/planning_curiosity_v35.yaml` = v3.5 + planner + curiosity). |
+| (default) | RL learning **on** — agents learn live; if the brain has a world-model head it trains too. |
+| `--no-learn` | Freeze policies (ablation / faster). The planner then uses an untrained world model, so it won't get better. |
+| `--log` | Per-action + per-state CSVs → feed `scripts/analyze_logs.py`. |
+| `--world-model-log` | Transition CSVs `f(obs,a)→(next_obs,r,done)` → feed `scripts/train_world_model.py`. |
+| `--log-dir DIR` | Where the above go (default `data/logs`). |
+| `--load-weights NPZ` | Seed every agent from trained genome weights (migrated onto the configured brain if needed). |
+
+Two "world models" — don't confuse them: the **planner/curiosity** use a
+*per-agent* latent head that lives in each genome and trains live (Brain v3
+Phase 4). `scripts/train_world_model.py` trains a separate *population* world
+model offline from the transition logs (for dream-based evolution,
+`agents/dream.py`). See `docs/sample_planning_curiosity/` and
+`docs/sample_world_model/` for measured results of each.
+
+> **Codespaces:** the server binds `127.0.0.1:8000`; forward that port (VS Code
+> does it automatically — click the popup / the Ports tab) and open the URL.
+> A planning world runs slower than `--tps` (the planner imagines rollouts every
+> decision); the view stays live, it just advances fewer ticks/second.
 
 ## Controls
 

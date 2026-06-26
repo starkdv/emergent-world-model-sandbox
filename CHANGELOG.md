@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] — render.server CLI: learning, logging, planning, weights
+
+The live 3D server can now drive the full workflow from the browser view, not
+just spectate. New `python -m render.server` flags (with a detailed `--help`):
+
+- **`--no-learn`** — RL learning is **on by default** for `--config` (agents
+  learn live and the planner's world-model head trains); this freezes them.
+- **`--log` / `--world-model-log` / `--log-dir`** — capture per-action/state and
+  transition CSVs *while watching*, so you can then run
+  `scripts/analyze_logs.py` or `scripts/train_world_model.py` on the data. The
+  transition logger sizes correctly to the live brain (78-dim under v3.5).
+- **`--load-weights NPZ`** — seed every agent from pre-trained genome weights
+  (migrated onto the configured brain if layouts differ); `session_from_config`
+  gained a `load_weights` arg to support it.
+- The `--help` epilog explains every mode and the **two distinct world models**
+  (the per-agent planner/curiosity head vs the offline PopulationWorldModel),
+  plus a Codespaces port-forwarding note. `web/README.md` documents the same.
+
+So, e.g., `python -m render.server --config config/planning_curiosity_v35.yaml`
+shows agents **planning + being curious live** in the 3D view; add
+`--world-model-log` to capture data and train an offline model from it.
+
 ## [Unreleased] — experiment: world-model planning + curiosity change behavior
 
 A controlled A/B (same seed 42, same 3,000 ticks, same 64×64 world; Brain v3.5

@@ -159,6 +159,7 @@ def session_from_config(
     *,
     learning: bool = True,
     sustain: bool = True,
+    load_weights: Optional[str] = None,
 ) -> SimSession:
     """
     Build a streamable session straight from a project config file.
@@ -176,8 +177,14 @@ def session_from_config(
             watchable world).
         sustain: force reproduction on so the population is self-sustaining
             for a long watch, even though the file may ship it disabled.
+        load_weights: optional .npz of pre-trained genome weights (from
+            ``main.py --save-weights`` or ``scripts/dream_evolve.py``) to seed
+            every agent of the configured brain with, instead of random genomes
+            — so the live view starts with trained behaviour. Migrated onto the
+            configured brain when the layout differs.
     """
     import random
+    import numpy as np
     import yaml
 
     from agents.agent import Agent
@@ -285,10 +292,28 @@ def session_from_config(
     n = acfg.get("initial_population", 20)
     n_old = int(round(n * float(comp.get("old_fraction", 0.15)))) if comp_on else 0
 
+    # Optional: seed the configured (new) brain with pre-trained genome weights.
+    loaded_w = None
+    if load_weights:
+        from agents.brain import adapt_loaded_genome
+        from utils.agents import BestAgentTracker
+
+        raw = BestAgentTracker.load_best_weights(load_weights)
+        if raw is not None:
+            loaded_w = adapt_loaded_genome(raw, brain_cfg)
+            if loaded_w is not None:
+                print(f"Seeding agents with weights from {load_weights}")
+            else:
+                print(f"⚠️  {load_weights} doesn't fit the configured brain — random")
+
     def _spawn_agent(x, y, cfg, cohort):
         Agent.brain_config = cfg
         Agent.instinct_config = instinct_cfg
-        g = Genome.random(calculate_weight_count_for_config(cfg), {})
+        count = calculate_weight_count_for_config(cfg)
+        if loaded_w is not None and cfg is brain_cfg and len(loaded_w) == count:
+            g = Genome(np.asarray(loaded_w, dtype=np.float32).copy(), {})
+        else:
+            g = Genome.random(count, {})
         agent = Agent(
             x=x,
             y=y,
