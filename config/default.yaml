@@ -299,16 +299,21 @@ learning:
 # Reproduction Settings
 reproduction:
   enabled: true  # On: the small starting population grows by breeding
-  energy_threshold: 0.60  # 60% of max_energy required
-  min_age: 100  # Minimum age in ticks
+  # Tuned so a SMALL starting population recovers before early random deaths
+  # collapse it (a tiny v3 random-brain population on a big world is fragile).
+  energy_threshold: 0.45  # fraction of max_energy required to breed
+  min_age: 50    # minimum age in ticks before an agent can breed
   energy_split: 0.40  # Parent loses this percentage of energy
   mutation_std: 0.02  # Mutation standard deviation
-  cooldown_ticks: 50  # Minimum ticks between reproductions
+  cooldown_ticks: 30  # Minimum ticks between reproductions
   max_population: 100 # Maximum total population (agents won't reproduce above this)
 
 # Calamity Settings - Environmental Disasters
+# Off by default: a 70%-resource wipe every 500 ticks collapses a small
+# starting population. Wildfire (the `fire:` block) provides a gentler,
+# climate-driven disturbance instead. Re-enable for a harsh stress test.
 calamity:
-  enabled: true  # Enable periodic calamities
+  enabled: false  # Enable periodic calamities
   interval: 500  # Ticks between calamities
   destruction_rate: 0.70  # Percentage of resources destroyed (0.30 = 30%)
   affect_plants: true  # Whether to destroy plants
