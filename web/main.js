@@ -244,7 +244,14 @@ function _treeGeometry() {
 const OBJ_CATS = {
   food: { geo: () => new THREE.IcosahedronGeometry(0.38, 0), color: 0xff2d2d },
   toxic: { geo: () => new THREE.IcosahedronGeometry(0.38, 0), color: 0xb02ee0 },
-  plant: { geo: _treeGeometry, color: 0x1f7a2e },
+  plant: {
+    geo: _treeGeometry,
+    color: 0x1f7a2e,
+    // young sapling = pale yellow-green; mature tree = deep forest green, so
+    // growth is obvious at a glance (per-instance color, see ObjLayer).
+    tint: (v) =>
+      new THREE.Color(0xcfe08a).lerp(new THREE.Color(0x176b27), Math.min(1, v)),
+  },
   seed: { geo: () => new THREE.BoxGeometry(0.34, 0.34, 0.34), color: 0xf0d27a },
   fertilizer: { geo: () => new THREE.BoxGeometry(0.34, 0.22, 0.34), color: 0x6b4a2b },
   hazard: { geo: () => new THREE.ConeGeometry(0.34, 0.7, 4), color: 0x3a2a2a },
@@ -254,14 +261,23 @@ const OBJ_CATS = {
 function categoryOf(o) {
   const cat = (o.category || "").toLowerCase();
   const tid = (o.type_id || "").toLowerCase();
-  if (tid.includes("night") || tid.includes("toxic")) return "toxic";
-  if (cat.includes("food") || tid.includes("berry") || tid.includes("fruit"))
-    return "food";
-  if (cat.includes("plant") || tid.includes("tree") || tid.includes("shrub"))
-    return "plant";
+  // The bridge's `category` is authoritative — trust it FIRST. (type_ids like
+  // "berry_plant" / "berry_seed" all contain "berry", so matching type_id
+  // before category made plants and seeds render as berries.)
+  if (cat.includes("toxic") || cat.includes("night")) return "toxic";
   if (cat.includes("seed")) return "seed";
+  if (cat.includes("plant")) return "plant";
+  if (cat.includes("food") || cat.includes("fruit")) return "food";
   if (cat.includes("fertil")) return "fertilizer";
-  if (cat.includes("hazard") || tid.includes("thorn")) return "hazard";
+  if (cat.includes("hazard")) return "hazard";
+  // Fallbacks by type_id only when category is missing/unknown — seed & plant
+  // BEFORE berry/fruit so "berry_seed"/"berry_plant" don't collapse to food.
+  if (tid.includes("night") || tid.includes("toxic")) return "toxic";
+  if (tid.includes("seed")) return "seed";
+  if (tid.includes("plant") || tid.includes("tree") || tid.includes("shrub"))
+    return "plant";
+  if (tid.includes("berry") || tid.includes("fruit")) return "food";
+  if (tid.includes("thorn")) return "hazard";
   return "other";
 }
 
@@ -285,9 +301,11 @@ const ObjLayer = {
     if (this.cats[cat]) return this.cats[cat];
     const spec = OBJ_CATS[cat] || OBJ_CATS.other;
     const c = { spec, capacity: 256, count: 0, slotToId: [], mesh: null };
+    // tinted categories (plants) drive color per-instance, so the material is
+    // white and instanceColor carries the maturity color.
     c.mesh = new THREE.InstancedMesh(
       spec.geo(),
-      new THREE.MeshLambertMaterial({ color: spec.color }),
+      new THREE.MeshLambertMaterial({ color: spec.tint ? 0xffffff : spec.color }),
       c.capacity,
     );
     c.mesh.count = 0;
@@ -301,9 +319,15 @@ const ObjLayer = {
     const newCap = c.capacity * 2;
     const mesh = new THREE.InstancedMesh(c.mesh.geometry, c.mesh.material, newCap);
     const m = new THREE.Matrix4();
+    const col = new THREE.Color();
+    const hasColor = !!c.mesh.instanceColor;
     for (let i = 0; i < c.count; i++) {
       c.mesh.getMatrixAt(i, m);
       mesh.setMatrixAt(i, m);
+      if (hasColor) {
+        c.mesh.getColorAt(i, col);
+        mesh.setColorAt(i, col);
+      }
     }
     mesh.count = c.count;
     mesh.userData.cat = c.mesh.userData.cat;
@@ -317,7 +341,9 @@ const ObjLayer = {
     const m = new THREE.Matrix4();
     const cat = categoryOf(o);
     let sc = 1;
-    if (cat === "plant") sc = 0.5 + 0.7 * (o.value || 0); // grow with maturity
+    // plants grow from a small sapling (0.35×) to a full tree (1.4×) so young
+    // and mature plants are obviously different sizes.
+    if (cat === "plant") sc = 0.35 + 1.05 * (o.value || 0);
     const yOff = cat === "plant" ? 0 : 0.3;
     m.compose(
       new THREE.Vector3(worldX(o.x), surfaceY(o.x, o.y) + yOff, worldZ(o.y)),
@@ -327,14 +353,22 @@ const ObjLayer = {
     return m;
   },
 
+  // write matrix (+ per-instance maturity color) for one slot
+  _apply(c, slot, o) {
+    c.mesh.setMatrixAt(slot, this._matrix(o));
+    c.mesh.instanceMatrix.needsUpdate = true;
+    if (c.spec.tint) {
+      c.mesh.setColorAt(slot, c.spec.tint(o.value || 0));
+      if (c.mesh.instanceColor) c.mesh.instanceColor.needsUpdate = true;
+    }
+  },
+
   upsert(o) {
     this.data.set(o.id, o);
     const cat = categoryOf(o);
     const existing = this.byId.get(o.id);
     if (existing && existing.cat === cat) {
-      const c = this.cats[cat];
-      c.mesh.setMatrixAt(existing.slot, this._matrix(o));
-      c.mesh.instanceMatrix.needsUpdate = true;
+      this._apply(this.cats[cat], existing.slot, o);
       return;
     }
     if (existing) this.remove(o.id, true); // category changed → re-add
@@ -342,9 +376,8 @@ const ObjLayer = {
     if (c.count >= c.capacity) this._grow(c);
     const slot = c.count++;
     c.slotToId[slot] = o.id;
-    c.mesh.setMatrixAt(slot, this._matrix(o));
     c.mesh.count = c.count;
-    c.mesh.instanceMatrix.needsUpdate = true;
+    this._apply(c, slot, o);
     this.byId.set(o.id, { cat, slot });
   },
 
@@ -355,8 +388,15 @@ const ObjLayer = {
     const last = c.count - 1;
     const m = new THREE.Matrix4();
     if (rec.slot !== last) {
+      // move the last instance (matrix + maturity color) into the freed slot
       c.mesh.getMatrixAt(last, m);
       c.mesh.setMatrixAt(rec.slot, m);
+      if (c.mesh.instanceColor) {
+        const col = new THREE.Color();
+        c.mesh.getColorAt(last, col);
+        c.mesh.setColorAt(rec.slot, col);
+        c.mesh.instanceColor.needsUpdate = true;
+      }
       const movedId = c.slotToId[last];
       c.slotToId[rec.slot] = movedId;
       const movedRec = this.byId.get(movedId);

@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] — fix: 3D viewer — seeds/plants/berries now look different + trees grow
+
+- **Seeds, plants and berries all rendered as the same red blob → fixed.** The
+  object type_ids are `berry`, `berry_plant`, `berry_seed` — and the client
+  classified by **type_id substring before the authoritative `category`**, so
+  `berry_plant`/`berry_seed` matched `"berry"` and became *food*. Everything
+  drew as the red food icosahedron. `categoryOf` now trusts the bridge's
+  `category` field first; type_id is only a fallback (seed/plant before berry).
+  Result: berries = red icosahedra, seeds = tan cubes, plants = trees.
+- **Plants now visibly grow like trees.** A plant scales from a small sapling
+  (0.35×) to a full tree (1.4×) with maturity, and its color **lerps from pale
+  yellow-green (young) to deep forest green (mature)** via per-instance color —
+  so young and mature plants are obviously different. (The bridge already
+  streams maturity each tick after the earlier delta fix.)
+
 ## [Unreleased] — fix: 3D viewer (follow marker, visible objects, live growth, offline)
 
 Diagnosed by driving the real viewer in a headless browser against a live
