@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] — experiment: world-model planning + curiosity change behavior
+
+A controlled A/B (same seed 42, same 3,000 ticks, same 64×64 world; Brain v3.5
++ PPO) showing what the **per-agent latent world model** does when agents use it
+**online** to plan and explore — `agents/planner.py` (imagined latent rollouts
+pick the action) and `agents/curiosity.py` (prediction-error intrinsic reward).
+
+- **`config/planning_curiosity_v35.yaml`** (new): the treatment — same as
+  `worldmodel_v35.yaml` but with `brain.world_model.enabled`,
+  `…planner.enabled`, and `learning.curiosity.enabled` all **on**.
+- **`docs/sample_planning_curiosity/`** (new): both analyzer reports + metrics +
+  a comparison README. With planning + curiosity, vs the baseline:
+  - exploration per agent **~2×** (27.7 → 54.9 tiles); curiosity seeks novelty,
+  - far more **goal-directed**: turning drops 51% → 36% of actions while
+    EAT ×6.5, PICK_UP ×5, seeds planted ×4,
+  - **+49% peak fitness, +30% lifespan, +51% energy**,
+  - per-agent strategy entropy rises (richer repertoire) while pairwise novelty
+    falls — agents **converge** on the same effective planned strategy.
+  This is the online per-agent world model (Brain v3 Phase 4), distinct from the
+  offline `PopulationWorldModel` in `docs/sample_world_model/`.
+
 ## [Unreleased] — feature: train + publish a Brain v3.5 + PPO world model
 
 - **`scripts/train_world_model.py`** (new): trains a `PopulationWorldModel`
