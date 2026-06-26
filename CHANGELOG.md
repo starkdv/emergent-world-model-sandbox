@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] — feature: train + publish a Brain v3.5 + PPO world model
+
+- **`scripts/train_world_model.py`** (new): trains a `PopulationWorldModel`
+  (`f(obs,a)→(Δobs, r̂, done)`) from `--world-model-log` transitions and saves
+  it. Unlike `dream_evolve.py` (hardcoded 8 actions), it **sizes itself from the
+  config's brain version**, so it works for **v3.5 (78-dim obs, 9 actions incl.
+  SIGNAL)**; it also widens the action space to any index seen in the data, and
+  reports held-out Δobs/reward/done accuracy vs a Δ=0 baseline.
+- **`config/worldmodel_v35.yaml`** (new): a v3.5 + PPO training world —
+  `brain.version: 3.5`, `signal.enabled: true`, `learning.algorithm: ppo`,
+  `mode: rl`, 64×64 map, population capped at 30. Crucially
+  `simulation.parallel: false` — threaded agent updates + torch PPO
+  oversubscribe and run ~50× slower; serial is the right choice for v3.5+PPO.
+- **`docs/sample_world_model/`** (new): a published trained model
+  (`world_model_v35.pt`, ~150 KB) + `training_report.txt` + `metrics.csv`.
+  Trained on 291k transitions from a v3.5+PPO run: held-out **Δobs MSE 0.0268
+  vs 0.0337 baseline**, done-acc 0.999, all 9 actions (SIGNAL 67k uses) active;
+  agent mean fitness rose 12→56 during collection. The full 100k-tick run is
+  ~3.5 h at v3.5+PPO speeds, so the published model uses ~10k ticks (ample for
+  the model); the run is reproducible at any length (see the dir's README).
+
 ## [Unreleased] — feature: 3D viewer — 5×5 vision-grid overlay (press V)
 
 - **See what an agent sees.** Press **V** to toggle a 25-tile overlay on the
