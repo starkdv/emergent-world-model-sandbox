@@ -40,6 +40,7 @@ python -m render.server --replay run.jsonl
 | scroll | zoom |
 | WASD / Q,E | free-fly (move / down,up) |
 | F | follow the next agent (chase cam; a bright **yellow marker** floats above it). When the followed agent dies, the camera **auto-hands off to the nearest living agent** so it never freezes on a corpse. Press F to cycle; cycles back to free cam |
+| V | toggle the **5×5 vision grid** overlay — highlights the exact tiles the selected/followed agent perceives (yellow = its own tile, brighter cyan = tiles ahead). Egocentric, rotates with the agent's facing; mirrors `utils/agents/perception.py` |
 | R | reset camera |
 | click anything | inspect it — **agent** (cohort, energy, lineage, generation), **tree/berry** (category, type, maturity/freshness, on-fire), or **tile** (terrain, elevation, fertility, moisture); click empty space to clear |
 

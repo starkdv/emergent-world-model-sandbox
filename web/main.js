@@ -54,6 +54,65 @@ followMarker.renderOrder = 999;
 followMarker.visible = false;
 scene.add(followMarker);
 
+// 5×5 vision-grid overlay (toggle with V): 25 translucent ground tiles showing
+// exactly which blocks the followed/selected agent perceives. Egocentric and
+// rotated to the agent's facing — mirrors utils/agents/perception.py.
+const VISION_RADIUS = 2; // 5×5
+let showVision = false;
+const visionTiles = [];
+{
+  const geo = new THREE.PlaneGeometry(0.94, 0.94);
+  for (let i = 0; i < (2 * VISION_RADIUS + 1) ** 2; i++) {
+    const m = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({
+        color: 0x39d0ff,
+        transparent: true,
+        opacity: 0.22,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    m.rotation.x = -Math.PI / 2;
+    m.renderOrder = 5;
+    m.visible = false;
+    scene.add(m);
+    visionTiles.push(m);
+  }
+}
+
+// Position the 25 overlay tiles around `rec` using the SAME rotation the sim
+// uses to build the observation: forward = -dy (top rows), right = (-fy, fx).
+function updateVisionOverlay(rec) {
+  if (!showVision || !rec || !rec.data || !rec.data.dir || !elevation) {
+    for (const t of visionTiles) t.visible = false;
+    return;
+  }
+  const [fx, fy] = rec.data.dir;
+  const rx = -fy,
+    ry = fx;
+  const ax = rec.data.x,
+    ay = rec.data.y;
+  let i = 0;
+  for (let dy = -VISION_RADIUS; dy <= VISION_RADIUS; dy++) {
+    for (let dx = -VISION_RADIUS; dx <= VISION_RADIUS; dx++) {
+      const wx = ax + rx * dx + fx * -dy;
+      const wy = ay + ry * dx + fy * -dy;
+      const t = visionTiles[i++];
+      if (wx < 0 || wy < 0 || wx >= gridW || wy >= gridH) {
+        t.visible = false; // out of bounds (perceived as rock)
+        continue;
+      }
+      t.position.set(worldX(wx), surfaceY(wx, wy) + 0.06, worldZ(wy));
+      const isCenter = dx === 0 && dy === 0; // the agent's own tile
+      const isAhead = dy < 0; // tiles in front of the agent
+      t.material.color.setHex(isCenter ? 0xffe14a : isAhead ? 0x6cf0ff : 0x39a8ff);
+      t.material.opacity = isCenter ? 0.4 : isAhead ? 0.28 : 0.2;
+      t.visible = true;
+    }
+  }
+}
+
 const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x4a4030, 0.9);
 scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff2d8, 1.2);
@@ -512,6 +571,7 @@ function upsertAgent(a) {
     cohort: a.cohort,
     x: a.x,
     y: a.y,
+    dir: a.dir, // facing [dx,dy] — drives the vision-grid overlay
   };
   if (selected && selected.kind === "agent" && selected.id === a.id) renderInspector();
 }
@@ -774,6 +834,7 @@ window.addEventListener("keydown", (e) => {
   keys.add(e.key.toLowerCase());
   if (e.key.toLowerCase() === "f") cycleFollow();
   if (e.key.toLowerCase() === "r") resetCamera();
+  if (e.key.toLowerCase() === "v") showVision = !showVision;
 });
 window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
 
@@ -947,6 +1008,12 @@ function animate() {
     followMarker.visible = false;
     applyFreeFly(dt);
   }
+
+  // 5×5 vision overlay for the selected agent (click) or, failing that, the
+  // followed one — so you can see exactly which tiles it perceives.
+  const visionId =
+    selected && selected.kind === "agent" ? selected.id : followId;
+  updateVisionOverlay(visionId != null ? agents.get(visionId) : null);
 
   controls.update();
   renderer.render(scene, camera);

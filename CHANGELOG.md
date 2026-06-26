@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased] — feature: 3D viewer — 5×5 vision-grid overlay (press V)
+
+- **See what an agent sees.** Press **V** to toggle a 25-tile overlay on the
+  ground showing the **exact 5×5 vision footprint** of the selected (clicked) or
+  followed agent. It is **egocentric and rotates with the agent's facing** —
+  built with the same rotation as `utils/agents/perception.py` (`forward = -dy`,
+  `right = (-fy, fx)`), so it always matches the observation the brain receives.
+  Yellow = the agent's own tile; brighter cyan = the tiles ahead. Out-of-bounds
+  tiles (perceived as rock) are omitted. The agent's facing `dir` is now carried
+  in the per-agent view for this.
+
 ## [Unreleased] — fix: 3D viewer — seeds/plants/berries now look different + trees grow
 
 - **Seeds, plants and berries all rendered as the same red blob → fixed.** The
