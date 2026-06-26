@@ -91,3 +91,8 @@ The bridge is **read-only** — the viewer never affects the simulation. Three.j
 loads from a CDN via an import map (no build step / `node_modules` needed).
 Blocky rendering is the default; smooth terrain is a planned client-side toggle
 over the same elevation field (proposal §11).
+
+**Building a different frontend (Unity, etc.)?** The full wire protocol — SSE
+framing, snapshot/delta JSON schemas, terrain-grid decoding, coordinate
+conventions, and a Unity C# client — is in
+[`docs/UNITY_STREAM.md`](../docs/UNITY_STREAM.md).

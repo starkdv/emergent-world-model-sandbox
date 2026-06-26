@@ -167,6 +167,10 @@ Performance: terrain and all objects are drawn with instanced meshes, so large,
 full worlds stay smooth. See `web/README.md` for the full fidelity map
 (every sim mechanic → how it appears in 3D).
 
+**Building your own frontend (Unity, etc.)?** The live stream protocol — SSE
+framing, snapshot/delta JSON schemas, terrain decoding, coordinates, and a
+Unity C# client — is documented in [`UNITY_STREAM.md`](UNITY_STREAM.md).
+
 ## 10. Download / export the world design
 
 - **Checkpoint (resumable, exact):** `--save-state run.pkl` writes the full

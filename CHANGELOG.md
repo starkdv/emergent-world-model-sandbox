@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased] — docs: external/Unity stream protocol
+
+- **docs/UNITY_STREAM.md** (new): the wire contract for building an external
+  frontend (Unity/Unreal/custom) on the live stream. Documents the transport
+  (**SSE over HTTP**, not WebSocket — with the implications spelled out), the
+  `/api/snapshot` and `/api/stream` endpoints, SSE framing, the full
+  **snapshot/delta JSON schemas** (terrain grids, objects, agents, sky,
+  burning, signals, feature/brain flags), base64 terrain-grid **decoding**,
+  coordinate/render conventions, a copy-pasteable **Unity C# SSE client**, a
+  poll-`/api/snapshot` fallback, an optional WebSocket-endpoint path, and
+  schema **versioning**. Linked from README, USER_GUIDE, and web/README.
+
 ## [Unreleased] — docs: comprehensive testing guide
 
 - **docs/TESTING.md** (new): documents the full **512-test** suite file-by-file
