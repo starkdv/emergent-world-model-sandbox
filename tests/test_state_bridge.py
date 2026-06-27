@@ -199,8 +199,16 @@ class TestDelta:
         w = _world()
         bid = _berry(w, 1, 1)
         ag = SimpleNamespace(
-            id=5, x=1, y=1, direction=(0, -1), energy=150.0, max_energy=200.0,
-            age=250, max_age=1000, alive=True, inventory=[bid],
+            id=5,
+            x=1,
+            y=1,
+            direction=(0, -1),
+            energy=150.0,
+            max_energy=200.0,
+            age=250,
+            max_age=1000,
+            alive=True,
+            inventory=[bid],
             genome=SimpleNamespace(lineage_id=2, generation=4),
             _previous_action=SimpleNamespace(name="EAT"),
         )
@@ -218,7 +226,9 @@ class TestDelta:
         assert "planted" in o
 
     def test_snapshot_reports_feature_flags(self):
-        w = _world(signal_config={"enabled": True}, social_config={"transfer_enabled": True})
+        w = _world(
+            signal_config={"enabled": True}, social_config={"transfer_enabled": True}
+        )
         snap = world_snapshot(w)
         assert snap["signal_enabled"] is True
         assert snap["transfer_enabled"] is True

@@ -41,7 +41,9 @@ class TestTile:
 
         assert soil_tile.is_passable()
         assert not rock_tile.is_passable()
-        assert not water_tile.is_passable()  # water blocks movement (agents stay on land)
+        assert (
+            not water_tile.is_passable()
+        )  # water blocks movement (agents stay on land)
         sand_tile = Tile(0, 0, TerrainType.SAND)
         assert sand_tile.is_passable()
 
