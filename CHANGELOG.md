@@ -1,14 +1,314 @@
 # Changelog
 
-## [Unreleased] — World upgrade, Phases W0–W6 (complete)
+## [Unreleased] — proposal: planning — current vs. improvements
+
+- **docs/PLANNING_PROPOSAL.md** (new): a research + design doc on the agent
+  planner. Documents the **as-built** controller (random-shooting MPC that
+  replans every tick and rolls out with **uniform-random** continuation
+  actions — it moves one step and replans, never follows a multi-step plan),
+  diagnoses why that is weak, surveys the model-based RL literature (random
+  shooting/PETS, CEM/MPPI, PlaNet, Dreamer V1–V3, MuZero, MBPO), and proposes a
+  staged upgrade: **P1** policy-guided rollouts + policy-biased first action +
+  reward/value normalization + plan commitment (cheap, local, big win); **P2**
+  categorical CEM + model-error discipline (uncertainty penalty / ensemble,
+  λ-returns); **P3** Dreamer-style imagination-trained actor so planning is
+  learned and decision-time cost drops back to one forward pass. Includes an
+  evaluation plan (reusing `docs/sample_planning_curiosity/`), risks, and
+  backwards-compat notes. No code changes.
+
+## [Unreleased] — render.server CLI: learning, logging, planning, weights
+
+The live 3D server can now drive the full workflow from the browser view, not
+just spectate. New `python -m render.server` flags (with a detailed `--help`):
+
+- **`--no-learn`** — RL learning is **on by default** for `--config` (agents
+  learn live and the planner's world-model head trains); this freezes them.
+- **`--log` / `--world-model-log` / `--log-dir`** — capture per-action/state and
+  transition CSVs *while watching*, so you can then run
+  `scripts/analyze_logs.py` or `scripts/train_world_model.py` on the data. The
+  transition logger sizes correctly to the live brain (78-dim under v3.5).
+- **`--load-weights NPZ`** — seed every agent from pre-trained genome weights
+  (migrated onto the configured brain if layouts differ); `session_from_config`
+  gained a `load_weights` arg to support it.
+- The `--help` epilog explains every mode and the **two distinct world models**
+  (the per-agent planner/curiosity head vs the offline PopulationWorldModel),
+  plus a Codespaces port-forwarding note. `web/README.md` documents the same.
+
+So, e.g., `python -m render.server --config config/planning_curiosity_v35.yaml`
+shows agents **planning + being curious live** in the 3D view; add
+`--world-model-log` to capture data and train an offline model from it.
+
+## [Unreleased] — experiment: world-model planning + curiosity change behavior
+
+A controlled A/B (same seed 42, same 3,000 ticks, same 64×64 world; Brain v3.5
++ PPO) showing what the **per-agent latent world model** does when agents use it
+**online** to plan and explore — `agents/planner.py` (imagined latent rollouts
+pick the action) and `agents/curiosity.py` (prediction-error intrinsic reward).
+
+- **`config/planning_curiosity_v35.yaml`** (new): the treatment — same as
+  `worldmodel_v35.yaml` but with `brain.world_model.enabled`,
+  `…planner.enabled`, and `learning.curiosity.enabled` all **on**.
+- **`docs/sample_planning_curiosity/`** (new): both analyzer reports + metrics +
+  a comparison README. With planning + curiosity, vs the baseline:
+  - exploration per agent **~2×** (27.7 → 54.9 tiles); curiosity seeks novelty,
+  - far more **goal-directed**: turning drops 51% → 36% of actions while
+    EAT ×6.5, PICK_UP ×5, seeds planted ×4,
+  - **+49% peak fitness, +30% lifespan, +51% energy**,
+  - per-agent strategy entropy rises (richer repertoire) while pairwise novelty
+    falls — agents **converge** on the same effective planned strategy.
+  This is the online per-agent world model (Brain v3 Phase 4), distinct from the
+  offline `PopulationWorldModel` in `docs/sample_world_model/`.
+
+## [Unreleased] — feature: train + publish a Brain v3.5 + PPO world model
+
+- **`scripts/train_world_model.py`** (new): trains a `PopulationWorldModel`
+  (`f(obs,a)→(Δobs, r̂, done)`) from `--world-model-log` transitions and saves
+  it. Unlike `dream_evolve.py` (hardcoded 8 actions), it **sizes itself from the
+  config's brain version**, so it works for **v3.5 (78-dim obs, 9 actions incl.
+  SIGNAL)**; it also widens the action space to any index seen in the data, and
+  reports held-out Δobs/reward/done accuracy vs a Δ=0 baseline.
+- **`config/worldmodel_v35.yaml`** (new): a v3.5 + PPO training world —
+  `brain.version: 3.5`, `signal.enabled: true`, `learning.algorithm: ppo`,
+  `mode: rl`, 64×64 map, population capped at 30. Crucially
+  `simulation.parallel: false` — threaded agent updates + torch PPO
+  oversubscribe and run ~50× slower; serial is the right choice for v3.5+PPO.
+- **`docs/sample_world_model/`** (new): a published trained model
+  (`world_model_v35.pt`, ~150 KB) + `training_report.txt` + `metrics.csv`.
+  Trained on 291k transitions from a v3.5+PPO run: held-out **Δobs MSE 0.0268
+  vs 0.0337 baseline**, done-acc 0.999, all 9 actions (SIGNAL 67k uses) active;
+  agent mean fitness rose 12→56 during collection. The full 100k-tick run is
+  ~3.5 h at v3.5+PPO speeds, so the published model uses ~10k ticks (ample for
+  the model); the run is reproducible at any length (see the dir's README).
+
+## [Unreleased] — feature: 3D viewer — 5×5 vision-grid overlay (press V)
+
+- **See what an agent sees.** Press **V** to toggle a 25-tile overlay on the
+  ground showing the **exact 5×5 vision footprint** of the selected (clicked) or
+  followed agent. It is **egocentric and rotates with the agent's facing** —
+  built with the same rotation as `utils/agents/perception.py` (`forward = -dy`,
+  `right = (-fy, fx)`), so it always matches the observation the brain receives.
+  Yellow = the agent's own tile; brighter cyan = the tiles ahead. Out-of-bounds
+  tiles (perceived as rock) are omitted. The agent's facing `dir` is now carried
+  in the per-agent view for this.
+
+## [Unreleased] — fix: 3D viewer — seeds/plants/berries now look different + trees grow
+
+- **Seeds, plants and berries all rendered as the same red blob → fixed.** The
+  object type_ids are `berry`, `berry_plant`, `berry_seed` — and the client
+  classified by **type_id substring before the authoritative `category`**, so
+  `berry_plant`/`berry_seed` matched `"berry"` and became *food*. Everything
+  drew as the red food icosahedron. `categoryOf` now trusts the bridge's
+  `category` field first; type_id is only a fallback (seed/plant before berry).
+  Result: berries = red icosahedra, seeds = tan cubes, plants = trees.
+- **Plants now visibly grow like trees.** A plant scales from a small sapling
+  (0.35×) to a full tree (1.4×) with maturity, and its color **lerps from pale
+  yellow-green (young) to deep forest green (mature)** via per-instance color —
+  so young and mature plants are obviously different. (The bridge already
+  streams maturity each tick after the earlier delta fix.)
+
+## [Unreleased] — fix: 3D viewer (follow marker, visible objects, live growth, offline)
+
+Diagnosed by driving the real viewer in a headless browser against a live
+`render.server` (screenshots + DOM/state probes), not by inspection.
+
+- **Follow marker never appeared → fixed.** The follow camera tracked agents by
+  a snapshot **index**, so the instant the followed agent died (avg lifespan
+  ~195 ticks → seconds of wall-clock) the camera froze on a dead id and the
+  marker vanished. Rewrote follow to track a live agent **by id** and, when it
+  dies, **auto-hand off to the nearest living agent**. The marker is now bigger,
+  drawn on top (never hidden behind hills), and the chase converges faster.
+- **Seeds / trees hard to see → enlarged + recolored.** Trees were nearly the
+  same green as the soil and all objects were small. Trees are now taller with a
+  brown trunk + dark-green canopy; berries/seeds are bigger and brighter.
+- **Plants didn't visibly grow → fixed.** `StateTracker` only re-emitted an
+  object when its **position** changed, so a plant maturing in place never
+  updated. It now re-emits when the render-relevant state changes (position,
+  category, or maturity/freshness bucketed to 0.1), so trees grow live.
+- **No more CDN dependency.** Three.js (r160) is **vendored** in
+  `web/vendor/three/` and resolved via the import map, so the viewer works with
+  **no internet** (Codespaces / firewalled). Previously a blocked `unpkg.com`
+  left the page blank.
+- **HUD brain version was wrong in cohort mode.** It sampled the *first* agent's
+  brain — and the v2-old founders are spawned first — so a 96%-v3 world showed
+  "v2". The bridge now reports the **full `brain_versions` distribution** (in
+  both snapshot and every delta) and the HUD shows the live mix
+  (e.g. `v3·96 + v2·4`); `brain_class`/`brain_output_size` now describe the
+  *majority* brain. Documented in `docs/UNITY_STREAM.md`.
+
+## [Unreleased] — feature: brain-cohort competition (old vs new, in one world)
+
+- **Two brain architectures compete in a single shared world.** A new
+  `competition:` block in `config/default.yaml` seeds ~`old_fraction` (default
+  15%) of the founding agents with the **old** brain (v2) and the rest with the
+  **new** brain (v3). Each agent records `brain_config_used` + a `cohort` label.
+- **Offspring breed true.** `clone_agent` temporarily restores the parent's
+  brain config while constructing the child, so a v2 parent produces v2 children
+  (matching genome length) and the two cohorts compete over evolutionary time.
+- **Analyzer compares the cohorts.** `scripts/analyze_logs.py` emits a new
+  **⚔️ COHORT COMPARISON** section (per-cohort agents, actions, mean/max age,
+  mean fitness, EAT%, action mix) whenever the action log has ≥2 cohorts. The
+  log gained a trailing `cohort` column (`utils/data/agent_logger.py`).
+- **UI marker on the followed agent.** The 3D web client floats a bobbing,
+  spinning cone over the agent you follow, and the inspector shows its `cohort`.
+- **Headless runner.** `scripts/competition_run.py` builds the config-driven
+  world, runs N ticks with per-action logging + per-generation metrics, then
+  writes `analysis.txt` (with the cohort section).
+- **Published sample run** in `docs/sample_competition/` (4,000 ticks): founders
+  `{v2-old:1, v3-new:7}` → `{v3-new:96, v2-old:4}`. The new architecture wins on
+  mean fitness (10.57 vs 8.95) and max lifespan (493 vs 259). Includes
+  `metrics.csv`, `analysis.txt`, and a 1-in-40 down-sampled action log.
+- Note: cohorts must share an observation layout — v2/v3 are 72-dim
+  (compatible); v3.5 is 78-dim (SIGNAL) and cannot share a world with v2/v3.
+- Tests: `TestCohortComparison` in `tests/test_w5_society.py`.
+
+## [Unreleased] — docs: external/Unity stream protocol
+
+- **docs/UNITY_STREAM.md** (new): the wire contract for building an external
+  frontend (Unity/Unreal/custom) on the live stream. Documents the transport
+  (**SSE over HTTP**, not WebSocket — with the implications spelled out), the
+  `/api/snapshot` and `/api/stream` endpoints, SSE framing, the full
+  **snapshot/delta JSON schemas** (terrain grids, objects, agents, sky,
+  burning, signals, feature/brain flags), base64 terrain-grid **decoding**,
+  coordinate/render conventions, a copy-pasteable **Unity C# SSE client**, a
+  poll-`/api/snapshot` fallback, an optional WebSocket-endpoint path, and
+  schema **versioning**. Linked from README, USER_GUIDE, and web/README.
+
+## [Unreleased] — docs: comprehensive testing guide
+
+- **docs/TESTING.md** (new): documents the full **512-test** suite file-by-file
+  — what each file verifies and its **pass criteria** — grouped by subsystem
+  (brain/genome, world/terrain, objects/ecology, actions/rewards, learning,
+  world-model/dreams, substrate, social/analyzers, frontend, infra, scenarios).
+  Notes the one known-flaky stochastic test and how to add new tests. Linked
+  from README, USER_GUIDE, and the proposal docs.
+
+## [Unreleased] — perf (instanced objects), water, large biome world, user guide
+
+- **Perf — no more lag as the world fills**: the web client now renders objects
+  with **per-category InstancedMesh** (one draw call per category instead of
+  thousands of meshes). Trees are a single merged geometry that scales with
+  maturity, so they are clearly visible. Click-to-inspect works via instance
+  ids; fire shows as flame particles at burning objects.
+- **Water**: rendered as **one flat sea-level surface** (was stair-stepped
+  per-column layers), and **WATER is now impassable** so agents stay on land
+  instead of walking on water (`Tile.is_passable` excludes water + rock).
+- **Default config = large biome world**: 160×160 heightmap with a richer biome
+  mix (more sand for **deserts**), **day/night + weather**, **wildfire**, and a
+  **small starting population (8) that breeds** (reproduction on). Tuned for a
+  watchable, self-sustaining 3D world.
+- **docs/USER_GUIDE.md** (new): task-oriented guide — which mode/brain/learner/
+  reward to pick and why; world features (biomes, weather, fire, desertification);
+  the **world model + planning**; **dream-based evolution**; the **3D viewer**;
+  **exporting** the world (checkpoint / PLY / recording); and **Blender**
+  round-tripping. Linked from the README.
+- Tests: `test_tile_passable` updated for water-impassable; full suite green
+  (510 + the known-flaky dream test which passes in isolation).
+
+## 3D viewer: true-to-sim fidelity pass
+
+The viewer is the **real simulation**, not a demo: `python -m render.server`
+runs the world from `config/default.yaml` (same `World`, systems, and configured
+brain as `main.py`); the read-only bridge now surfaces the full per-entity state
+so every brain/world mechanic is visible.
+
+- **Bridge** (`render/state_bridge.py`, read-only): agent view gains **age**,
+  **last action** (the brain's most recent decision), **inventory** (count +
+  has_food/has_seed); object view gains **value** (food freshness / plant
+  maturity / seed viability) and **planted-by-agent**; snapshot reports
+  **brain class + output size** (v2 / v3 / v3.5) and the **signal/transfer**
+  feature flags.
+- **Client** (`web/`): inspector now shows agent age/last-action/carrying and
+  object freshness/maturity/viability; **plants scale with maturity** (saplings
+  small → mature trees full); **rain** falls and **drought** hazes the sky
+  (W1 weather, previously HUD-only); HUD shows the **brain architecture** and
+  active social features.
+- **Docs**: `web/README.md` gains a full **fidelity map** (every W0–W6 / brain
+  mechanic → how it appears in 3D) and states plainly that the default is the
+  real sim. What stays internal (neural weights, GRU/world-model latent) is
+  called out.
+- Tests: 3 new bridge assertions (agent full-state, object value, feature
+  flags). Full suite green.
+
+## 3D viewer: config-driven world, clickable, visual fixes
+
+Addresses the Codespace report (dark surfaces, no trees, no day/night,
+mountainous, agents dying, nothing clickable):
+
+- **Config-driven world** (`render/sim_session.session_from_config`,
+  `render.server --config`, default `config/default.yaml`): the viewer now
+  builds the *configured* world — size, heightmap **biomes**, climate,
+  population — instead of a fixed demo. Initial resources are populated
+  (trees/berries/seeds) and agents spawn with **lifetime learning** and
+  **reproduction on**, so they forage and breed instead of dying out (verified
+  20 → 39 agents over 150 ticks). `--demo` keeps the old fixed scene.
+- **Dark surfaces fixed**: the terrain material had `vertexColors: true` but a
+  box has no vertex colors, so every tile rendered black. Removed it →
+  per-instance biome colors show, and the W1 **day/night** lighting is visible.
+- **Less mountainous**: voxel column height `MAX_H` 18 → 10 (gentler hills),
+  and `config/default.yaml` now defaults `terrain.generator: heightmap`
+  (biomes) with broader/smoother features (`feature_scale` 12→18,
+  `persistence` 0.5→0.45).
+- **Trees**: plants now render as an actual tree (trunk + foliage) instead of a
+  small cone, so vegetation is visible.
+- **Click-to-inspect everything**: raycasting now covers agents, objects
+  (trees/berries — category/type/on-fire), and **terrain tiles** (terrain,
+  elevation, fertility, moisture) via the InstancedMesh `instanceId`; the
+  inspector panel is now generic.
+
+## config default + 3D viewer fixes (earlier)
+
+- **Default brain is now v3** (the attention brain) in `config/default.yaml`
+  — was v2. Set `brain.version: 2` for the legacy baseline, `3.5` for the
+  social brain. README/table/snippets updated to match.
+- **3D viewer demo world is now populated and larger** (`render/sim_session.py`
+  `build_demo_world`): it previously generated terrain but **no objects**, so
+  the scene was empty (no trees/food) — fixed by scattering berry-plants
+  ("trees", half pre-matured to bear fruit), berries, and seeds, with resource
+  spawning on so food regenerates. Default size 64²→**96²**, agents 12→**24**,
+  demo brain v2→**v3**. Server CLI defaults match.
+- **3D viewer camera & lighting fixes**: the camera now frames the world by its
+  size (was a fixed faraway position → the map looked tiny), an always-on
+  ambient light plus higher hemisphere/sun floors keep the scene readable, and
+  the night sky floor was lifted (deep night was rendering near-black). These
+  address the "agents not moving / only night / map too small" reports — agents
+  were in fact moving in the sim; the empty, dark, distant view hid it.
+
+## 3D voxel frontend (Phases F0–F5)
+
+Plan, decisions, and roadmap: `docs/FRONTEND_3D_PROPOSAL.md` · run guide:
+`web/README.md`. A live Minecraft-style voxel view of the world, rendered in
+the browser. The sim is unchanged — a **read-only** bridge streams its state.
+
+- **F0 — state bridge** (`render/state_bridge.py`): `world_snapshot` (terrain
+  packed as base64 byte-grids from the W2 elevation field, plus objects/agents/
+  sky) + `StateTracker.delta` (per-tick moves/spawns/removals, pheromone cells,
+  sky scalars). Read-only — never mutates the world. 8 tests.
+- **F3a — live server** (`render/server.py`, `render/sim_session.py`):
+  Server-Sent-Events over the stdlib HTTP server (no new deps), `/api/snapshot`
+  + `/api/stream`; `SimSession` (snapshot/step) with demo-world and
+  checkpoint-resume factories. `python -m render.server`. 5 tests.
+- **F3b — web client** (`web/`): Three.js voxel renderer — chunk-free instanced
+  terrain columns (blocky) with biome palette + water, per-lineage agents
+  grounded on the surface and tweened between ticks, distinct per-category
+  object models, pheromone glow, W1 day/night sky; orbit/free-fly/follow camera.
+- **F1 — offline export** (`render/voxel_export.py`): snapshot → colored ASCII
+  PLY (Blender/MeshLab) with exposed-face culling. `python -m render.voxel_export`.
+  5 tests.
+- **F4 — polish**: click-to-inspect agents, chase-follow camera, idle bob +
+  smooth yaw, signal pulse, and lifecycle particle bursts (birth/death/consume)
+  derived from deltas. Multi-client streaming verified.
+
+18 new render tests (full suite 497). **Next:** F5 (replay scrubbing),
+trade/fire particles (needs a read-only event channel), optional smooth terrain.
+
+## World upgrade, Phases W0–W6 (complete)
 
 Plan and rationale: `docs/WORLD_UPGRADE_PROPOSAL.md`.
 
-> **▶ Open / next up:** **Brain v3.6 — kin-similarity sense (Observation v3).**
-> The one piece deferred from W5 because it touches the genome
-> (`nearest_agent_kin`, obs 78→79). Fully designed in `BRAIN_V3_PROPOSAL.md`
-> §9; this is the next work item. A **3D / voxel frontend** proposal
-> (`FRONTEND_3D_PROPOSAL.md`) is also queued for review.
+> **▶ Open / next up (sim side):** **Brain v3.6 — kin-similarity sense
+> (Observation v3).** The one piece deferred from W5 because it touches the
+> genome (`nearest_agent_kin`, obs 78→79). Fully designed in
+> `BRAIN_V3_PROPOSAL.md` §9; this is the next sim work item.
 
 ### Phase W6c — Substrate: reward-shaping diet + per-generation metrics CSV
 

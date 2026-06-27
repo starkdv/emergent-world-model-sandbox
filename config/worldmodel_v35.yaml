@@ -6,9 +6,11 @@
 # agents and grows through reproduction. Bigger map + fewer agents = clearer
 # emergence and an easier-to-watch 3D world.
 world:
-  width: 160
-  height: 160
-  initial_resources: 220
+  # Smaller than default so a 100k-tick training run finishes in reasonable
+  # wall-clock while still producing diverse transitions for the world model.
+  width: 64
+  height: 64
+  initial_resources: 120
   resource_spawn_rate: 0.01
   seed: null  # null for random, or specify integer for reproducible runs
   allow_stacking: false  # If false, enforces one object per tile (prevents overlapping)
@@ -47,7 +49,7 @@ terrain:
 
 # Agent Settings
 agents:
-  initial_population: 8   # start small; reproduction grows the population
+  initial_population: 24  # larger seed → more transitions, lower extinction risk
   starting_energy: 100.0
   max_energy: 200.0
   metabolism_rate: 0.5
@@ -72,7 +74,7 @@ brain:
   #         See docs/BRAIN_V3_PROPOSAL.md §8. Pair with signal.enabled.
   # Default is the v3 attention brain (the recommended architecture). Set
   # version: 2 for the legacy GRU-MLP baseline, or 3.5 for the social brain.
-  version: 3
+  version: 3.5   # social brain (78-dim obs + SIGNAL action); pair with signal.enabled
 
   # --- v2 sizes (used when version: 2) ---
   input_size: 72  # calculated from observation vector (8 agent + 50 vision + 8 stimulus + 6 inventory)
@@ -97,7 +99,12 @@ brain:
   # pure neuroevolution it only evolves.
   # NOTE: enabling changes the genome length (the head lives in the genome).
   world_model:
-    enabled: false
+    # Per-agent latent dynamics head. OFF for throughput on the long data-
+    # collection run: it (and curiosity) run a torch forward for every agent
+    # every tick, which dominates wall-clock. It is ORTHOGONAL to the deliverable
+    # here — the PopulationWorldModel (scripts/train_world_model.py) is trained
+    # offline from the logged transitions, not from this per-genome head.
+    enabled: false       # per-agent latent dynamics head (trained by PPO)
     hidden: 32           # dynamics MLP hidden width
     planner:
       enabled: false     # model-based action selection (costly per tick)
@@ -209,7 +216,8 @@ simulation:
   ticks_per_second: 10
   auto_save: true
   save_interval: 10  # generations
-  parallel: true  # Parallel agent updates (observe+decide & learn run threaded)
+  parallel: false  # SERIAL: threaded updates + torch PPO oversubscribe and run
+                   # ~50x slower; serial is ~50 ticks/s here. Keep false for v3.5+PPO.
 
 # Visualization Settings
 visualization:
@@ -254,7 +262,7 @@ learning:
   #         PPO clipped updates, Adam + gradient clipping. Works with
   #         both brain versions. Falls back to a2c if torch is missing.
   # See docs/BRAIN_V2_V3_COMPARISON.md for the math behind both.
-  algorithm: "a2c"
+  algorithm: "ppo"
   ppo:
     learning_rate: 0.0003 # Adam step size (PPO ignores learning_rate below)
     seq_len: 8            # steps per sequence chunk (BPTT horizon)
@@ -263,9 +271,9 @@ learning:
     clip_epsilon: 0.2     # PPO ratio clip ε
     value_coef: 0.5       # weight of the value loss
     entropy_coef: 0.01    # exploration bonus weight
-    epochs: 2             # optimisation passes per sampled batch
+    epochs: 1             # one pass per batch (throughput for the long run)
     grad_clip: 0.5        # max gradient norm
-    chunk_buffer: 64      # chunks kept in the replay buffer
+    chunk_buffer: 24      # chunks kept in the replay buffer
     world_model_coef: 1.0 # weight of the dynamics-head auxiliary loss
 
   # Curiosity (Brain v3 Phase 4) — requires brain.world_model.enabled.
@@ -273,7 +281,7 @@ learning:
   # surprising transitions are rewarded, replacing hand-crafted
   # exploration bonuses with an emergent signal.
   curiosity:
-    enabled: false
+    enabled: false  # off for throughput (requires the per-agent world_model head)
     weight: 0.1   # intrinsic reward scale
     decay: 1.0    # per-step multiplicative weight decay (1.0 = constant)
     clip: 3.0     # cap in standard deviations
@@ -285,9 +293,9 @@ learning:
   buffer_capacity: 1000
   epsilon: 0.15  # Exploration rate
   train_interval_ticks: 3  # More frequent policy updates to avoid passive collapse
-  max_updates_per_tick: 12  # Initial global cap of learner updates per world tick
+  max_updates_per_tick: 4   # global cap of learner updates/tick (low for throughput)
   stagger_updates: true  # Spread training across ticks by agent id
-  adaptive_budget: true  # Auto-tune learning budget based on frame time
+  adaptive_budget: false # pinned at the cap above so it can't climb and slow the run
   min_updates_per_tick: 4  # Lower adaptive bound (maintain enough learning pressure)
   max_budget_updates_per_tick: 20  # Upper adaptive bound for high-pop stability
   budget_adjust_step: 1  # Budget change step when tuning
@@ -306,7 +314,7 @@ reproduction:
   energy_split: 0.40  # Parent loses this percentage of energy
   mutation_std: 0.02  # Mutation standard deviation
   cooldown_ticks: 30  # Minimum ticks between reproductions
-  max_population: 100 # Maximum total population (agents won't reproduce above this)
+  max_population: 30  # smaller, faster population for the long PPO training run
 
 # Calamity Settings - Environmental Disasters
 # Off by default: a 70%-resource wipe every 500 ticks collapses a small
@@ -327,7 +335,7 @@ calamity:
 # from environment.temperature, dryness from each tile's moisture — so fire is
 # rare in the wet/cold and dangerous in the hot/dry. Disabled = no-op.
 fire:
-  enabled: true              # Master switch — wildfire on hot, dry vegetation
+  enabled: false             # off for a stable long training run on the small map
   ignite_chance: 0.0004      # Base per-tick ignition chance for a hot, dry plant
   spread_chance: 0.30        # Per-tick chance a burning plant ignites an adjacent plant
   burn_duration: 6           # Ticks a plant burns before it is consumed
@@ -341,7 +349,7 @@ fire:
 # NO built-in meaning — any protocol must emerge. Disabled = SIGNAL is masked
 # off and no field is allocated (v3.5 then behaves like v3 on the 8 actions).
 signal:
-  enabled: false   # Master switch (requires brain.version: 3.5 to matter)
+  enabled: true    # v3.5 SIGNAL action + pheromone field active
   strength: 1.0    # Value deposited per SIGNAL action
   decay: 0.9       # Per-tick geometric decay of the field
   diffuse: 0.0     # Fraction spread to the 4-neighbourhood each tick (0 = none)
@@ -383,7 +391,9 @@ reward:
 # 72-dim, so new=v3 / old=v2 is the supported default. (v3.5 uses a 78-dim
 # observation and cannot share a world with v2/v3.)
 competition:
-  enabled: true
+  # OFF for the v3.5 world-model run: a v2 brain (72-dim obs) cannot share a
+  # 78-dim v3.5 world. Pure single-cohort v3.5 population here.
+  enabled: false
   old_fraction: 0.15        # 10–20% of the starting population on the old brain
   old_brain_version: 2      # the "old" architecture
   old_label: "v2-old"

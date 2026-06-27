@@ -1,10 +1,19 @@
 # Frontend 3D / Voxel World — Architecture Proposal
 
-**Status:** PROPOSAL — for review. No code yet. This document is the plan for
-moving the simulation's *visualization* from the current 2D/isometric renderers
-to a **Minecraft-like voxel world**. Author: Karan Vasa.
+**Status:** IN PROGRESS — review complete (decisions in §10). **Shipped:**
+F0 (state bridge), F3a (live SSE server), F3b (Three.js voxel web client),
+F1 (offline PLY voxel export), F4 (click-to-inspect, chase-follow camera, idle
+bob + smooth yaw, signal pulse, lifecycle particles), fire visualization
+(read-only), and F5 (recording + looping replay via `render.recorder` /
+`render.server --replay`; multi-client already supported). A live voxel view
+runs via `python -m render.server`. **Next:** trade/give particle effects
+(needs a read-only event channel on the bridge), timeline-scrub UI on the
+replay client, and optional smooth terrain (§11). Author: Karan Vasa.
 
-**Branch (when started):** `claude/frontend-3d`
+**Verification:** the render tests (bridge, session, recorder, voxel export) and
+their pass criteria are catalogued in [`TESTING.md`](TESTING.md) §9.
+
+**Branch:** `claude/frontend-3d`
 **Scope (proposed):** a new renderer package; a read-only **world→render state
 bridge**; no change to `world/`, `agents/`, or the simulation loop semantics.
 **Inputs reviewed:** `utils/render.py` (ASCII), `utils/ui/pygame_renderer.py`

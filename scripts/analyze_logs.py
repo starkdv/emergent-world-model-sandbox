@@ -632,6 +632,49 @@ def _compute_social_metrics(df: pd.DataFrame) -> dict:
     return out
 
 
+def _compute_cohort_comparison(df: pd.DataFrame) -> dict:
+    """
+    Compare brain cohorts when a run mixed architectures (the ``cohort`` column,
+    e.g. "v2-old" vs "v3-new"). For each cohort: distinct agents seen, actions
+    taken, mean/max age reached (a survival proxy), mean fitness, EAT-success
+    rate, and the action mix. Returns {} when there is only one cohort.
+    """
+    if "cohort" not in df.columns or "agent_id" not in df.columns:
+        return {}
+    cohorts = [c for c in df["cohort"].dropna().astype(str).unique()]
+    if len(cohorts) < 2:
+        return {}
+
+    out = {"cohorts": []}
+    for c in sorted(cohorts):
+        sub = df[df["cohort"].astype(str) == c]
+        agents = sub["agent_id"].nunique()
+        n_actions = len(sub)
+        age = pd.to_numeric(sub.get("age"), errors="coerce")
+        fit = pd.to_numeric(sub.get("fitness"), errors="coerce")
+        eats = sub[sub["action"].astype(str) == "EAT"]
+        eat_succ = None
+        if len(eats) and "success" in sub.columns:
+            s = eats["success"].astype(str).str.lower().isin({"1", "true", "yes"})
+            eat_succ = round(100.0 * s.mean(), 1)
+        mix = sub["action"].astype(str).value_counts(normalize=True).mul(100).round(1)
+        out["cohorts"].append(
+            {
+                "cohort": c,
+                "agents": int(agents),
+                "actions": int(n_actions),
+                "mean_age": round(float(age.mean()), 1) if age.notna().any() else 0.0,
+                "max_age": int(age.max()) if age.notna().any() else 0,
+                "mean_fitness": (
+                    round(float(fit.mean()), 2) if fit.notna().any() else 0.0
+                ),
+                "eat_success_pct": eat_succ,
+                "action_mix": {a: float(p) for a, p in mix.head(5).items()},
+            }
+        )
+    return out
+
+
 def _compute_society_metrics(df: pd.DataFrame) -> dict:
     """
     Division-of-labor + behavioural-novelty + territory + trade metrics
@@ -1281,6 +1324,26 @@ if social_m.get("signal_actions", 0) > 0 or social_m.get("proximity_response"):
                 f"    {r['bucket']:<10}{r['count']:>10}{r['signal_pct']:>8.2f}%"
                 f"  {r['top_action']}"
             )
+
+# ── NEW: COHORT COMPARISON (brain A/B) ───────────────────────────────
+
+cohort_m = _compute_cohort_comparison(df)
+if cohort_m:
+    print("\n⚔️  COHORT COMPARISON (competing brain architectures)")
+    print(
+        f"    {'cohort':<10}{'agents':>8}{'actions':>10}{'mean_age':>10}"
+        f"{'max_age':>9}{'mean_fit':>10}{'EAT%':>7}"
+    )
+    for c in cohort_m["cohorts"]:
+        es = "n/a" if c["eat_success_pct"] is None else f"{c['eat_success_pct']:.0f}"
+        print(
+            f"    {c['cohort']:<10}{c['agents']:>8}{c['actions']:>10}"
+            f"{c['mean_age']:>10.1f}{c['max_age']:>9}{c['mean_fitness']:>10.2f}{es:>7}"
+        )
+    print("  (mean_age / max_age are survival proxies; mean_fit = mean fitness)")
+    for c in cohort_m["cohorts"]:
+        mix = ", ".join(f"{a}={p:.0f}%" for a, p in c["action_mix"].items())
+        print(f"    {c['cohort']} top actions: {mix}")
 
 # ── NEW: SOCIETY / ROLES / TERRITORY / TRADE (W5) ────────────────────
 

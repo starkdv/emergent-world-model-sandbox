@@ -1,0 +1,265 @@
+📊 Analyzing: /tmp/claude-0/-home-user-emergent-world-model-sandbox/665f9b32-ad3b-52fc-b89a-72b963f2a3fe/scratchpad/run1/agent_actions_20260625_074203.csv
+   Format: AgentLogger (old)
+======================================================================
+
+📈 SIMULATION SUMMARY
+  Total ticks: 5000
+  Total actions: 427,538
+  Number of agents: 549
+
+🎯 ACTION DISTRIBUTION
+  MOVE_FORWARD   : 176878 ( 41.4%)
+  PICK_UP        : 74837 ( 17.5%)
+  WAIT           : 39722 (  9.3%)
+  USE            : 34752 (  8.1%)
+  TURN_RIGHT     : 33581 (  7.9%)
+  TURN_LEFT      : 29333 (  6.9%)
+  EAT            : 24954 (  5.8%)
+  DROP           : 13481 (  3.2%)
+
+✅ SUCCESS RATES
+  WAIT           : 100.0%
+  TURN_RIGHT     : 100.0%
+  TURN_LEFT      : 100.0%
+  MOVE_FORWARD   : 100.0%
+  PICK_UP        :  97.8%
+  DROP           :  93.9%
+  EAT            : 100.0%
+  USE            :  99.2%
+
+🔁 PATH-LOOP METRICS
+  Backtrack events (A→B→A): 4,824 (1.13%)
+  ABAB short cycles:         488 (0.11%)
+  Return cycles (len 3-10):  14,136 (3.31%)
+  Moved-step revisits ≤8:    14,136 (8.0% of moved steps)
+  Blocked MOVE_FORWARD:      0
+  Total turns:               62,914
+  Reactive turns:            0 (0.0% of turns)
+  Proactive turns after run: 5,692
+  Long straight runs (>=6):  7,621
+  Max straight run length:   99
+
+🧰 INTERACTION DETAIL (PICK_UP / DROP / USE)
+  PICK_UP : total=74837, success=73192, fail=1645
+    success kinds:
+      - pickup: 73192
+    success object types:
+      - seed: 46744
+      - food: 26448
+    top failure reasons:
+      - No objects here: 1644
+      - No pickable objects here: 1
+    sample successful events:
+      - tick=102, agent=29, kind=pickup, obj=food#103, target=(71,23)
+      - tick=107, agent=10, kind=pickup, obj=food#122, target=(42,68)
+      - tick=109, agent=10, kind=pickup, obj=food#122, target=(42,68)
+      - tick=112, agent=10, kind=pickup, obj=food#122, target=(42,67)
+      - tick=114, agent=10, kind=pickup, obj=food#122, target=(42,67)
+  DROP    : total=13481, success=12662, fail=819
+    success kinds:
+      - drop_here: 12489
+      - drop_nearby: 173
+    success object types:
+      - seed: 11297
+      - food: 1365
+    top failure reasons:
+      - Object not found: 808
+      - No space to drop (tile occupied): 11
+    sample successful events:
+      - tick=108, agent=10, kind=drop_here, obj=food#122, target=(42,68)
+      - tick=111, agent=10, kind=drop_here, obj=food#122, target=(42,67)
+      - tick=113, agent=10, kind=drop_here, obj=food#122, target=(42,67)
+      - tick=115, agent=10, kind=drop_here, obj=food#122, target=(42,67)
+      - tick=120, agent=10, kind=drop_here, obj=food#122, target=(42,64)
+  USE     : total=34752, success=34461, fail=291
+    success kinds:
+      - plant_seed: 34013
+      - plant_seed_nearby: 448
+    success object types:
+      - seed: 34461
+    top failure reasons:
+      - Cannot plant here: 204
+      - Cannot plant - tile occupied and no space nearby: 87
+    sample successful events:
+      - tick=242, agent=20, kind=plant_seed, obj=seed#431, target=(85,13)
+      - tick=248, agent=20, kind=plant_seed, obj=seed#431, target=(85,13)
+      - tick=320, agent=20, kind=plant_seed, obj=seed#623, target=(80,25)
+      - tick=322, agent=20, kind=plant_seed, obj=seed#623, target=(80,25)
+      - tick=324, agent=20, kind=plant_seed, obj=seed#623, target=(80,25)
+
+🍎 FOOD CONSUMPTION
+  EAT attempts: 24954
+  Successful: 24954
+  Success rate: 100.0%
+
+🚶 MOVEMENT
+  MOVE attempts: 176878
+  Successful: 176878
+  Success rate: 100.0%
+
+⏸️  WAITING BEHAVIOR
+  WAIT actions: 39722
+  Percentage: 9.3%
+
+🎯 V3.1 TARGET COMPARISON
+  WAIT actions:
+    Actual: 9.3%
+    Target: 32-35%
+    Status: ⚠️  TOO AGGRESSIVE (decrease exploration bonus)
+  EAT success rate:
+    Actual: 100.0%
+    Target: 4-5%
+    Status: ✅ ABOVE TARGET (good!)
+  Survival time:
+    Actual: 5000 ticks
+    Target: >1500 ticks
+    Status: ✅ TARGET MET
+
+⚡ ENERGY ECONOMY
+  Avg energy change per action: -0.034
+  Total energy gained (eating): 87,851.4
+  Total energy lost (costs):    -102,178.9
+  Net energy per tick:          -2.87
+  Avg cost per action type:
+    USE            : 0.497
+    TURN_RIGHT     : 0.349
+    TURN_LEFT      : 0.344
+    WAIT           : 0.263
+    MOVE_FORWARD   : 0.207
+    PICK_UP        : 0.198
+    EAT            : 0.100
+    DROP           : 0.097
+
+📊 CALORIC EFFICIENCY
+  Total energy spent (all actions): 104,674.3
+  Total calories eaten:             90,346.8
+  Caloric efficiency (cal/cost):    0.863
+  Move exploration ratio:           0.042 (unique tiles / moves)
+
+👥 POPULATION DYNAMICS
+  Total unique agents:  549
+  Peak population:      100
+  Min population:       20
+  Mean population:      85.5
+  Estimated births:     549
+  Estimated deaths:     449
+  Net growth:           +100
+
+🧬 LIFESPAN & FITNESS
+  Avg lifespan:         777.8 ticks
+  Median lifespan:      998.0 ticks
+  Max lifespan:         998 ticks
+  Std lifespan:         298.2
+  Avg peak fitness:     207.59
+  Max peak fitness:     631.92
+  Avg eats/agent:       45.5
+  Avg pickups/agent:    136.3
+
+  🏅 TOP 5 AGENTS (by peak fitness):
+      Agent  Lifespan   Fitness   Eats  Pickups    Age
+        400       998     631.9     78      472    999
+        304       998     617.5     84      464    999
+        398       998     615.7     48      479    999
+        339       998     602.3     56      472    999
+        375       998     600.0    115      430    999
+
+🗺️  SPATIAL COVERAGE
+  Unique tiles visited (global):  7534
+  Avg tiles per agent:            123.6
+  Median tiles per agent:         107.0
+  Max tiles by one agent:         564
+  Avg displacement (start→end):   31.9
+  Max displacement:               131.0
+  Hotspot tile:                   (0, 38) — 2212 visits
+
+🌾 FARMING PIPELINE
+  Seeds picked up:        46744
+  Seeds planted:          34461
+  Plant-to-pickup ratio:  0.737
+  Unique seed collectors: 378
+  Unique planters:        320
+  Food picked up:         26448
+  Food eaten:             24954
+  Food pickups per eat:   1.06
+
+🍽️  PER-SPECIES CONSUMPTION
+  Distinct species eaten: 1
+  species            eaten   share  net energy  note
+  berry              24954  100.0%        +3.6  
+
+🧬 SOCIETY / ROLES
+  Role entropy:           1.787 bits (69.1% of max — 1.0 = roles spread evenly, 0 = single role)
+  Distinct dominant roles:   6  MOVE_FORWARD=310, PICK_UP=115, WAIT=56, TURN_RIGHT=40, TURN_LEFT=26, USE=2
+  Behavioural novelty:    mean pairwise JS = 0.406 bits (max 1.000, n_pairs=2016)
+  Territory:              mean bbox = 1451.0 tiles, mean visited cells = 123.6
+                          mean Jaccard overlap = 0.057 (0 = disjoint territories, 1 = identical)
+
+🎭 BEHAVIORAL DIVERSITY
+  Avg strategy entropy:   1.583 / 3.000 (52.8% of max)
+  Most uniform agent:     #77 (lowest entropy — specialist)
+  Most diverse agent:     #360 (highest entropy — generalist)
+  Action variability across agents (std):
+    DROP           : 0.0750
+    EAT            : 0.0457
+    MOVE_FORWARD   : 0.3051
+    PICK_UP        : 0.1478
+    TURN_LEFT      : 0.1250
+    TURN_RIGHT     : 0.1798
+    USE            : 0.1057
+    WAIT           : 0.1994
+
+🔗 ACTION SEQUENCES (most common)
+  Top 2-grams:
+    MOVE_FORWARD→MOVE_FORWARD             150,086
+    WAIT→WAIT                              37,131
+    USE→PICK_UP                            33,824
+    PICK_UP→USE                            30,946
+    PICK_UP→EAT                            24,855
+    TURN_RIGHT→TURN_RIGHT                  24,067
+    TURN_LEFT→TURN_LEFT                    20,046
+    MOVE_FORWARD→PICK_UP                   15,814
+    DROP→PICK_UP                           12,398
+    PICK_UP→DROP                           11,670
+  Top 3-grams:
+    MOVE_FORWARD→MOVE_FORWARD→MOVE_FORWARD               133,799
+    WAIT→WAIT→WAIT                                        35,451
+    PICK_UP→USE→PICK_UP                                   30,534
+    USE→PICK_UP→USE                                       29,439
+    TURN_RIGHT→TURN_RIGHT→TURN_RIGHT                      19,393
+    TURN_LEFT→TURN_LEFT→TURN_LEFT                         16,317
+    MOVE_FORWARD→PICK_UP→EAT                              12,296
+    PICK_UP→DROP→PICK_UP                                  11,185
+    DROP→PICK_UP→DROP                                     10,570
+    PICK_UP→EAT→MOVE_FORWARD                              10,099
+
+📅 TEMPORAL PHASES (simulation split into 4 quarters)
+
+  Phase 1 (ticks 0-1250): 197 agents, 53,142 actions, avg energy 105.0
+    MOVE_FORWARD=59.5%, WAIT=13.3%, TURN_RIGHT=11.0%, TURN_LEFT=9.9%, PICK_UP=3.3%, EAT=1.2%, DROP=1.2%, USE=0.7%
+
+  Phase 2 (ticks 1250-2500): 219 agents, 124,762 actions, avg energy 161.1
+    MOVE_FORWARD=46.8%, WAIT=12.4%, PICK_UP=11.9%, TURN_LEFT=10.4%, TURN_RIGHT=7.2%, EAT=5.1%, USE=4.2%, DROP=2.1%
+
+  Phase 3 (ticks 2500-3750): 212 agents, 124,776 actions, avg energy 176.0
+    MOVE_FORWARD=38.0%, PICK_UP=21.3%, USE=11.9%, WAIT=8.6%, TURN_RIGHT=7.0%, EAT=6.7%, TURN_LEFT=4.2%, DROP=2.2%
+
+  Phase 4 (ticks 3750-5000): 220 agents, 124,858 actions, avg energy 178.9
+    MOVE_FORWARD=31.6%, PICK_UP=25.4%, USE=11.5%, TURN_RIGHT=8.0%, EAT=7.7%, DROP=6.0%, WAIT=5.2%, TURN_LEFT=4.7%
+
+🍼 INSTINCT FADE PHASES (split at age 150)
+  Juvenile (instincts on):
+    actions=80,691, agents=549, EAT attempts=4357 (success 100.0%)
+    MOVE_FORWARD=37.9%, PICK_UP=16.0%, WAIT=11.9%, TURN_RIGHT=9.5%, TURN_LEFT=9.4%, USE=6.9%, EAT=5.4%, DROP=3.0%
+  Adult (pure network):
+    actions=346,847, agents=535, EAT attempts=20597 (success 100.0%)
+    MOVE_FORWARD=42.2%, PICK_UP=17.9%, WAIT=8.7%, USE=8.4%, TURN_RIGHT=7.5%, TURN_LEFT=6.3%, EAT=5.9%, DROP=3.2%
+  → Adults still eat without the instinct scaffold: 20597 attempts at 100.0% success (the emergence-first claim, measured)
+
+🏆 OVERALL VERDICT
+  ✅ Survival: EXCELLENT
+  ✅ Feeding: 100% EAT success
+  ⚠️  Activity: too aggressive
+  ✅ Reproduction: 549 births
+  ✅ Farming: 34461 seeds planted by 320 agents
+  ✅ Diversity: 53% entropy utilization
+======================================================================

@@ -23,7 +23,7 @@ This project implements a **2D grid world** where:
 - 🤝 **Cooperation**: Group behaviors emerge without explicit programming
 - 🧠 **Neural Evolution + Online Learning**: Agents use evolved GRU Actor-Critic networks with optional real-time RL
 - 🔀 **Dual Evolution Mode**: RL mode (gradient learning + Lamarckian inheritance) or pure neuroevolution — selectable via `--mode rl` / `--mode neuroevolution`
-- 🎮 **Dual Renderer**: Pygame 2D GUI **or** a GPU-accelerated isometric 2.5D renderer via ModernGL
+- 🎮 **Three Renderers**: Pygame 2D GUI, a GPU-accelerated isometric 2.5D renderer (ModernGL), **and** a live **3D voxel (Minecraft-like) web view** streamed to the browser via Three.js (`python -m render.server`)
 - 🎯 **Fading Instincts**: Survival-bootstrapping biases (PICK_UP, EAT, USE, turn-toward-food, hunger-eat) that genuinely fade to zero with agent age — adults act purely on their learned network
 - 🔮 **Learned World Model** (opt-in): a latent dynamics head in the genome predicts *(next perception, reward)* — powering **curiosity** (surprise as intrinsic reward) and **imagination-based planning** (latent rollouts)
 - 🧪 **Two Learners**: legacy heads-only A2C (the control) or full-network PPO with sequence replay, GAE(λ), and clipped updates — both Lamarckian
@@ -59,6 +59,10 @@ python main.py --gui --seed 42
 # GPU isometric 2.5D renderer (requires OpenGL 3.3+)
 python main.py --gpu --seed 42
 
+# 3D voxel (Minecraft-like) web view — live in the browser, no extra deps
+python -m render.server          # then open http://127.0.0.1:8000
+# (see the "3D Voxel Frontend" section below)
+
 # Pure neuroevolution mode (no gradient learning)
 python main.py --gui --mode neuroevolution
 
@@ -91,9 +95,60 @@ python main.py --no-viz --generations 1000 --log
 
 > 💡 Pause with **SPACE** then hover for easier tile inspection.
 
+**New to the project? Start with the [USER_GUIDE.md](docs/USER_GUIDE.md)** —
+which mode to pick and why, training, the dream world, planning, the 3D viewer,
+exporting the world, and Blender round-tripping. For the test suite (what each
+test verifies + pass criteria) see **[TESTING.md](docs/TESTING.md)**.
+
 See [CLI_GUIDE.md](docs/CLI_GUIDE.md) for the full command-line reference, and
 **[Modes & Feature Toggles](#modes--feature-toggles--complete-reference)**
 below for every mode, its prerequisites, and what enabling it does.
+
+### 3D Voxel Frontend (Minecraft-like, in the browser)
+
+A live voxel view of the world, rendered in the browser with Three.js. The
+Python sim streams its state **read-only** (it never affects the simulation)
+over Server-Sent Events; the browser builds the world as voxel columns from the
+W2 `elevation` field, with biome blocks, water, a W1 day/night sky, per-lineage
+agents grounded on the terrain, distinct per-category object models (trees,
+berries, …), and a pheromone-signal glow. **Click anything** — an agent, a tree,
+or a tile — to inspect its properties.
+
+By default the world is built **from `config/default.yaml`** (size, heightmap
+biomes, climate, population), with learning agents and reproduction on so the
+population sustains itself.
+
+```bash
+# live view — stdlib only, no extra Python dependencies
+python -m render.server                       # → http://127.0.0.1:8000 (config-driven)
+python -m render.server --config config/training_easy.yaml
+python -m render.server --demo                # fixed self-contained scene
+python -m render.server --checkpoint data/states/run.pkl   # fly around a saved run (W6b)
+
+# record a run's render stream, then replay it on a loop (no re-simulation)
+python -m render.recorder --out run.jsonl --ticks 600
+python -m render.server --replay run.jsonl     # → http://127.0.0.1:8000
+
+# offline: export a frame to a colored PLY (opens in Blender / MeshLab)
+python -m render.voxel_export --out world.ply
+python -m render.voxel_export --checkpoint data/states/run.pkl --out run.ply
+```
+
+**Controls:** drag = orbit · scroll = zoom · WASD/QE = free-fly · **F** = follow
+the next agent (chase cam) · **R** = reset camera · **click anything** to inspect
+— an agent (energy, lineage, generation), a tree/berry (category, type), or a
+tile (terrain, elevation, fertility, moisture). Lifecycle events show as
+particle bursts (birth/death/consume); wildfire glows and flickers.
+
+Architecture (the bridge is read-only, so determinism/checkpointing are
+untouched), full design + roadmap in
+**[FRONTEND_3D_PROPOSAL.md](docs/FRONTEND_3D_PROPOSAL.md)** and
+**[web/README.md](web/README.md)**:
+
+```
+Python sim ──► render/state_bridge.py ──► render/server.py (SSE) ──► web/main.js
+ (unchanged)     snapshot + per-tick deltas   /api/stream            Three.js voxels
+```
 
 ## What's New — Brain v3 Upgrade (Phases 1–4)
 
@@ -148,7 +203,7 @@ can be run as a controlled experiment. Quick map:
 | # | Mode | Switch | Default | Requires |
 |---|------|--------|---------|----------|
 | 1 | Evolution mode | `--mode rl\|neuroevolution` / `evolution.mode` | `rl` | — |
-| 2 | Brain version | `brain.version: 2\|3\|3.5` | `2` | 3.5 adds social senses + SIGNAL |
+| 2 | Brain version | `brain.version: 2\|3\|3.5` | `3` | 3.5 adds social senses + SIGNAL |
 | 2b | Signalling (v3.5) | `signal.enabled` | off | `brain.version: 3.5` |
 | 3 | Fading instincts | `brain.instincts` | on, fade at 150 | — |
 | 4 | Learning algorithm | `learning.algorithm: a2c\|ppo` | `a2c` | RL mode; PPO needs torch |
@@ -435,6 +490,8 @@ behaviour, bit-compatible with W4 runs.
 | `--metrics-csv F.csv` | (W6c) Append one aggregate row per generation (population, food/plant/seed counts, mean energy/age, mean fitness, soil means) during a headless run. |
 | `--seed N` | Reproducible world generation. Note: with `simulation.parallel: true` (default) agent updates are threaded and runs are not bit-reproducible; set `parallel: false` for determinism. |
 | `--gui` / `--gpu` / `--no-viz` | Pygame 2D / ModernGL isometric / headless. |
+| `python -m render.server` | (Frontend) Serve the live 3D voxel web view (SSE); `--checkpoint`, `--width/--height/--agents/--tps`. |
+| `python -m render.voxel_export` | (Frontend F1) Export a frame to colored PLY; `--checkpoint`, `--out`. |
 | `learning.compute_backend/device` | `numpy`/`torch`, `cpu`/`cuda`/`mps` for the learners. |
 
 **The full stack in one config:** `brain.version: 3` +
@@ -457,14 +514,17 @@ emergent-world-model/
 │   ├── planner.py   # Latent rollout planner (imagination-based actions)
 │   └── dream.py     # Population world model + dream-based evolution
 ├── simulation/      # Simulation management
+├── render/          # 3D frontend (read-only): state_bridge (snapshot+deltas),
+│                    #   sim_session, server (SSE), voxel_export (PLY)
+├── web/             # Three.js voxel web client (index.html, main.js, style.css)
 ├── utils/
-│   ├── agents/      # Perception (72-dim obs), action execution, reward shaping
+│   ├── agents/      # Perception (72/78-dim obs), action execution, reward shaping
 │   ├── data/        # AgentLogger, WorldModelLogger (async + persistent handles)
 │   └── ui/          # Pygame renderer, GPU isometric renderer (ModernGL)
 ├── config/          # YAML configs + custom object definitions
 ├── scripts/         # Analysis tools + dream-evolution CLI
 ├── docs/            # All project documentation
-├── tests/           # 320+ unit tests
+├── tests/           # 500+ unit tests
 └── data/            # Logs, exported data, saved weights
 ```
 
@@ -510,7 +570,7 @@ Why v3 (full rationale in [BRAIN_V3_PROPOSAL.md](docs/BRAIN_V3_PROPOSAL.md)):
 
 ```yaml
 brain:
-  version: 3        # 2 (default) = legacy baseline, 3 = attention brain
+  version: 3        # 3 (default) = attention brain, 2 = legacy GRU-MLP baseline
   v3:
     embed_dim: 8
     state_dim: 40
@@ -536,12 +596,92 @@ python main.py --gui --config config/default.yaml \
   # set brain.version: 3.5, signal.enabled: true, world.agents_visible: true
 ```
 
+**v3.5 architecture (the attention core is byte-for-byte v3; only the shaded
+input/output layers grow):**
+
 ```
-v3 inputs/outputs ───────────────►  v3.5 inputs/outputs
-state encoder 22 → 40                state encoder 28 → 40   (+6 EXTRA senses)
-policy head   48 → 8                 policy head   48 → 9    (+SIGNAL action)
-                                     + PheromoneField (decaying signal grid)
+   Observation v2 (78 = 72 v1 prefix ⧺ 6 EXTRA)        ObservationSpec(version=2)
+   │
+   ├─ vision 5×5×2 (50) ── AGENT-AWARE: a tile with another living agent
+   │      │                encodes (0.40, its energy)            [W4 part 1]
+   │      ▼
+   │   per-tile embed (4→E, shared) → 25 tile tokens (+ fixed positional enc)
+   │      │
+   │      ├──────────────── keys / values ─────────────┐
+   │                                                    │
+   ├─ STATE block (28) = agent_state(8) ⧺ stimulus(8) ⧺ inventory(6)
+   │      │                                ⧺ EXTRA(6)  ◄── NEW v3.5 senses
+   │      │   EXTRA = [time_of_day sin, time_of_day cos, tile_temperature,
+   │      │            nearest_agent_proximity, nearest_agent_signal, on_hazard]
+   │      ▼
+   │   state encoder (28→S) ── s ──► attention query ──► softmax pool ─► e (E)
+   │      │                                                            │
+   └──────┴──────────────── concat → latent  z = [s ‖ e]  (Z = S+E) ──┘
+                                       │
+                          Memory core: GRU (H)
+                                       │ h
+          ┌──────────────────┬─────────┼──────────────────┬────────────────┐
+          ▼                  ▼          ▼                  ▼                ▼
+     Policy head        Value MLP   Dynamics head      (instincts        SIGNAL
+     h → 9 logits       [z,h]→V     (h, onehot a9)      fade w/ age)     = action #8
+     (8 + SIGNAL),                  → ẑ_{t+1}, r̂                         in policy
+     SIGNAL masked                  optional world model                 head ↑
+     unless signal.enabled
+
+   SIGNAL execution → writes a float on the agent's tile → PheromoneField
+   (decays each tick, optional diffusion) → re-sensed as EXTRA[nearest_agent_signal].
+   Signals carry NO built-in meaning — any protocol must emerge.
 ```
+
+| Tensor | v3 | v3.5 | Δ (S=40, H=48) |
+|---|---|---|---|
+| `state_enc.W` | (22, S) | (28, S) | +6·S = **+240** |
+| `policy.W` / `policy.b` | (H, 8)/(8,) | (H, 9)/(9,) | +H+1 = **+49** |
+| **total** | 17 337 | **17 626** | **+289 (<2%)** |
+
+**Worked example — running the social brain end to end.** Turn on the v3.5
+brain together with the world features it perceives, run headless with logging,
+then read the social metrics:
+
+```bash
+# 1) Enable the social stack in config/default.yaml (or a copy):
+#      brain.version: 3.5
+#      signal:  {enabled: true}        # SIGNAL action + pheromone field
+#      world:   {agents_visible: true, agent_collision: true}
+#      environment: {enabled: true}    # day/night so the clock senses vary
+#
+# 2) Run with RL + per-action logging:
+python main.py --no-viz --mode rl --log --config config/default.yaml
+
+# 3) Read what emerged (the analyzer auto-picks the latest log):
+python scripts/analyze_logs.py
+```
+
+The analyzer prints two social sections that are meaningful only for v3.5 runs:
+
+```
+🛰️  SOCIAL / SIGNAL
+  SIGNAL actions:         1843 (4.21% of actions)
+  Signalling agents:      18
+  Signal entropy:         3.94 bits (92.1% of max — 1.0 = shared evenly)
+  Agent-proximity response (action mix by how close others are):
+    proximity   actions  SIGNAL%  dominant
+    alone         30214    1.10%  MOVE_FORWARD
+    near          11883    6.40%  MOVE_FORWARD
+    close          4120   18.07%  SIGNAL          ← agents signal far more in company
+
+🧬 SOCIETY / ROLES
+  Role entropy:           0.91 bits (45% of max — division of labor)
+  Behavioural novelty:    mean pairwise JS = 0.23 bits
+  Territory:              mean bbox = 1483 tiles, mean Jaccard overlap = 0.04
+```
+
+(Numbers are illustrative — a real run varies.) The signalling-rises-with-
+proximity pattern and a non-trivial role entropy are the emergence signals
+v3.5 exists to make measurable. To *watch* the same run as a 3D voxel world,
+add `--save-state run.pkl` and open it with
+`python -m render.server --checkpoint run.pkl` (see the
+[3D Voxel Frontend](#3d-voxel-frontend-minecraft-like-in-the-browser) section).
 
 > **▶ Next up — v3.6 (the kin-similarity sense).** The one piece deferred from
 > World phase W5 because it touches the genome: a single `nearest_agent_kin`

@@ -120,6 +120,13 @@ class Agent:
             Agent.brain_config,
             instincts=InstinctModule.from_config(Agent.instinct_config),
         )
+        # Remember the exact brain config this agent was built with, so
+        # offspring can breed true even in a mixed-architecture (cohort)
+        # population where the class-level Agent.brain_config differs from
+        # this agent's. ``cohort`` is a free-text label for A/B comparison
+        # (e.g. "v3" vs "v2-old"); it has no effect on the simulation.
+        self.brain_config_used = Agent.brain_config
+        self.cohort = "default"
         self.traits = genome.traits.copy()
         self.fitness = 0.0
 

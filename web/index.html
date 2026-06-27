@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Emergent World — 3D Voxel View</title>
+    <link rel="stylesheet" href="/style.css" />
+    <!-- Three.js vendored locally (web/vendor/three) so the viewer works with
+         no internet / behind a firewall (Codespaces, air-gapped). Pinned to
+         r160. No CDN dependency. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/vendor/three/three.module.js",
+          "three/addons/": "/vendor/three/addons/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="hud">
+      <div id="hud-title">Emergent World — voxel view</div>
+      <div class="row"><span>tick</span><b id="hud-tick">—</b></div>
+      <div class="row"><span>agents</span><b id="hud-agents">—</b></div>
+      <div class="row"><span>objects</span><b id="hud-objects">—</b></div>
+      <div class="row"><span>season</span><b id="hud-season">—</b></div>
+      <div class="row"><span>weather</span><b id="hud-weather">—</b></div>
+      <div class="row"><span>brain</span><b id="hud-brain">—</b></div>
+      <div class="row"><span>conn</span><b id="hud-conn">connecting…</b></div>
+      <div id="hud-help">
+        drag: orbit · scroll: zoom · WASD/QE: fly · F: follow next agent · V:
+        toggle 5×5 vision grid · R: reset cam · click an agent to inspect
+      </div>
+    </div>
+    <div id="inspector" class="hidden">
+      <div id="inspect-title">—</div>
+      <div id="inspect-body"></div>
+      <div id="ins-hint">click an agent / tree / tile · click empty space to clear</div>
+    </div>
+    <canvas id="view"></canvas>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

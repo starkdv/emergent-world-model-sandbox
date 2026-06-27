@@ -110,15 +110,31 @@ def clone_agent(
         parent.genome.lineage_id,
     )  # Track parent lineage (asexual)
 
-    # Create new agent with the new genome
-    child = Agent(
-        x=0,  # Will be repositioned
-        y=0,
-        genome=child_genome,
-        max_energy=parent.max_energy,
-        max_age=parent.max_age,
-        inventory_size=parent.inventory_size,
-        metabolism_rate=parent.metabolism_rate,
+    # Create new agent with the new genome. In a mixed-architecture (cohort)
+    # population the class-level Agent.brain_config may differ from this
+    # parent's, so temporarily restore the parent's brain config while the
+    # child is constructed — offspring then breed true (same architecture as
+    # the parent, matching the inherited genome length).
+    parent_cfg = getattr(parent, "brain_config_used", None)
+    prev_cfg = Agent.brain_config
+    if parent_cfg is not None:
+        Agent.brain_config = parent_cfg
+    try:
+        child = Agent(
+            x=0,  # Will be repositioned
+            y=0,
+            genome=child_genome,
+            max_energy=parent.max_energy,
+            max_age=parent.max_age,
+            inventory_size=parent.inventory_size,
+            metabolism_rate=parent.metabolism_rate,
+        )
+    finally:
+        Agent.brain_config = prev_cfg
+    # Inherit the parent's cohort label + recorded config (A/B comparison).
+    child.cohort = getattr(parent, "cohort", "default")
+    child.brain_config_used = (
+        parent_cfg if parent_cfg is not None else child.brain_config_used
     )
 
     # LAMARCKIAN INHERITANCE: The genome already contains the trained weights

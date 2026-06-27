@@ -1,0 +1,39 @@
+Population World Model — training report
+==================================================
+config:        config/worldmodel_v35.yaml
+obs_dim:       78
+n_actions:     9
+hidden:        128
+epochs:        20
+transitions:   291300 total, trained on 262170
+reward mean/std: 0.3791 / 2.2688
+done rate:     0.0014
+action histogram: [64221, 35006, 30135, 2467, 401, 1385, 457, 90201, 67027]
+
+training loss per epoch (MSE Δobs + MSE reward + BCE done):
+  epoch   1: 3.198769
+  epoch   2: 2.352938
+  epoch   3: 2.160642
+  epoch   4: 2.063721
+  epoch   5: 1.999372
+  epoch   6: 1.945486
+  epoch   7: 1.902989
+  epoch   8: 1.884113
+  epoch   9: 1.859452
+  epoch  10: 1.843224
+  epoch  11: 1.827954
+  epoch  12: 1.812033
+  epoch  13: 1.798083
+  epoch  14: 1.785357
+  epoch  15: 1.770927
+  epoch  16: 1.759206
+  epoch  17: 1.747454
+  epoch  18: 1.734595
+  epoch  19: 1.723298
+  epoch  20: 1.714675
+
+held-out evaluation:
+  Δobs MSE:          0.026816
+  baseline (Δ=0):    0.033710
+  reward MSE:        1.6965
+  done accuracy:     0.999

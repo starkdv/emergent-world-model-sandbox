@@ -116,10 +116,14 @@ class Tile:
         """
         Check if agents can move through this tile.
 
+        Rock is solid and water is not walkable, so both block movement —
+        agents stay on land (soil/sand). This keeps water reading as water
+        rather than a surface agents stand on.
+
         Returns:
             True if tile is passable, False otherwise
         """
-        return self.terrain_type not in (TerrainType.ROCK,)
+        return self.terrain_type not in (TerrainType.ROCK, TerrainType.WATER)
 
     def is_plantable(self) -> bool:
         """
