@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] — proposal: planning — current vs. improvements
+
+- **docs/PLANNING_PROPOSAL.md** (new): a research + design doc on the agent
+  planner. Documents the **as-built** controller (random-shooting MPC that
+  replans every tick and rolls out with **uniform-random** continuation
+  actions — it moves one step and replans, never follows a multi-step plan),
+  diagnoses why that is weak, surveys the model-based RL literature (random
+  shooting/PETS, CEM/MPPI, PlaNet, Dreamer V1–V3, MuZero, MBPO), and proposes a
+  staged upgrade: **P1** policy-guided rollouts + policy-biased first action +
+  reward/value normalization + plan commitment (cheap, local, big win); **P2**
+  categorical CEM + model-error discipline (uncertainty penalty / ensemble,
+  λ-returns); **P3** Dreamer-style imagination-trained actor so planning is
+  learned and decision-time cost drops back to one forward pass. Includes an
+  evaluation plan (reusing `docs/sample_planning_curiosity/`), risks, and
+  backwards-compat notes. No code changes.
+
 ## [Unreleased] — render.server CLI: learning, logging, planning, weights
 
 The live 3D server can now drive the full workflow from the browser view, not

@@ -85,3 +85,8 @@ about the one agents use *online* to plan and explore.
 
 Full analyzer reports: `baseline_analysis.txt`, `planning_curiosity_analysis.txt`.
 Per-generation metrics: `*_metrics.csv`.
+
+> The planner here is a minimal random-shooting MPC (replans every tick, random
+> continuation actions). See **`docs/PLANNING_PROPOSAL.md`** for how it works
+> today and a staged plan to make it much stronger (policy-guided rollouts, CEM,
+> Dreamer-style imagination learning).
