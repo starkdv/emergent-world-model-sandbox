@@ -84,5 +84,18 @@ def test_learner_imagination_config_enabled():
     assert lrn.imag_entropy == 0.002
 
 
+def test_imagination_warmup_gating():
+    lrn = PPOSequenceLearner(imagination={"enabled": True, "warmup_ticks": 1000})
+    assert lrn.imag_warmup == 1000
+    lrn.current_tick = 500
+    assert lrn.imagination_active() is False  # still in warmup
+    lrn.current_tick = 1000
+    assert lrn.imagination_active() is True  # past warmup
+    # disabled → never active regardless of tick
+    off = PPOSequenceLearner(imagination={"enabled": False, "warmup_ticks": 0})
+    off.current_tick = 10_000
+    assert off.imagination_active() is False
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

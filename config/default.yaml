@@ -116,6 +116,12 @@ brain:
       normalize: false         # z-score imagined rewards + value before summing
       commit: 1                # control horizon: execute this many actions of
                                # the best plan before replanning (1 = pure MPC)
+      # Warmup schedule (P2/P3): at tick 0 the world model is untrained, so a
+      # model-heavy planner (cem) shoots off garbage. Run the cheap exploratory
+      # warmup_strategy until warmup_ticks (letting the model train), then switch
+      # to `strategy`. 0 = no warmup.
+      warmup_ticks: 0
+      warmup_strategy: policy_shooting
 
   # Bootstrap instincts (Brain v3 Phase 2).
   # Small additive biases on the action logits that scaffold early survival
@@ -290,6 +296,8 @@ learning:
       batch: 256         # imagined start states per update
       lambda: 0.95       # TD(λ) for imagined returns
       entropy: 0.001     # entropy bonus on the imagined actor
+      warmup_ticks: 0    # don't imagine until the world model has trained this
+                         # many world ticks (pairs with the planner warmup)
 
   # Curiosity (Brain v3 Phase 4) — requires brain.world_model.enabled.
   # Intrinsic reward = weight * clip(zscore(prediction error), 0, clip):

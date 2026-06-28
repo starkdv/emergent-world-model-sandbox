@@ -288,6 +288,20 @@ the P2 error discipline). **Effort:** ~1–2 weeks; do P1+P2 first.
 
 ---
 
+### Warmup scheduling — model-readiness gating (IMPLEMENTED)
+
+The multi-seed replication showed P2/P3 do not help from a cold start, and the
+likely cause is timing: **at tick 0 the world model is untrained, so a
+model-heavy planner (CEM) or imagination training "shoots off" from a garbage
+model.** Fix: gate them on model readiness. The planner runs the cheap
+exploratory `warmup_strategy` (default `policy_shooting`) until
+`planner.warmup_ticks`, *then* switches to the configured `strategy` (e.g. CEM);
+imagination is likewise gated by `learning.ppo.imagination.warmup_ticks`. By the
+switch the world model has trained on thousands of diverse transitions. The
+agent passes the live world tick to both (see `agents/agent.py`); unit-tested in
+`tests/test_planner.py` / `tests/test_imagination.py`. Recommended schedule lives
+in `config/planning_scheduled_v35.yaml` (P1 for 5k ticks → CEM + imagination).
+
 ## 5. Recommendation & sequencing
 
 1. **P1 now.** Policy-guided rollouts + policy-biased first action +

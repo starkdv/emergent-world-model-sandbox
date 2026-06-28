@@ -481,6 +481,10 @@ class PPOSequenceLearner:
         self.imag_batch = max(1, int(im.get("batch", 256)))
         self.imag_lambda = float(im.get("lambda", 0.95))
         self.imag_entropy = float(im.get("entropy", 0.001))
+        # Warmup: don't imagine until the world model has trained for this many
+        # world ticks (the agent sets ``current_tick`` before learn()).
+        self.imag_warmup = max(0, int(im.get("warmup_ticks", 0)))
+        self.current_tick = 0
         self.compute_backend = "torch"
         self.compute_device = compute_device
 
@@ -490,6 +494,10 @@ class PPOSequenceLearner:
         self._mirror: Optional[TorchBrainMirror] = None
         self._steps: list[dict] = []  # current, not-yet-finalized chunk
         self._chunk_h0: Optional[np.ndarray] = None
+
+    def imagination_active(self) -> bool:
+        """True when the imagination loss should run now (enabled + past warmup)."""
+        return self.imag_enabled and self.current_tick >= self.imag_warmup
 
     # -- storage -----------------------------------------------------------
 
@@ -719,7 +727,7 @@ class PPOSequenceLearner:
                 # Dreamer-style imagination actor-critic (P3, opt-in). Start from
                 # detached valid hidden states so it distils planning into the
                 # policy without perturbing representation learning.
-                if self.imag_enabled:
+                if self.imagination_active():
                     flat_h = hs.reshape(-1, hs.shape[-1])
                     keep = valid.reshape(-1) > 0
                     flat_h = flat_h[keep]

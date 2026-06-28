@@ -227,5 +227,49 @@ def test_from_config_reads_p2_options():
     assert p.lam == 0.8 and p.cem_iters == 5 and p.cem_elite_frac == 0.2
 
 
+# --- warmup schedule (P2/P3 kick in after the world model trains) ------------
+
+
+def test_effective_strategy_warmup_switch():
+    p = LatentPlanner(
+        strategy="cem", warmup_ticks=1000, warmup_strategy="policy_shooting"
+    )
+    assert p.effective_strategy(0) == "policy_shooting"
+    assert p.effective_strategy(999) == "policy_shooting"
+    assert p.effective_strategy(1000) == "cem"
+    assert p.effective_strategy(5000) == "cem"
+
+
+def test_no_warmup_uses_configured_strategy():
+    p = LatentPlanner(strategy="cem", warmup_ticks=0)
+    assert p.effective_strategy(0) == "cem"
+
+
+def test_plan_warmup_then_main_returns_valid():
+    np.random.seed(7)
+    brain = StubBrain(n=4, target=2)
+    p = LatentPlanner(
+        depth=2,
+        samples=6,
+        strategy="cem",
+        warmup_ticks=100,
+        warmup_strategy="policy_shooting",
+    )
+    a_warm = p.plan(brain, _h(brain), tick=0)  # warmup: policy_shooting
+    a_main = p.plan(brain, _h(brain), tick=500)  # past warmup: cem
+    assert 0 <= a_warm < brain.output_size
+    assert 0 <= a_main < brain.output_size
+
+
+def test_from_config_reads_warmup():
+    p = LatentPlanner.from_config(
+        {"strategy": "cem", "warmup_ticks": 6000, "warmup_strategy": "policy_shooting"}
+    )
+    assert p.warmup_ticks == 6000
+    assert p.warmup_strategy == "policy_shooting"
+    assert p.effective_strategy(3000) == "policy_shooting"
+    assert p.effective_strategy(6000) == "cem"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

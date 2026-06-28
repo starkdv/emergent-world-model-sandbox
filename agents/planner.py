@@ -94,6 +94,8 @@ class LatentPlanner:
         lam: float = 1.0,
         cem_iters: int = 3,
         cem_elite_frac: float = 0.3,
+        warmup_ticks: int = 0,
+        warmup_strategy: str = "policy_shooting",
     ):
         """
         Args:
@@ -124,6 +126,11 @@ class LatentPlanner:
         self.lam = float(lam)
         self.cem_iters = max(1, int(cem_iters))
         self.cem_elite_frac = float(cem_elite_frac)
+        # Warmup: until `warmup_ticks`, run the cheap exploratory `warmup_strategy`
+        # (so the world model trains on diverse data) before the configured
+        # `strategy` (e.g. cem) kicks in. 0 = no warmup.
+        self.warmup_ticks = max(0, int(warmup_ticks))
+        self.warmup_strategy = warmup_strategy
         self._policy_rollout = strategy == "policy_shooting"
         self._rstat = _RunningStat()
         self._vstat = _RunningStat()
@@ -145,21 +152,37 @@ class LatentPlanner:
             lam=config.get("lam", 1.0),
             cem_iters=config.get("cem_iters", 3),
             cem_elite_frac=config.get("cem_elite_frac", 0.3),
+            warmup_ticks=config.get("warmup_ticks", 0),
+            warmup_strategy=config.get("warmup_strategy", "policy_shooting"),
         )
+
+    def effective_strategy(self, tick: int) -> str:
+        """The strategy active at this world tick (warmup_strategy before
+        `warmup_ticks`, the configured strategy after)."""
+        if self.warmup_ticks and tick < self.warmup_ticks:
+            return self.warmup_strategy
+        return self.strategy
 
     def plan(
         self,
         brain: "Brain",
         h: np.ndarray,
         action_mask: Optional[np.ndarray] = None,
+        tick: int = 0,
     ) -> int:
         """Choose the next action (serving a committed plan if one is queued)."""
         if self._queue:
             return self._queue.pop(0)
-        if self.strategy == "cem":
+        strat = self.effective_strategy(tick)
+        # during warmup keep the first action exploratory (uniform); after, use
+        # the configured first-action policy
+        in_warmup = strat != self.strategy
+        first_action = "uniform" if in_warmup else self.first_action
+        if strat == "cem":
             seq = self._search_cem(brain, h, action_mask)
         else:
-            seq, _ = self._search(brain, h, action_mask)
+            policy_rollout = strat == "policy_shooting"
+            seq, _ = self._search(brain, h, action_mask, policy_rollout, first_action)
         if self.commit > 1 and len(seq) > 1:
             self._queue = [int(a) for a in seq[1 : self.commit]]
         return int(seq[0])
@@ -219,13 +242,15 @@ class LatentPlanner:
 
     # -- shooting / policy_shooting -----------------------------------------
 
-    def _first_actions(self, brain, h, action_mask, valid_first) -> np.ndarray:
-        if self.first_action == "uniform" or not self._policy_rollout:
+    def _first_actions(
+        self, brain, h, action_mask, valid_first, policy_rollout, first_action
+    ) -> np.ndarray:
+        if first_action == "uniform" or not policy_rollout:
             return np.array(
                 [int(np.random.choice(valid_first)) for _ in range(self.samples)]
             )
         probs = brain.policy_from_hidden(h, action_mask)
-        if self.first_action == "policy_topk":
+        if first_action == "policy_topk":
             idx = np.argsort(probs)[::-1][: self.topk]
             p = probs[idx]
             s = p.sum()
@@ -238,7 +263,12 @@ class LatentPlanner:
         )
 
     def _search(
-        self, brain: "Brain", h: np.ndarray, action_mask: Optional[np.ndarray]
+        self,
+        brain: "Brain",
+        h: np.ndarray,
+        action_mask: Optional[np.ndarray],
+        policy_rollout: bool,
+        first_action: str,
     ) -> Tuple[List[int], float]:
         n_actions = brain.output_size
         valid_first = (
@@ -248,7 +278,9 @@ class LatentPlanner:
         )
         if len(valid_first) == 0:
             valid_first = np.arange(n_actions)
-        first_actions = self._first_actions(brain, h, action_mask, valid_first)
+        first_actions = self._first_actions(
+            brain, h, action_mask, valid_first, policy_rollout, first_action
+        )
 
         best_seq: List[int] = [int(first_actions[0])]
         best_score = -np.inf
@@ -258,7 +290,7 @@ class LatentPlanner:
             def provider(k, h_sim, _a0=a0):
                 if k == 0:
                     return _a0
-                if self._policy_rollout:
+                if policy_rollout:
                     probs = brain.policy_from_hidden(h_sim)
                     return int(np.random.choice(len(probs), p=probs))
                 return int(np.random.randint(n_actions))

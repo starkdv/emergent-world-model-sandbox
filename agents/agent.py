@@ -170,6 +170,11 @@ class Agent:
         if not self.alive:
             return
 
+        # Current world tick — used by planner/learner warmup schedules so the
+        # model-based planner (P2/P3) only kicks in once the world model has had
+        # time to train (see docs/PLANNING_PROPOSAL.md "warmup").
+        self._world_tick = int(getattr(world, "tick", 0))
+
         # Age the agent
         self.age += 1
 
@@ -329,6 +334,8 @@ class Agent:
                     can_train_now = self.age % 3 == 0
 
             if can_train_now:
+                # let the learner gate imagination by world tick (warmup)
+                setattr(self.learner, "current_tick", getattr(self, "_world_tick", 0))
                 self.learner.learn(self.brain)
 
             # Store current observation and hidden state for next step
@@ -378,7 +385,9 @@ class Agent:
                 instinct_strength=instinct_strength,
             )
             self.h = h_next
-            action_idx = self.planner.plan(self.brain, self.h, action_mask)
+            action_idx = self.planner.plan(
+                self.brain, self.h, action_mask, tick=getattr(self, "_world_tick", 0)
+            )
             # Log-prob of the planner's choice under the policy — keeps
             # PPO's importance ratio meaningful (clipping bounds the rest)
             logprob = float(np.log(max(probs[action_idx], 1e-8)))
