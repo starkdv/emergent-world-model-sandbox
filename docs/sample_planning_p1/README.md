@@ -1,5 +1,7 @@
 # Planner P1 — policy-guided rollouts (measured)
 
+> **Multi-seed update (4 seeds):** this single-seed +21% overstated it. Across seeds P1 is *modestly* higher on peak fitness (43.5 vs 41.1) but clearly better and **far more stable** on final fitness (51.8±4.3 vs 45.3±15.8) at equal cost — the most reliable of the three upgrades. See `../sample_planning_multiseed/`.
+
 Phase **P1** of [`../PLANNING_PROPOSAL.md`](../PLANNING_PROPOSAL.md): replace the
 random-shooting planner's **uniform-random rollout continuations** with
 continuations sampled from the agent's **own policy** (Dreamer-style imagination),

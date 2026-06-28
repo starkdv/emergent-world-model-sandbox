@@ -3,10 +3,16 @@
 **Status:** Planner is **IMPLEMENTED** (`agents/planner.py`,
 `brain.world_model.planner`). The staged upgrade path is **P1 → P3**.
 - **P1 — IMPLEMENTED** (`strategy: policy_shooting`, `first_action`,
-  `normalize`, `commit`; see "Phase P1" below and `tests/test_planner.py`). The
-  legacy `strategy: shooting` remains the default so existing configs are
-  unchanged.
-- **P2 / P3 — DESIGNED** (below), not yet built.
+  `normalize`, `commit`). The legacy `strategy: shooting` remains the default.
+- **P2 — PARTIAL** (`strategy: cem`, `lam` built; dynamics-ensemble uncertainty
+  deferred — needs a genome change).
+- **P3 — EXPERIMENTAL** (`learning.ppo.imagination`, default off).
+- **Multi-seed replication (`docs/sample_planning_multiseed/`, 4 seeds):** only
+  **P1 looks reliably good** (modestly higher, much *steadier* fitness at equal
+  cost). The single-seed CEM (P2) and imagination (P3) wins **did not replicate**
+  at this scale; the legacy `shooting` controller stays the default and P1 is the
+  recommended upgrade. The per-phase "MEASURED" notes below are single-seed and
+  superseded by the replication.
 
 **Scope:** `agents/planner.py`, `agents/agent.py` (`choose_action`),
 `agents/brain/__init__.py` + `agents/brain/v3.py` (latent dynamics head),

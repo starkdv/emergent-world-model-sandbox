@@ -1,5 +1,7 @@
 # Planner P2 — categorical CEM + λ-returns (measured)
 
+> **Multi-seed update (4 seeds): this CEM win did NOT replicate.** The +32% was seed luck; across seeds CEM ties the baseline on peak fitness and is *worse* on final fitness while ~20% slower. Not recommended by default at this scale. See `../sample_planning_multiseed/`.
+
 Phase **P2** of [`../PLANNING_PROPOSAL.md`](../PLANNING_PROPOSAL.md). Two
 self-contained upgrades to the latent planner (`agents/planner.py`):
 

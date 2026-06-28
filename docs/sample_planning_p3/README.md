@@ -1,5 +1,7 @@
 # Planner P3 — learn the policy *in imagination* (measured)
 
+> **Multi-seed update (4 seeds): this imagination win did NOT replicate.** Across seeds `imag_on ≈ imag_off` (no reliable gain); the +25% was within noise. Kept experimental/off. See `../sample_planning_multiseed/`.
+
 Phase **P3** of [`../PLANNING_PROPOSAL.md`](../PLANNING_PROPOSAL.md): instead of
 planning at decision time, **train the actor/critic on rollouts imagined in the
 latent world model** (Dreamer-style), so a good policy emerges and the per-tick

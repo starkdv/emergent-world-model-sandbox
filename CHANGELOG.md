@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] — planner upgrades: multi-seed replication (honest correction)
+
+Replicated the P1/P2/P3 A/Bs across **4 seeds** (`docs/sample_planning_multiseed/`)
+— the authoritative result; the earlier single-seed write-ups are superseded.
+
+- **P1 (policy_shooting)** is the only reliably-good upgrade: highest mean peak
+  fitness (43.5 vs 41.1) and best, **far steadier** final fitness (51.8±4.3 vs
+  the baseline 45.3±15.8) at equal cost — its real benefit is **variance
+  reduction**, not the single-seed "+21%".
+- **P2 (CEM) did not replicate**: across seeds it ties the baseline on peak and
+  is worse on final fitness while ~20% slower (the single-seed +32% was luck).
+- **P3 (imagination) did not replicate**: imag_on ≈ imag_off (the +25% was noise).
+- Caveat: n=4, error bars overlap — directional, not significant. P2/P3 likely
+  need a better world model + longer horizons to pay off.
+- Disposition unchanged: all phases stay implemented + config-gated with legacy
+  `shooting` as the default; **P1 is the recommended planner setting**. Per-phase
+  sample READMEs and the proposal status are annotated with this correction.
+
+# Changelog
+
 ## [Unreleased] — planner P3: Dreamer-style imagination actor-critic (experimental)
 
 Implements Phase **P3** of `docs/PLANNING_PROPOSAL.md` as an opt-in, default-OFF
