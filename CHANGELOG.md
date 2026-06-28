@@ -1,6 +1,29 @@
 # Changelog
 
+## [Unreleased] — warmup scheduling: 4-seed confirmation (honest correction)
+
+The 2-seed warmup result below **did not replicate**. A **4-seed confirmation +
+`warmup_ticks` sweep at 7,000 ticks** (`docs/sample_planning_warmup_sweep/`)
+finds the plain `shooting` baseline is the strongest arm on every aggregate
+metric:
+
+- **baseline (`shooting`): peak 86.7 ± 8.4, final 61.5 ± 4.7, 2667 seeds** —
+  beats every scheduled arm.
+- sched@4k 77.4 / sched@5k 74.8 / sched@6k 72.2 (peak). *Earlier* switch points
+  beat later ones (4k > 5k > 6k), but none beat the baseline.
+- The earlier 2-seed "scheduled wins" was within noise (per-seed peaks swing
+  77–100 for baseline; 50–83 for sched@6k).
+- **Takeaway: default to `strategy: shooting`.** Warmup gating is implemented and
+  correct, but CEM + imagination — even gated on a warmed-up model — did not earn
+  their cost on this 64×64 v3.5 task. Scheduled configs remain for re-exploration
+  at larger scale. Proposal updated; the 2-seed study carries a "superseded"
+  banner. Caveat: n=4 (suggestive, ~1.4σ gap), but baseline ≥ every scheduled
+  arm on every metric across all 4 seeds.
+
 ## [Unreleased] — validated: warmup scheduling fixes P2/P3 cold-start
+
+> **Superseded by the 4-seed confirmation above — this 2-seed result did not
+> replicate.** Kept as a record of how a small sweep can mislead.
 
 A 6,000-tick, 2-seed A/B (`docs/sample_planning_scheduled/`) tested gating CEM +
 imagination on world-model readiness:
@@ -14,8 +37,6 @@ imagination on world-model readiness:
   hypothesis that an untrained world model makes model-based planning unreliable.
 - Recommended recipe: `config/planning_scheduled_v35.yaml`. Caveat: n=2,
   directional; the robust signal is scheduled > baseline 2/2.
-
-# Changelog
 
 ## [Unreleased] — planner upgrades: multi-seed replication (honest correction)
 

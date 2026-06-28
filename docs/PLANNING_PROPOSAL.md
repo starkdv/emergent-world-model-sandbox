@@ -288,28 +288,40 @@ the P2 error discipline). **Effort:** ~1–2 weeks; do P1+P2 first.
 
 ---
 
-### Warmup scheduling — model-readiness gating (IMPLEMENTED & VALIDATED)
+### Warmup scheduling — model-readiness gating (IMPLEMENTED; did not beat baseline)
 
-**Validated** (`docs/sample_planning_scheduled/`, 6,000-tick A/B, 2 seeds):
-**scheduled (P1 for 5k → CEM + imagination) beat the baseline on both seeds**
-(mean peak fitness 66.5 vs 57.8, most stable final fitness, most planting),
-whereas **naive cold-start CEM + imagination was a coin-flip** (lost badly on one
-seed, won on the other). Gating model-based planning on model readiness is the
-right way to use P2/P3; cold-starting them is high-variance and can be worse than
-not planning. (n=2, directional; the robust signal is scheduled > baseline 2/2.)
-
-
-The multi-seed replication showed P2/P3 do not help from a cold start, and the
-likely cause is timing: **at tick 0 the world model is untrained, so a
-model-heavy planner (CEM) or imagination training "shoots off" from a garbage
-model.** Fix: gate them on model readiness. The planner runs the cheap
-exploratory `warmup_strategy` (default `policy_shooting`) until
+**Mechanism.** The hypothesis was timing: **at tick 0 the world model is
+untrained, so a model-heavy planner (CEM) or imagination training "shoots off"
+from a garbage model.** The fix gates them on model readiness — the planner runs
+the cheap exploratory `warmup_strategy` (default `policy_shooting`) until
 `planner.warmup_ticks`, *then* switches to the configured `strategy` (e.g. CEM);
-imagination is likewise gated by `learning.ppo.imagination.warmup_ticks`. By the
-switch the world model has trained on thousands of diverse transitions. The
+imagination is likewise gated by `learning.ppo.imagination.warmup_ticks`. The
 agent passes the live world tick to both (see `agents/agent.py`); unit-tested in
-`tests/test_planner.py` / `tests/test_imagination.py`. Recommended schedule lives
-in `config/planning_scheduled_v35.yaml` (P1 for 5k ticks → CEM + imagination).
+`tests/test_planner.py` / `tests/test_imagination.py`. The mechanism is
+implemented and correct; the question was whether it *helps*.
+
+**Result — it does not.** A first 2-seed A/B at 6,000 ticks
+(`docs/sample_planning_scheduled/`) looked promising (scheduled beat baseline
+2/2). But the **4-seed confirmation + `warmup_ticks` sweep at 7,000 ticks**
+(`docs/sample_planning_warmup_sweep/`) reverses it:
+
+| arm | peak (mean ± std) | final (mean ± std) | seeds planted |
+|---|---|---|---|
+| **baseline (`shooting`)** | **86.7 ± 8.4** | **61.5 ± 4.7** | **2667** |
+| sched@4k | 77.4 ± 6.3 | 58.7 ± 3.7 | 1978 |
+| sched@5k | 74.8 ± 5.0 | 53.5 ± 3.6 | 1980 |
+| sched@6k | 72.2 ± 13.3 | 44.4 ± 3.9 | 1861 |
+
+The plain `shooting` baseline wins on every aggregate metric across 4 seeds;
+the 2-seed win was within noise. Among scheduled arms, *earlier* switch points
+are better (4k > 5k > 6k), but none close the gap. **Practical takeaway: default
+to `strategy: shooting`.** Gating works as designed, but CEM + imagination —
+even gated on a warmed-up model — did not earn their cost on this 64×64 v3.5
+task. This does not condemn model-based planning in general (see the sweep
+README for likely causes: residual model error, small 9-action space), but on
+this benchmark the simple baseline is the recommendation. `config/
+planning_scheduled_v35.yaml` and the `sched4k`/`sched6k` variants remain for
+anyone who wants to re-explore at larger scale.
 
 ## 5. Recommendation & sequencing
 

@@ -1,5 +1,13 @@
 # Warmup scheduling — does gating P2/P3 on model-readiness fix them?
 
+> **⚠️ Superseded — this 2-seed result did not replicate.** A 4-seed
+> confirmation + `warmup_ticks` sweep at 7,000 ticks
+> (`docs/sample_planning_warmup_sweep/`) found the plain `shooting` baseline
+> wins on *every* aggregate metric, and that the scheduled win below was within
+> noise. The schedule does **not** reliably beat the baseline. Read this study
+> as a cautionary record of how a 2-seed sweep can mislead, then see the
+> warmup-sweep results for the corrected conclusion.
+
 **Hypothesis (user):** the multi-seed replication found P2 (CEM) and P3
 (imagination) don't reliably beat the baseline *because at tick 0 the world model
 is untrained* — a model-heavy planner / imagination "shoots off" from garbage.
