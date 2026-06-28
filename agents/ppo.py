@@ -343,6 +343,63 @@ class TorchBrainMirror:
             torch.stack(h_steps, dim=1),
         )
 
+    def imagine_loss(
+        self,
+        h0: "torch.Tensor",
+        horizon: int,
+        gamma: float,
+        lam: float,
+        entropy_coef: float,
+    ) -> "torch.Tensor":
+        """
+        Dreamer-style actor-critic in imagination (Planning proposal P3).
+
+        From a batch of (detached) start hidden states, roll the *actor* forward
+        ``horizon`` steps entirely in the latent world model, score the imagined
+        trajectory with TD(λ) returns from the critic, and return a loss that
+        trains the actor (REINFORCE with a value baseline) and the critic
+        (regression to the imagined returns). The dynamics/encoder get no
+        gradient here (returns are detached) — they are trained by the
+        world-model auxiliary loss; this only distils planning into the policy.
+
+        Requires the brain to have a world model (``has_world_model``).
+        """
+        p = self.params
+        n_actions = p["policy.b"].shape[0]
+        h = h0
+        logps, ents, vals, rews = [], [], [], []
+        for _ in range(horizon):
+            logits = h @ p["policy.W"] + p["policy.b"]
+            logp_all = torch.log_softmax(logits, dim=-1)
+            probs = torch.softmax(logits, dim=-1)
+            a = torch.multinomial(probs, 1).squeeze(-1)  # sample (no grad thru sample)
+            logp = logp_all.gather(1, a.unsqueeze(-1)).squeeze(-1)
+            ent = -(probs * torch.clamp(logp_all, min=-30.0)).sum(-1)
+            onehot = torch.nn.functional.one_hot(a, n_actions).float()
+            z, r = self._dynamics(h, onehot)
+            h = self._gru(z, h)
+            v = self._value(z, h)
+            logps.append(logp)
+            ents.append(ent)
+            rews.append(r)
+            vals.append(v)
+        vals_t = torch.stack(vals, dim=1)  # (M, H)
+        rews_t = torch.stack(rews, dim=1)
+        logp_t = torch.stack(logps, dim=1)
+        ent_t = torch.stack(ents, dim=1)
+        # forward-view TD(λ) returns (detached — used as targets only)
+        with torch.no_grad():
+            ret = torch.zeros_like(vals_t)
+            g = vals_t[:, -1]
+            for t in range(horizon - 1, -1, -1):
+                g = rews_t[:, t] + gamma * ((1.0 - lam) * vals_t[:, t] + lam * g)
+                ret[:, t] = g
+        adv = (ret - vals_t).detach()
+        actor_loss = -(logp_t * adv).mean()
+        critic_loss = 0.5 * ((vals_t - ret) ** 2).mean()
+        ent_bonus = ent_t.mean()
+        return actor_loss + critic_loss - entropy_coef * ent_bonus
+
 
 # ---------------------------------------------------------------------------
 # Learner
@@ -378,6 +435,7 @@ class PPOSequenceLearner:
         chunk_capacity: int = 64,
         compute_device: str = "cpu",
         world_model_coef: float = 1.0,
+        imagination: Optional[dict] = None,
     ):
         """
         Initialize the PPO learner.
@@ -413,6 +471,16 @@ class PPOSequenceLearner:
         self.epochs = epochs
         self.grad_clip = grad_clip
         self.world_model_coef = world_model_coef
+        # Dreamer-style imagination actor-critic (Planning proposal P3). Off by
+        # default; trains the actor/critic on rollouts imagined in the latent
+        # world model, so a good policy emerges without per-tick planning.
+        im = imagination or {}
+        self.imag_enabled = bool(im.get("enabled", False))
+        self.imag_horizon = max(1, int(im.get("horizon", 5)))
+        self.imag_weight = float(im.get("weight", 0.5))
+        self.imag_batch = max(1, int(im.get("batch", 256)))
+        self.imag_lambda = float(im.get("lambda", 0.95))
+        self.imag_entropy = float(im.get("entropy", 0.001))
         self.compute_backend = "torch"
         self.compute_device = compute_device
 
@@ -647,6 +715,26 @@ class PPOSequenceLearner:
                     (r_pred - rewards_t.reshape(-1)) ** 2 * wm_mask
                 ).sum() / wm_n
                 loss = loss + self.world_model_coef * (wm_latent + wm_reward)
+
+                # Dreamer-style imagination actor-critic (P3, opt-in). Start from
+                # detached valid hidden states so it distils planning into the
+                # policy without perturbing representation learning.
+                if self.imag_enabled:
+                    flat_h = hs.reshape(-1, hs.shape[-1])
+                    keep = valid.reshape(-1) > 0
+                    flat_h = flat_h[keep]
+                    if flat_h.shape[0] > 0:
+                        if flat_h.shape[0] > self.imag_batch:
+                            sel = torch.randperm(flat_h.shape[0])[: self.imag_batch]
+                            flat_h = flat_h[sel]
+                        imag_loss = self._mirror.imagine_loss(
+                            flat_h.detach(),
+                            self.imag_horizon,
+                            self.discount_factor,
+                            self.imag_lambda,
+                            self.imag_entropy,
+                        )
+                        loss = loss + self.imag_weight * imag_loss
 
             self._mirror.optimizer.zero_grad()
             loss.backward()

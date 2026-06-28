@@ -251,6 +251,17 @@ migration, like the v3→v3.5 append-only bump). **Effort:** ~2–3 days.
 
 ### Phase P3 — learn the policy *in imagination* (the real fix, large)
 
+**Status: IMPLEMENTED (EXPERIMENTAL) & MEASURED.** `TorchBrainMirror.imagine_loss`
+in `agents/ppo.py` adds a Dreamer-style actor-critic-in-imagination auxiliary
+loss (config `learning.ppo.imagination`, default **off**), unit-tested in
+`tests/test_imagination.py` and A/B-measured in `docs/sample_planning_p3/`.
+**Result:** with the planner OFF in both arms, imagination training lifted peak
+fitness **+25%** (and lifespan +11%, planting +38%, idle WAIT 31%→15%) — nearly
+matching the best decision-time planner (CEM, +32%) **without its per-tick cost**
+(the slowdown is one-time training, not per-decision). Recommended config:
+`config/planning_p3_v35.yaml`. Trains the critic on model-predicted returns, so
+it pairs with the deferred P2 model-error discipline; kept experimental/off.
+
 Adopt the **Dreamer** objective in `agents/ppo.py`: periodically roll the actor
 forward in the **latent** world model for `H` steps, compute λ-returns from the
 critic, and update the actor to maximize imagined return (and the critic to

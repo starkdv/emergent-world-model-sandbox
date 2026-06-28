@@ -809,6 +809,7 @@ class Agent:
                         "cpu" if compute_device == "auto" else compute_device
                     ),
                     world_model_coef=ppo.get("world_model_coef", 1.0),
+                    imagination=ppo.get("imagination", None),
                 )
                 self._ppo_config = ppo_config
                 self.learning_enabled = True

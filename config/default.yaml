@@ -279,6 +279,17 @@ learning:
     grad_clip: 0.5        # max gradient norm
     chunk_buffer: 64      # chunks kept in the replay buffer
     world_model_coef: 1.0 # weight of the dynamics-head auxiliary loss
+    # Dreamer-style imagination actor-critic (docs/PLANNING_PROPOSAL.md P3).
+    # Trains the actor/critic on rollouts imagined in the latent world model so
+    # a strong policy emerges WITHOUT a per-tick planner. Requires
+    # brain.world_model.enabled. EXPERIMENTAL — default off.
+    imagination:
+      enabled: false     # turn on to distil planning into the policy
+      horizon: 5         # imagined rollout length
+      weight: 0.5        # weight of the imagination loss
+      batch: 256         # imagined start states per update
+      lambda: 0.95       # TD(λ) for imagined returns
+      entropy: 0.001     # entropy bonus on the imagined actor
 
   # Curiosity (Brain v3 Phase 4) — requires brain.world_model.enabled.
   # Intrinsic reward = weight * clip(zscore(prediction error), 0, clip):

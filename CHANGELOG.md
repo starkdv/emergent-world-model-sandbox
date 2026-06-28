@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] — planner P3: Dreamer-style imagination actor-critic (experimental)
+
+Implements Phase **P3** of `docs/PLANNING_PROPOSAL.md` as an opt-in, default-OFF
+training mode.
+
+- **`agents/ppo.py`**: `TorchBrainMirror.imagine_loss` rolls the actor forward in
+  the latent world model, scores with TD(λ) returns from the critic, and trains
+  the actor (REINFORCE + value baseline) and critic in imagination. Wired into
+  the PPO update behind `learning.ppo.imagination.enabled` (default false);
+  start states detached and returns detached so it only distils planning into
+  the policy without perturbing representation learning.
+- **Tests**: `tests/test_imagination.py` (5 tests; full suite 536 passed).
+- **Measured** (`docs/sample_planning_p3/`, seed-42 A/B, planner OFF in both):
+  imagination training lifted **peak fitness +25%** (lifespan +11%, planting
+  +38%, idle WAIT 31%→15%) — nearly matching the best decision-time planner
+  (CEM, +32%) **without its per-tick cost**. Configs:
+  `config/planning_p3_v35.yaml` (+ `_base`); knob documented in
+  `config/default.yaml`.
+
+# Changelog
+
 ## [Unreleased] — planner P2: categorical CEM + λ-returns
 
 Implements the two self-contained items of Phase **P2** of
