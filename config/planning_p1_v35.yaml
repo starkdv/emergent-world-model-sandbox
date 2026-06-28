@@ -1,0 +1,276 @@
+world:
+  width: 64
+  height: 64
+  initial_resources: 120
+  resource_spawn_rate: 0.01
+  seed: null
+  allow_stacking: false
+  agents_visible: false
+  agent_collision: false
+terrain:
+  soil_ratio: 0.62
+  rock_ratio: 0.18
+  water_ratio: 0.12
+  sand_ratio: 0.08
+  fertility_range:
+  - 0.3
+  - 1.0
+  moisture_range:
+  - 0.2
+  - 0.8
+  generator: heightmap
+  heightmap:
+    feature_scale: 18
+    octaves: 4
+    persistence: 0.45
+    river_sources: 6
+agents:
+  initial_population: 24
+  starting_energy: 100.0
+  max_energy: 200.0
+  metabolism_rate: 0.5
+  vision_radius: 5
+  max_age: 1000
+  inventory_size: 5
+brain:
+  version: 3.5
+  input_size: 72
+  encoder_layers:
+  - 32
+  gru_hidden_size: 32
+  output_size: 8
+  activation: tanh
+  v3:
+    embed_dim: 8
+    state_dim: 40
+    gru_hidden_size: 48
+    value_hidden: 16
+  world_model:
+    enabled: true
+    hidden: 32
+    planner:
+      enabled: true
+      depth: 2
+      samples: 6
+      gamma: 0.95
+      strategy: policy_shooting
+      first_action: uniform
+      normalize: false
+      commit: 1
+  instincts:
+    enabled: true
+    fade_age: 150
+    hunger_eat_bias: 3.0
+evolution:
+  mode: rl
+  selection_method: tournament
+  tournament_size: 5
+  mutation_rate: 0.01
+  mutation_std: 0.1
+  trait_mutation_std: 0.05
+  crossover_method: uniform
+  elitism_count: 2
+  generation_length: 1000
+plants:
+  growth_time: 50
+  mature_age: 100
+  max_age: 500
+  seed_spawn_rate: 0.1
+  required_fertility: 0.3
+  required_moisture: 0.2
+  germination_success_rate: 0.75
+  fertility_consumption_per_tick: 0.001
+  moisture_consumption_per_tick: 0.0005
+  seed_max_age: 200
+  max_neighbor_plants: 3
+  neighbor_radius: 2
+resources:
+  berry_calories: 20.0
+  berry_freshness_decay: 0.01
+  seed_drop_chance: 0.7
+  seed_energy_cost: 5.0
+soil:
+  fertility_recovery_rate: 0.0005
+  fertility_return_on_death: 0.15
+  moisture_evaporation_rate: 0.0002
+  moisture_recovery_rate: 0.0008
+  max_fertility: 1.0
+  min_fertility: 0.0
+  max_moisture: 1.0
+  min_moisture: 0.0
+environment:
+  enabled: true
+  day_length: 200
+  min_light: 0.25
+  season_length: 2000
+  season_temp_amplitude: 0.25
+  base_temperature: 0.5
+  daynight_temp_amplitude: 0.1
+  metabolism_temp_coef: 0.5
+  base_evaporation: 0.0012
+  water_adjacency_recovery: 0.002
+  weather:
+    rain_start_chance: 0.01
+    rain_duration: 60
+    rain_recovery: 0.004
+    drought_start_chance: 0.002
+    drought_duration: 150
+    drought_evaporation_factor: 2.0
+simulation:
+  max_generations: 100
+  ticks_per_second: 10
+  auto_save: true
+  save_interval: 10
+  parallel: false
+visualization:
+  enabled: true
+  window_width: 1200
+  window_height: 800
+  fps: 30
+  target_fps: 30
+  show_vision_radius: true
+  show_agent_info: true
+  color_scheme:
+    background:
+    - 34
+    - 34
+    - 34
+    soil:
+    - 139
+    - 69
+    - 19
+    rock:
+    - 128
+    - 128
+    - 128
+    water:
+    - 64
+    - 164
+    - 223
+    sand:
+    - 210
+    - 180
+    - 120
+    agent:
+    - 0
+    - 255
+    - 0
+    plant:
+    - 34
+    - 139
+    - 34
+    seed:
+    - 210
+    - 180
+    - 140
+    food:
+    - 255
+    - 140
+    - 0
+data_collection:
+  enabled: true
+  export_format: csv
+  collect_per_tick: false
+  collect_per_generation: true
+  track_lineage: true
+  track_behaviors: true
+  export_directory: data/exports
+learning:
+  enabled: false
+  algorithm: ppo
+  ppo:
+    learning_rate: 0.0003
+    seq_len: 8
+    batch_size: 8
+    gae_lambda: 0.95
+    clip_epsilon: 0.2
+    value_coef: 0.5
+    entropy_coef: 0.01
+    epochs: 1
+    grad_clip: 0.5
+    chunk_buffer: 24
+    world_model_coef: 1.0
+  curiosity:
+    enabled: true
+    weight: 0.1
+    decay: 1.0
+    clip: 3.0
+    warmup: 20
+  learning_rate: 0.01
+  discount_factor: 0.95
+  batch_size: 12
+  buffer_capacity: 1000
+  epsilon: 0.15
+  train_interval_ticks: 3
+  max_updates_per_tick: 4
+  stagger_updates: true
+  adaptive_budget: false
+  min_updates_per_tick: 4
+  max_budget_updates_per_tick: 20
+  budget_adjust_step: 1
+  budget_high_frame_factor: 1.1
+  budget_low_frame_factor: 0.8
+  compute_backend: auto
+  compute_device: auto
+reproduction:
+  enabled: true
+  energy_threshold: 0.45
+  min_age: 50
+  energy_split: 0.4
+  mutation_std: 0.02
+  cooldown_ticks: 30
+  max_population: 30
+calamity:
+  enabled: false
+  interval: 500
+  destruction_rate: 0.7
+  affect_plants: true
+  affect_food: true
+  affect_seeds: false
+fire:
+  enabled: false
+  ignite_chance: 0.0004
+  spread_chance: 0.3
+  burn_duration: 6
+  moisture_threshold: 0.4
+  nutrient_return: 0.25
+signal:
+  enabled: true
+  strength: 1.0
+  decay: 0.9
+  diffuse: 0.0
+social:
+  transfer_enabled: false
+reward:
+  preset: legacy
+  eat_base: 5.0
+  eat_energy_gain_coef: 0.2
+  metabolism_penalty_coef: 0.01
+  death_penalty: 10.0
+competition:
+  enabled: false
+  old_fraction: 0.15
+  old_brain_version: 2
+  old_label: v2-old
+  new_label: v3-new
+performance:
+  spatial_index: true
+  spatial_index_cell: 8
+logging:
+  level: INFO
+  log_to_file: true
+  log_directory: data/logs
+  console_output: true
+sand:
+  spread_interval: 200
+  spread_chance: 0.05
+  spread_radius: 1
+  spread_blocked_by:
+  - plant
+  germination_multiplier: 0.1
+  growth_multiplier: 0.1
+  spawn_rate_multiplier: 0.3
+  fertility_override: 0.3
+  moisture_override: 0.2
+  reclaim_terrain: soil
+  reclaim_interval: 150

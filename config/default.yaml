@@ -104,6 +104,18 @@ brain:
       depth: 3           # imagination horizon
       samples: 16        # candidate rollouts per decision
       gamma: 0.95        # discount inside the rollout
+      # Planner upgrade knobs (docs/PLANNING_PROPOSAL.md, P1). The defaults
+      # below reproduce the legacy random-shooting controller exactly.
+      strategy: shooting       # shooting (uniform continuations) |
+                               # policy_shooting (Dreamer-style: continuation
+                               # actions sampled from the agent's own policy —
+                               # lower-variance, in-distribution rollouts)
+      first_action: uniform    # uniform | policy | policy_topk (how candidate
+                               # first actions are drawn)
+      topk: 3                  # actions kept when first_action: policy_topk
+      normalize: false         # z-score imagined rewards + value before summing
+      commit: 1                # control horizon: execute this many actions of
+                               # the best plan before replanning (1 = pure MPC)
 
   # Bootstrap instincts (Brain v3 Phase 2).
   # Small additive biases on the action logits that scaffold early survival

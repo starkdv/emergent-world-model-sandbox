@@ -1,9 +1,12 @@
 # Planning — current design vs. improvements (proposal)
 
-**Status:** Planner is **IMPLEMENTED** (`agents/planner.py`, `brain.world_model.planner`)
-as a minimal random-shooting MPC controller. This document proposes a **staged
-upgrade path** (P1 → P3). Nothing here is built yet; P1 is the recommended next
-step.
+**Status:** Planner is **IMPLEMENTED** (`agents/planner.py`,
+`brain.world_model.planner`). The staged upgrade path is **P1 → P3**.
+- **P1 — IMPLEMENTED** (`strategy: policy_shooting`, `first_action`,
+  `normalize`, `commit`; see "Phase P1" below and `tests/test_planner.py`). The
+  legacy `strategy: shooting` remains the default so existing configs are
+  unchanged.
+- **P2 / P3 — DESIGNED** (below), not yet built.
 
 **Scope:** `agents/planner.py`, `agents/agent.py` (`choose_action`),
 `agents/brain/__init__.py` + `agents/brain/v3.py` (latent dynamics head),
@@ -157,6 +160,17 @@ current random-shooting planner remains available
 (`planner.strategy: shooting`).
 
 ### Phase P1 — make the existing rollouts informative (cheap, do first)
+
+**Status: IMPLEMENTED & MEASURED.** Built in `agents/planner.py`
+(`strategy: policy_shooting`, `first_action`, `topk`, `normalize`, `commit`),
+unit-tested in `tests/test_planner.py`, and A/B-measured in
+`docs/sample_planning_p1/`. **Result:** policy-guided *continuations* beat
+random shooting by **+21% peak fitness / +26% planting at ≈equal cost** — *but
+only when the first action stays exploratory*. Biasing the first action toward
+the (immature, from-scratch) policy made agents passive (WAIT 22%→39%, fitness
+−21%). **Lesson:** policy-guide the continuations, keep the first action
+exploratory while the policy is still learning. Recommended config:
+`config/planning_p1_v35.yaml`. The legacy `shooting` remains the default.
 
 Small, local changes in `agents/planner.py` (+ a few config knobs). No genome or
 training changes. Expected: large quality gain at **equal or lower** cost.

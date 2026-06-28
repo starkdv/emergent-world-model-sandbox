@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] — planner P1: policy-guided rollouts (Dreamer-style)
+
+Implements Phase **P1** of `docs/PLANNING_PROPOSAL.md`.
+
+- **`agents/planner.py`**: the latent planner gains `strategy: policy_shooting`
+  (rollout continuations sampled from the agent's own policy instead of
+  uniform-random), plus `first_action` (uniform|policy|policy_topk), `topk`,
+  `normalize` (z-score imagined rewards+value), and `commit` (control horizon).
+  `agents/brain` gains `policy_from_hidden(h)`. **Legacy `strategy: shooting`
+  stays the exact default**, so existing configs are unchanged.
+- **Tests**: `tests/test_planner.py` (10 tests) — strategies, masking,
+  normalization, commit queue/replay, config defaults.
+- **Measured** (`docs/sample_planning_p1/`, matched seed-42 A/B): policy-guided
+  continuations beat random shooting **+21% peak fitness / +26% planting at
+  ~equal cost** — but only with an *exploratory first action*; biasing the first
+  action toward the immature policy hurt (WAIT 22%→39%). Recommended config:
+  `config/planning_p1_v35.yaml`. Knobs documented in `config/default.yaml`.
+
+# Changelog
+
 ## [Unreleased] — proposal: planning — current vs. improvements
 
 - **docs/PLANNING_PROPOSAL.md** (new): a research + design doc on the agent
