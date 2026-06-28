@@ -219,6 +219,15 @@ prefers good actions several steps out; with `commit>1`, **faster** than today.
 
 ### Phase P2 — better search + model-error discipline (medium)
 
+**Status: PARTIALLY IMPLEMENTED & MEASURED.** Categorical CEM (`strategy: cem`)
+and TD(λ) returns (`lam`) are built (`agents/planner.py`), unit-tested
+(`tests/test_planner.py`), and A/B-measured (`docs/sample_planning_p2/`):
+**CEM is the strongest controller — peak fitness +32% over baseline and +8% over
+P1** (eating +59%, planting +72%) at a ~20% throughput cost. The third item,
+**model-error discipline via a dynamics ensemble, is DEFERRED** — it needs an
+append-only genome-length change + migration, out of scope for the cheap P2 pass.
+Recommended config: `config/planning_p2_v35.yaml`.
+
 1. **Categorical CEM/MPPI** (`strategy: cem`): maintain a per-step categorical
    action distribution; each iteration sample `N` sequences, keep the top-`e`
    elites by return, refit the distribution; after `I` iterations act on the

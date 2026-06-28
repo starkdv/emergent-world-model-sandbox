@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] — planner P2: categorical CEM + λ-returns
+
+Implements the two self-contained items of Phase **P2** of
+`docs/PLANNING_PROPOSAL.md` (the dynamics-ensemble uncertainty item is deferred —
+it needs a genome change).
+
+- **`agents/planner.py`**: `strategy: cem` (categorical cross-entropy method —
+  per-step action distribution refined toward elite sequences over `cem_iters`
+  iterations) and `lam` (TD(λ) return over the imagined trajectory). Legacy
+  defaults unchanged.
+- **Tests**: `tests/test_planner.py` now 16 tests (CEM best-action, masking,
+  commit, λ-return extremes, config).
+- **Measured** (`docs/sample_planning_p2/`, seed-42 A/B): CEM is the strongest
+  controller — **peak fitness +32% over baseline / +8% over P1** (eating +59%,
+  planting +72%) at ~20% throughput cost. Ordering: cem > policy_shooting >
+  shooting. Recommended config: `config/planning_p2_v35.yaml`.
+
+# Changelog
+
 ## [Unreleased] — planner P1: policy-guided rollouts (Dreamer-style)
 
 Implements Phase **P1** of `docs/PLANNING_PROPOSAL.md`.

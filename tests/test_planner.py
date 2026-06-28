@@ -170,5 +170,62 @@ def test_from_config_reads_p1_options():
     assert p.depth == 5 and p.samples == 12
 
 
+# --- P2: CEM + lambda-returns ------------------------------------------------
+
+
+def test_cem_picks_best_first_action():
+    np.random.seed(0)
+    brain = StubBrain(n=4, target=2)
+    p = LatentPlanner(depth=1, samples=20, strategy="cem", cem_iters=3)
+    assert p.plan(brain, _h(brain)) == 2
+
+
+def test_cem_respects_mask():
+    np.random.seed(1)
+    brain = StubBrain(n=4, target=0)  # best action masked off
+    mask = np.array([0, 1, 1, 0])
+    p = LatentPlanner(depth=2, samples=16, strategy="cem", cem_iters=2)
+    for _ in range(5):
+        a = p.plan(brain, _h(brain), action_mask=mask)
+        assert a in (1, 2)
+
+
+def test_cem_commit_queues():
+    np.random.seed(2)
+    brain = StubBrain(n=4, target=1)
+    p = LatentPlanner(depth=4, samples=12, strategy="cem", cem_iters=2, commit=3)
+    p.plan(brain, _h(brain))
+    assert len(p._queue) == 2  # commit-1 cached
+
+
+def test_score_lambda_extremes():
+    p = LatentPlanner(gamma=0.95, lam=1.0)
+    # lam=1: reward-sum + terminal bootstrap
+    rewards, values = [1.0, 1.0], [10.0, 20.0]
+    s1 = p._score(rewards, values)
+    assert abs(s1 - (1 + 0.95 * 1 + 0.95**2 * 20)) < 1e-9
+    # lam=0: one-step bootstrap recursion
+    p.lam = 0.0
+    s0 = p._score(rewards, values)
+    assert abs(s0 - (1 + 0.95 * 10)) < 1e-9
+    assert s0 != s1
+
+
+def test_lambda_rollout_runs():
+    np.random.seed(3)
+    brain = StubBrain(n=4, target=2)
+    p = LatentPlanner(depth=3, samples=8, strategy="policy_shooting", lam=0.5)
+    a = p.plan(brain, _h(brain))
+    assert 0 <= a < brain.output_size
+
+
+def test_from_config_reads_p2_options():
+    p = LatentPlanner.from_config(
+        {"strategy": "cem", "lam": 0.8, "cem_iters": 5, "cem_elite_frac": 0.2}
+    )
+    assert p.strategy == "cem"
+    assert p.lam == 0.8 and p.cem_iters == 5 and p.cem_elite_frac == 0.2
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

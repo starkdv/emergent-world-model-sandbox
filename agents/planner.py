@@ -13,34 +13,39 @@ access, no rendering back to observations):
 Pick the first action of the best-scoring rollout, execute it, and (usually)
 replan next tick — receding-horizon / model-predictive control.
 
-Two rollout strategies (``brain.world_model.planner.strategy``):
-  * ``shooting``        — the original: first action drawn uniformly from the
-                          valid set, continuation actions uniform-random. The
-                          continuation is a random walk, so a rollout's score is
-                          a high-variance estimate of its first action.
-  * ``policy_shooting`` — Dreamer-style imagination (Planning proposal P1):
-                          continuation actions are sampled from the brain's OWN
-                          policy at the imagined hidden state, and the first
-                          action is drawn from the policy (optionally top-k).
-                          In-distribution, far lower variance.
+Strategies (``brain.world_model.planner.strategy``):
+  * ``shooting``        — original: first action uniform over the valid set,
+                          continuation actions uniform-random (high variance).
+  * ``policy_shooting`` — P1: continuation actions sampled from the brain's OWN
+                          policy at the imagined state (Dreamer-style, lower
+                          variance, in-distribution). Keep ``first_action:
+                          uniform`` early so exploration is preserved.
+  * ``cem``             — P2: categorical cross-entropy method. Maintain a
+                          per-step action distribution; each iteration sample a
+                          population of sequences, keep the top-scoring elites,
+                          and refit the distribution toward them. Concentrates
+                          the search budget on promising sequences.
 
-Refinements (all default to the legacy behaviour so ``shooting`` is unchanged):
-  * ``normalize``  — z-score imagined rewards and the value bootstrap by running
-                     stats so the per-step and horizon terms are commensurable.
-  * ``commit``     — control horizon: execute the best rollout's first ``commit``
-                     actions before replanning (cheaper, more coherent).
-  * ``first_action``/``topk`` — how the candidate first actions are chosen.
+Estimation:
+  * ``lam`` (λ)    — P2: TD(λ) return over the imagined trajectory instead of a
+                     single end-of-horizon bootstrap (λ=1 → the original
+                     reward-sum + terminal bootstrap; λ<1 mixes intermediate
+                     values, lower variance/bias trade-off).
+  * ``normalize``  — z-score imagined rewards and values so per-step and horizon
+                     terms are commensurable.
+  * ``commit``     — control horizon: execute the best plan's first ``commit``
+                     actions before replanning.
 
-Off by default (``planner.enabled``): rollouts cost ``samples × depth`` extra
-forward passes per decision, and a planner is only as good as its learned model.
-
-See docs/PLANNING_PROPOSAL.md for the rationale and the staged plan.
+Off by default (``planner.enabled``); legacy ``shooting`` with the default knobs
+reproduces the original controller exactly. NOT yet done (see
+docs/PLANNING_PROPOSAL.md P2): model-error discipline via a dynamics ensemble,
+which needs a genome change.
 
 Author: Karan Vasa
 Date: June 2026
 """
 
-from typing import TYPE_CHECKING, Optional, Tuple, List
+from typing import TYPE_CHECKING, Optional, Tuple, List, Callable
 
 import numpy as np
 
@@ -74,7 +79,7 @@ class _RunningStat:
 
 
 class LatentPlanner:
-    """Random-shooting / policy-shooting planner over imagined latent rollouts."""
+    """Random-shooting / policy-shooting / CEM planner over latent rollouts."""
 
     def __init__(
         self,
@@ -86,20 +91,27 @@ class LatentPlanner:
         topk: int = 3,
         normalize: bool = False,
         commit: int = 1,
+        lam: float = 1.0,
+        cem_iters: int = 3,
+        cem_elite_frac: float = 0.3,
     ):
         """
         Args:
             depth: Imagination horizon (steps).
-            samples: Candidate action sequences per decision.
+            samples: Candidate sequences per decision (population size for CEM).
             gamma: Discount applied to imagined rewards.
-            strategy: ``shooting`` (uniform continuations) or ``policy_shooting``
-                (policy-sampled continuations).
-            first_action: ``uniform`` | ``policy`` | ``policy_topk`` — how the
-                candidate first actions are drawn.
+            strategy: ``shooting`` | ``policy_shooting`` | ``cem``.
+            first_action: ``uniform`` | ``policy`` | ``policy_topk`` (shooting /
+                policy_shooting only).
             topk: top-k actions kept when ``first_action == policy_topk``.
-            normalize: z-score rewards and value before summing.
+            normalize: z-score rewards and values before summing.
             commit: control horizon — execute this many actions of the best plan
-                before replanning (>=1; 1 = pure MPC, the default).
+                before replanning (>=1; 1 = pure MPC).
+            lam: TD(λ) parameter for the rollout return (1.0 = reward-sum +
+                terminal bootstrap, the original; <1 mixes intermediate values).
+            cem_iters: CEM refinement iterations (``cem`` only).
+            cem_elite_frac: fraction of the population kept as elites per CEM
+                iteration.
         """
         self.depth = max(1, int(depth))
         self.samples = max(1, int(samples))
@@ -109,11 +121,13 @@ class LatentPlanner:
         self.topk = max(1, int(topk))
         self.normalize = bool(normalize)
         self.commit = max(1, int(commit))
-        # policy-guided continuations require a policy that ``shooting`` ignores
+        self.lam = float(lam)
+        self.cem_iters = max(1, int(cem_iters))
+        self.cem_elite_frac = float(cem_elite_frac)
         self._policy_rollout = strategy == "policy_shooting"
         self._rstat = _RunningStat()
         self._vstat = _RunningStat()
-        self._queue: List[int] = []  # committed actions awaiting execution
+        self._queue: List[int] = []
 
     @classmethod
     def from_config(cls, config: dict) -> "LatentPlanner":
@@ -128,6 +142,9 @@ class LatentPlanner:
             topk=config.get("topk", 3),
             normalize=config.get("normalize", False),
             commit=config.get("commit", 1),
+            lam=config.get("lam", 1.0),
+            cem_iters=config.get("cem_iters", 3),
+            cem_elite_frac=config.get("cem_elite_frac", 0.3),
         )
 
     def plan(
@@ -139,25 +156,76 @@ class LatentPlanner:
         """Choose the next action (serving a committed plan if one is queued)."""
         if self._queue:
             return self._queue.pop(0)
-
-        seq, _ = self._search(brain, h, action_mask)
+        if self.strategy == "cem":
+            seq = self._search_cem(brain, h, action_mask)
+        else:
+            seq, _ = self._search(brain, h, action_mask)
         if self.commit > 1 and len(seq) > 1:
-            # cache the next (commit-1) imagined actions to replay before replanning
             self._queue = [int(a) for a in seq[1 : self.commit]]
         return int(seq[0])
 
-    # -- internals -----------------------------------------------------------
+    # -- scoring -------------------------------------------------------------
+
+    def _score(self, rewards: List[float], values: List[float]) -> float:
+        """Discounted return from imagined rewards (+ value bootstrap / TD(λ))."""
+        if self.lam >= 1.0:
+            score = 0.0
+            disc = 1.0
+            for r in rewards:
+                score += disc * r
+                disc *= self.gamma
+            return score + disc * values[-1]  # terminal bootstrap
+        # forward-view TD(λ): G = r_k + γ[(1-λ)V_{k+1} + λ G]
+        g = values[-1]
+        for k in range(len(rewards) - 1, -1, -1):
+            g = rewards[k] + self.gamma * ((1.0 - self.lam) * values[k] + self.lam * g)
+        return g
+
+    def _rollout_core(
+        self,
+        brain: "Brain",
+        h: np.ndarray,
+        action_provider: Callable[[int, np.ndarray], int],
+    ) -> Tuple[List[int], float]:
+        """Roll the dynamics ``depth`` steps; actions come from ``action_provider``."""
+        h_sim = h
+        z_sim = None
+        rewards: List[float] = []
+        values: List[float] = []
+        seq: List[int] = []
+        need_values = self.lam < 1.0
+        for k in range(self.depth):
+            a = int(action_provider(k, h_sim))
+            seq.append(a)
+            z_sim, r_pred = brain.predict_next_latent(h_sim, a)
+            if self.normalize:
+                self._rstat.update(r_pred)
+                r_pred = self._rstat.z(r_pred)
+            rewards.append(r_pred)
+            h_sim = brain._gru_step(z_sim, h_sim)
+            if need_values:
+                v = brain._value(z_sim, h_sim)
+                if self.normalize:
+                    self._vstat.update(v)
+                    v = self._vstat.z(v)
+                values.append(v)
+        if not need_values:  # only the terminal bootstrap is required
+            vf = brain._value(z_sim, h_sim)
+            if self.normalize:
+                self._vstat.update(vf)
+                vf = self._vstat.z(vf)
+            values.append(vf)
+        return seq, self._score(rewards, values)
+
+    # -- shooting / policy_shooting -----------------------------------------
 
     def _first_actions(self, brain, h, action_mask, valid_first) -> np.ndarray:
-        """Sample the candidate first actions per the configured policy."""
         if self.first_action == "uniform" or not self._policy_rollout:
-            # legacy: uniform over the valid set
             return np.array(
                 [int(np.random.choice(valid_first)) for _ in range(self.samples)]
             )
         probs = brain.policy_from_hidden(h, action_mask)
         if self.first_action == "policy_topk":
-            # keep only the top-k actions (renormalised), then sample
             idx = np.argsort(probs)[::-1][: self.topk]
             p = probs[idx]
             s = p.sum()
@@ -165,7 +233,6 @@ class LatentPlanner:
             return np.array(
                 [int(np.random.choice(idx, p=p)) for _ in range(self.samples)]
             )
-        # "policy": sample first actions straight from the policy
         return np.array(
             [int(np.random.choice(len(probs), p=probs)) for _ in range(self.samples)]
         )
@@ -181,48 +248,63 @@ class LatentPlanner:
         )
         if len(valid_first) == 0:
             valid_first = np.arange(n_actions)
-
         first_actions = self._first_actions(brain, h, action_mask, valid_first)
+
         best_seq: List[int] = [int(first_actions[0])]
         best_score = -np.inf
         for a0 in first_actions:
-            seq, score = self._rollout(brain, h, int(a0))
+            a0 = int(a0)
+
+            def provider(k, h_sim, _a0=a0):
+                if k == 0:
+                    return _a0
+                if self._policy_rollout:
+                    probs = brain.policy_from_hidden(h_sim)
+                    return int(np.random.choice(len(probs), p=probs))
+                return int(np.random.randint(n_actions))
+
+            seq, score = self._rollout_core(brain, h, provider)
             if score > best_score:
                 best_score = score
                 best_seq = seq
         return best_seq, best_score
 
-    def _rollout(
-        self, brain: "Brain", h: np.ndarray, first_action: int
-    ) -> Tuple[List[int], float]:
-        """Imagine one action sequence; return (actions, discounted score)."""
-        h_sim = h
-        z_sim = None
-        score = 0.0
-        discount = 1.0
-        action = first_action
-        seq: List[int] = []
-        for _ in range(self.depth):
-            seq.append(int(action))
-            z_sim, r_pred = brain.predict_next_latent(h_sim, action)
-            if self.normalize:
-                self._rstat.update(r_pred)
-                score += discount * self._rstat.z(r_pred)
-            else:
-                score += discount * r_pred
-            discount *= self.gamma
-            h_sim = brain._gru_step(z_sim, h_sim)
-            # next imagined action
-            if self._policy_rollout:
-                probs = brain.policy_from_hidden(h_sim)
-                action = int(np.random.choice(len(probs), p=probs))
-            else:
-                action = int(np.random.randint(brain.output_size))
+    # -- CEM -----------------------------------------------------------------
 
-        v = brain._value(z_sim, h_sim)
-        if self.normalize:
-            self._vstat.update(v)
-            score += discount * self._vstat.z(v)
-        else:
-            score += discount * v
-        return seq, score
+    def _search_cem(
+        self, brain: "Brain", h: np.ndarray, action_mask: Optional[np.ndarray]
+    ) -> List[int]:
+        n = brain.output_size
+        # per-step categorical distribution, init uniform
+        dist = np.ones((self.depth, n), dtype=np.float64) / n
+        if action_mask is not None and action_mask.sum() > 0:
+            m = action_mask.astype(np.float64)
+            dist[0] = m / m.sum()  # first step honours the valid-action mask
+        n_elite = max(1, int(round(self.samples * self.cem_elite_frac)))
+
+        best_seq = None
+        for _ in range(self.cem_iters):
+            seqs = np.empty((self.samples, self.depth), dtype=int)
+            for d in range(self.depth):
+                seqs[:, d] = np.random.choice(n, size=self.samples, p=dist[d])
+            scored = []
+            for i in range(self.samples):
+                actions = seqs[i]
+
+                def provider(k, _h, _acts=actions):
+                    return int(_acts[k])
+
+                _, score = self._rollout_core(brain, h, provider)
+                scored.append((score, i))
+            scored.sort(key=lambda si: si[0], reverse=True)
+            elite_idx = [i for _, i in scored[:n_elite]]
+            best_seq = [int(a) for a in seqs[elite_idx[0]]]
+            # refit: smoothed elite action frequencies per step
+            new = np.full((self.depth, n), 1e-3)
+            for i in elite_idx:
+                for d in range(self.depth):
+                    new[d, seqs[i, d]] += 1.0
+            if action_mask is not None and action_mask.sum() > 0:
+                new[0] *= action_mask.astype(np.float64) + 1e-9
+            dist = new / new.sum(axis=1, keepdims=True)
+        return best_seq if best_seq is not None else [0]
