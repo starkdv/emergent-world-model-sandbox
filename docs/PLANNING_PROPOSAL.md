@@ -288,7 +288,16 @@ the P2 error discipline). **Effort:** ~1–2 weeks; do P1+P2 first.
 
 ---
 
-### Warmup scheduling — model-readiness gating (IMPLEMENTED)
+### Warmup scheduling — model-readiness gating (IMPLEMENTED & VALIDATED)
+
+**Validated** (`docs/sample_planning_scheduled/`, 6,000-tick A/B, 2 seeds):
+**scheduled (P1 for 5k → CEM + imagination) beat the baseline on both seeds**
+(mean peak fitness 66.5 vs 57.8, most stable final fitness, most planting),
+whereas **naive cold-start CEM + imagination was a coin-flip** (lost badly on one
+seed, won on the other). Gating model-based planning on model readiness is the
+right way to use P2/P3; cold-starting them is high-variance and can be worse than
+not planning. (n=2, directional; the robust signal is scheduled > baseline 2/2.)
+
 
 The multi-seed replication showed P2/P3 do not help from a cold start, and the
 likely cause is timing: **at tick 0 the world model is untrained, so a

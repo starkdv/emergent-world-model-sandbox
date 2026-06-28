@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] — validated: warmup scheduling fixes P2/P3 cold-start
+
+A 6,000-tick, 2-seed A/B (`docs/sample_planning_scheduled/`) tested gating CEM +
+imagination on world-model readiness:
+
+- **Scheduled (P1 `policy_shooting` for 5k ticks → CEM + imagination) beat the
+  `shooting` baseline on BOTH seeds** (mean peak fitness 66.5 vs 57.8; most stable
+  final fitness 48.7±2.5; most planting), and is faster than cold-start because
+  the heavy methods only run after warmup.
+- **Naive cold-start (CEM + imagination from tick 0) was a coin-flip** — lost
+  badly on one seed (52 vs baseline 74), won on the other — confirming the
+  hypothesis that an untrained world model makes model-based planning unreliable.
+- Recommended recipe: `config/planning_scheduled_v35.yaml`. Caveat: n=2,
+  directional; the robust signal is scheduled > baseline 2/2.
+
+# Changelog
+
 ## [Unreleased] — planner upgrades: multi-seed replication (honest correction)
 
 Replicated the P1/P2/P3 A/Bs across **4 seeds** (`docs/sample_planning_multiseed/`)
