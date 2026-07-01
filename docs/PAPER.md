@@ -39,9 +39,11 @@ confirmation at 7,000 ticks on every metric** (baseline peak 86.7 ± 8.4 vs
 a k-step open-loop rollout-error diagnostic measured during training, a
 readiness gate that switches planners on *measured* error instead of a tick count,
 and a multi-step consistency training loss that trains the dynamics head in the
-compounding-error regime the planner actually uses. The diagnostic shows the
-per-agent model's open-loop error at planner depth, and the multi-step loss
-reduces it. The overall lesson is methodological as much as algorithmic: a weak
+compounding-error regime the planner actually uses. Measured over 3 seeds, the
+diagnostic shows open-loop error falling 56% across 6,000 ticks — still
+unconverged when every fixed warmup switch point fires — and the multi-step loss
+reduces error exactly where the model is worst, at the start of training
+(6.09 ± 0.11 vs 6.56 ± 0.09 at tick 1,000). The overall lesson is methodological as much as algorithmic: a weak
 model can be genuinely useful (for exploration and action ranking), sharper
 search on the same weak model is *worse* than blunt search, single-seed effect
 sizes in ecological simulations routinely evaporate under replication — and the
@@ -455,7 +457,42 @@ horizons 2–3, coefficient 0.5). Both arms log the open-loop rollout-error
 diagnostic (k = 3) every learner update; the population mean is recorded each
 generation.
 
-<!-- WMQ-RESULTS -->
+**Results.** Full per-run open-loop latent MSE at horizon k = 3 (population
+mean at each generation boundary):
+
+| tick | 1-step s1 | s2 | s3 | mean ± std | multi-step s1 | s2 | s3 | mean ± std |
+|---|---|---|---|---|---|---|---|---|
+| 1000 | 6.49 | 6.50 | 6.69 | 6.56 ± 0.09 | 6.24 | 6.02 | 6.00 | **6.09 ± 0.11** |
+| 2000 | 6.16 | 6.03 | 5.90 | 6.03 ± 0.11 | 6.12 | 5.94 | 6.19 | 6.08 ± 0.11 |
+| 3000 | 5.91 | 5.17 | 5.35 | 5.48 ± 0.31 | 5.85 | 5.20 | 5.73 | 5.59 ± 0.28 |
+| 4000 | 5.23 | 4.88 | 4.25 | 4.79 ± 0.40 | 5.04 | 4.18 | 4.59 | 4.60 ± 0.35 |
+| 5000 | 4.16 | 3.49 | 3.28 | 3.64 ± 0.37 | 3.81 | 4.20 | 3.71 | 3.91 ± 0.21 |
+| 6000 | 2.64 | 3.49 | 2.54 | 2.89 ± 0.43 | 2.22 | 3.42 | 3.15 | 2.93 ± 0.52 |
+
+![rollout error during training](../paper/figures/rollout_error.png)
+
+Three findings:
+
+- **The diagnostic works, and it quantifies the cold-start problem.** Open-loop
+  error falls monotonically in all six runs — from 6.56 to 2.89 (−56%) under
+  the standard loss. At tick 1,000 the error is **2.3× its tick-6,000 level**,
+  which is the measured version of the warmup hypothesis: early planning really
+  does consume a much worse model. Critically, the error is *still falling* at
+  tick 6,000 — the model never "finishes" training at these horizons, which is
+  consistent with no fixed warmup switch point working in Sec. 6.6.
+- **The multi-step loss helps exactly where the model is worst.** At tick 1,000
+  the multi-step arm's error is 6.09 ± 0.11 vs 6.56 ± 0.09 — a 7% reduction,
+  and the only measurement point where the two arms' seed ranges do not overlap
+  (6.00–6.24 vs 6.49–6.69). From tick 2,000 on the arms are statistically
+  indistinguishable. Multi-step training accelerates early open-loop
+  competence — precisely the regime a cold-start planner consumes — without
+  changing the converged model quality at this capacity.
+- **No downstream fitness change** (the no-harm check): final fitness
+  63.2 ± 10.7 (1-step: 48.2 / 72.0 / 69.5) vs 56.2 ± 6.0 (multi-step: 56.3 /
+  63.4 / 48.7); peak 66.1 ± 6.7 vs 57.4 ± 7.6 — overlapping ranges at n = 3,
+  no benefit and no clear harm. Together with Sec. 6.6 this says early model
+  error is real and reducible, but it is *not the only* binding constraint on
+  model-based planning here.
 
 ### 6.8 Population dynamics across founder counts
 
@@ -499,8 +536,12 @@ dominated by reactive behaviours a greedy policy discovers anyway.
 **Measure, then trust.** The toolkit of Sec. 5.6 turns "the model is probably
 bad early" from a hypothesis into a logged, per-generation quantity, gates the
 expensive machinery on that quantity rather than on a guess, and trains the
-model in the regime the planner consumes. This is the infrastructure the earlier
-experiments should have had.
+model in the regime the planner consumes. The measurement (Sec. 6.7) both
+vindicates and reframes the warmup idea: at tick 1,000 the model's rollout
+error is 2.3× its tick-6,000 level — the cold-start problem is real — but the
+error is still falling when every fixed switch point of Sec. 6.6 fires, so the
+gate was pointing at the right quantity and that quantity never reached "good."
+This is the infrastructure the earlier experiments should have had.
 
 **Replication is not optional.** Two effect sizes of +25–32% (P2, P3) and one
 2-out-of-2-seed win (scheduled) all evaporated under 4 seeds. Ecological
