@@ -386,7 +386,11 @@ class Agent:
             )
             self.h = h_next
             action_idx = self.planner.plan(
-                self.brain, self.h, action_mask, tick=getattr(self, "_world_tick", 0)
+                self.brain,
+                self.h,
+                action_mask,
+                tick=getattr(self, "_world_tick", 0),
+                model_error=getattr(self.learner, "wm_rollout_error_ema", None),
             )
             # Log-prob of the planner's choice under the policy — keeps
             # PPO's importance ratio meaningful (clipping bounds the rest)
@@ -819,6 +823,8 @@ class Agent:
                     ),
                     world_model_coef=ppo.get("world_model_coef", 1.0),
                     imagination=ppo.get("imagination", None),
+                    world_model_multistep=ppo.get("world_model_multistep", None),
+                    rollout_metric_k=ppo.get("rollout_metric_k", 3),
                 )
                 self._ppo_config = ppo_config
                 self.learning_enabled = True

@@ -1,5 +1,36 @@
 # Changelog
 
+## [Unreleased] — world-model quality toolkit (M1–M3) + paper rewrite
+
+The planning studies kept implicating compounding open-loop model error, which
+nothing measured or trained. Three config-gated mechanisms (defaults preserve
+legacy behaviour exactly) close that gap:
+
+- **M1 — k-step rollout-error diagnostic** (`learning.ppo.rollout_metric_k`,
+  default 3): every learner update, roll the dynamics head open-loop k steps
+  from real hidden states (own predictions fed back, real logged actions),
+  measure per-horizon latent MSE vs the real latents. Exposed as
+  `wm_rollout_error`/`wm_rollout_error_ema` on the PPO learner and averaged
+  into the metrics CSV (new `wm_rollout_error` column).
+- **M2 — readiness gating**: `planner.warmup_error_threshold` switches the
+  planner to its main strategy when the *measured* error EMA drops below the
+  threshold (latched; `warmup_ticks` becomes a switch-anyway deadline);
+  `imagination.warmup_error` gates P3 the same way.
+- **M3 — multi-step consistency loss**
+  (`learning.ppo.world_model_multistep: {k, coef}`, off by default): train the
+  dynamics head on k-step open-loop rollouts (horizons 2..k), the regime the
+  planner actually uses (Venkatraman'15 / objective-mismatch fix).
+- Code: `agents/ppo.py` (`TorchBrainMirror.multistep_errors` + learner),
+  `agents/planner.py`, `agents/agent.py`, `utils/agents/metrics.py`. Tests:
+  `tests/test_model_quality.py` (13 tests); full suite 554 green. Validation
+  data (1-step vs multi-step, 3 seeds × 6,000 ticks): `docs/sample_wm_quality/`,
+  configs `config/wm_quality_{1step,multistep}_v35.yaml`.
+- **Paper rewritten** (`docs/PAPER.md` + `paper/paper.html` + PDF): full
+  narrative arc with ALL per-run data inline (competition, offline world model,
+  planning+curiosity, planner ladder, 4-seed replication, warmup pilot +
+  sweep, model-quality measurements, founders sweep), new figures
+  (`multiseed_replication.png`, `warmup_sweep.png`, `rollout_error.png`).
+
 ## [Unreleased] — warmup scheduling: 4-seed confirmation (honest correction)
 
 The 2-seed warmup result below **did not replicate**. A **4-seed confirmation +

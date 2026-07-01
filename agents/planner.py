@@ -96,6 +96,7 @@ class LatentPlanner:
         cem_elite_frac: float = 0.3,
         warmup_ticks: int = 0,
         warmup_strategy: str = "policy_shooting",
+        warmup_error_threshold: float = 0.0,
     ):
         """
         Args:
@@ -131,6 +132,13 @@ class LatentPlanner:
         # `strategy` (e.g. cem) kicks in. 0 = no warmup.
         self.warmup_ticks = max(0, int(warmup_ticks))
         self.warmup_strategy = warmup_strategy
+        # Readiness gate: when > 0, switch on MEASURED model quality — the
+        # main strategy activates once the learner's k-step rollout-error EMA
+        # drops below this threshold (latched), with `warmup_ticks` (if also
+        # set) acting as a switch-anyway deadline. A tick count is a blind
+        # proxy for model readiness; the error is the real thing.
+        self.warmup_error_threshold = float(warmup_error_threshold)
+        self._ready = False
         self._policy_rollout = strategy == "policy_shooting"
         self._rstat = _RunningStat()
         self._vstat = _RunningStat()
@@ -154,11 +162,29 @@ class LatentPlanner:
             cem_elite_frac=config.get("cem_elite_frac", 0.3),
             warmup_ticks=config.get("warmup_ticks", 0),
             warmup_strategy=config.get("warmup_strategy", "policy_shooting"),
+            warmup_error_threshold=config.get("warmup_error_threshold", 0.0),
         )
 
-    def effective_strategy(self, tick: int) -> str:
-        """The strategy active at this world tick (warmup_strategy before
-        `warmup_ticks`, the configured strategy after)."""
+    def effective_strategy(
+        self, tick: int, model_error: Optional[float] = None
+    ) -> str:
+        """The strategy active now.
+
+        Readiness mode (``warmup_error_threshold > 0``): warmup_strategy until
+        the measured k-step rollout error drops below the threshold (latched;
+        ``warmup_ticks`` if also set is a switch-anyway deadline). Otherwise
+        tick mode: warmup_strategy before ``warmup_ticks``, main after.
+        """
+        if self.warmup_error_threshold > 0.0:
+            if not self._ready:
+                error_ok = (
+                    model_error is not None
+                    and model_error <= self.warmup_error_threshold
+                )
+                deadline = self.warmup_ticks and tick >= self.warmup_ticks
+                if error_ok or deadline:
+                    self._ready = True
+            return self.strategy if self._ready else self.warmup_strategy
         if self.warmup_ticks and tick < self.warmup_ticks:
             return self.warmup_strategy
         return self.strategy
@@ -169,11 +195,12 @@ class LatentPlanner:
         h: np.ndarray,
         action_mask: Optional[np.ndarray] = None,
         tick: int = 0,
+        model_error: Optional[float] = None,
     ) -> int:
         """Choose the next action (serving a committed plan if one is queued)."""
         if self._queue:
             return self._queue.pop(0)
-        strat = self.effective_strategy(tick)
+        strat = self.effective_strategy(tick, model_error)
         # during warmup keep the first action exploratory (uniform); after, use
         # the configured first-action policy
         in_warmup = strat != self.strategy

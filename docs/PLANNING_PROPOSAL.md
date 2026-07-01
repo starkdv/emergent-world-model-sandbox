@@ -323,6 +323,35 @@ this benchmark the simple baseline is the recommendation. `config/
 planning_scheduled_v35.yaml` and the `sched4k`/`sched6k` variants remain for
 anyone who wants to re-explore at larger scale.
 
+### Model-quality toolkit — measure the model, gate on it, train the rollout regime (IMPLEMENTED)
+
+The replication + warmup results all point at one culprit: **compounding
+open-loop model error**, which the planner consumes but nothing measured or
+trained. Three mechanisms now close that gap (all config-gated, defaults
+preserve legacy behaviour):
+
+- **M1 — k-step rollout-error diagnostic** (`learning.ppo.rollout_metric_k`,
+  default 3): every learner update, roll the dynamics head open-loop k steps
+  from real hidden states (own predictions fed back, real logged actions) and
+  measure latent MSE per horizon vs the real encoded latents. Exposed as
+  `wm_rollout_error` / `wm_rollout_error_ema` on the learner and averaged into
+  the metrics CSV (`wm_rollout_error` column).
+- **M2 — readiness gating** (`planner.warmup_error_threshold`): switch the
+  planner to its main strategy when the *measured* error EMA drops below a
+  threshold (latched), with `warmup_ticks` as an optional switch-anyway
+  deadline; `imagination.warmup_error` gates P3 the same way. A tick count is a
+  blind proxy for readiness; the error is the real thing.
+- **M3 — multi-step consistency loss** (`learning.ppo.world_model_multistep:
+  {k, coef}`, off by default): additionally train the dynamics head on k-step
+  open-loop rollouts (horizons 2..k; horizon 1 is the standard loss), i.e. the
+  regime the planner actually uses.
+
+Implementation: `agents/ppo.py` (`TorchBrainMirror.multistep_errors`, learner
+plumbing), `agents/planner.py` (error gate), `agents/agent.py` (learner→planner
+error wiring), `utils/agents/metrics.py`. Tests: `tests/test_model_quality.py`.
+Measured validation (1-step vs multi-step arms, 3 seeds × 6,000 ticks) lives in
+`docs/sample_wm_quality/` and the paper's Sec. 6.7.
+
 ## 5. Recommendation & sequencing
 
 1. **P1 now.** Policy-guided rollouts + policy-biased first action +

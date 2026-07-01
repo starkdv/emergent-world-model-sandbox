@@ -343,6 +343,62 @@ class TorchBrainMirror:
             torch.stack(h_steps, dim=1),
         )
 
+    def multistep_errors(
+        self,
+        hs: "torch.Tensor",
+        zs: "torch.Tensor",
+        actions: "torch.Tensor",
+        rewards: "torch.Tensor",
+        valid: "torch.Tensor",
+        dones: "torch.Tensor",
+        k: int,
+    ) -> tuple["torch.Tensor", "torch.Tensor"]:
+        """
+        Open-loop k-step rollout errors of the dynamics head vs real data.
+
+        From every real hidden state h_t, roll the dynamics forward k steps
+        feeding its own predictions back (ẑ → GRU → ĥ), always taking the
+        REAL logged actions, and compare each predicted latent / reward with
+        the real encoded latent / observed reward j steps ahead. This is
+        exactly the compounding-error regime the planner operates in, so it
+        is both the model-quality diagnostic (under no_grad) and the
+        multi-step training loss (with grad).
+
+        Args:
+            hs: (B, L, H) real hidden states
+            zs: (B, L+1, Z) real encoded latents (incl. bootstrap)
+            actions: (B, L) logged action indices
+            rewards: (B, L) observed rewards
+            valid: (B, L) 1 where the step is real (not padding)
+            dones: (B, L) 1 where the episode ended at that step
+            k: rollout horizon (clamped to L)
+
+        Returns:
+            (latent_mse, reward_mse) — tensors of shape (k,), entry j the
+            mean error at horizon j+1 over all windows that stay inside the
+            chunk and cross no terminal/padding boundary.
+        """
+        batch, length, h_size = hs.shape
+        k = max(1, min(int(k), length))
+        n_actions = int(self.params["policy.b"].shape[0])
+        n_win = length - k + 1  # windows start at t = 0..L-k
+        cur = hs[:, :n_win, :].reshape(batch * n_win, h_size)
+        ok = valid * (1.0 - dones)  # step is real and successor in-episode
+        win_ok = torch.ones(batch * n_win, device=hs.device)
+        lat_errs, rew_errs = [], []
+        for j in range(k):
+            act = actions[:, j : j + n_win].reshape(-1)
+            onehot = torch.nn.functional.one_hot(act, n_actions).float()
+            z_pred, r_pred = self._dynamics(cur, onehot)
+            win_ok = win_ok * ok[:, j : j + n_win].reshape(-1)
+            n = torch.clamp(win_ok.sum(), min=1.0)
+            z_tgt = zs[:, j + 1 : j + 1 + n_win, :].reshape(batch * n_win, -1).detach()
+            r_tgt = rewards[:, j : j + n_win].reshape(-1)
+            lat_errs.append((((z_pred - z_tgt) ** 2).mean(dim=1) * win_ok).sum() / n)
+            rew_errs.append(((r_pred - r_tgt) ** 2 * win_ok).sum() / n)
+            cur = self._gru(z_pred, cur)
+        return torch.stack(lat_errs), torch.stack(rew_errs)
+
     def imagine_loss(
         self,
         h0: "torch.Tensor",
@@ -436,6 +492,8 @@ class PPOSequenceLearner:
         compute_device: str = "cpu",
         world_model_coef: float = 1.0,
         imagination: Optional[dict] = None,
+        world_model_multistep: Optional[dict] = None,
+        rollout_metric_k: int = 3,
     ):
         """
         Initialize the PPO learner.
@@ -455,6 +513,12 @@ class PPOSequenceLearner:
             compute_device: torch device ("cpu", "cuda", "mps")
             world_model_coef: Weight of the dynamics-head auxiliary loss
                 (only used when the brain has a world model)
+            world_model_multistep: Optional ``{k, coef}`` — train the dynamics
+                head on k-step open-loop rollouts (horizons 2..k) in addition
+                to the 1-step loss; off when k < 2 (legacy behaviour)
+            rollout_metric_k: Horizon of the k-step rollout-error diagnostic
+                computed every learn() (0 disables); exposed as
+                ``wm_rollout_error`` (per-horizon) / ``wm_rollout_error_ema``
         """
         if not TORCH_AVAILABLE:
             raise RuntimeError(
@@ -484,7 +548,23 @@ class PPOSequenceLearner:
         # Warmup: don't imagine until the world model has trained for this many
         # world ticks (the agent sets ``current_tick`` before learn()).
         self.imag_warmup = max(0, int(im.get("warmup_ticks", 0)))
+        # Readiness gate: additionally require the measured k-step rollout
+        # error EMA to be below this threshold (0 = tick gate only).
+        self.imag_warmup_error = float(im.get("warmup_error", 0.0))
         self.current_tick = 0
+        # Multi-step world-model training loss: train the dynamics head on
+        # k-step open-loop rollouts (feeding predictions back), not just
+        # 1-step prediction — the regime the planner actually uses it in.
+        # Off by default (k < 2) to preserve legacy training exactly.
+        ms = world_model_multistep or {}
+        self.ms_k = max(0, int(ms.get("k", 0)))
+        self.ms_coef = float(ms.get("coef", 0.5))
+        # k-step rollout-error diagnostic (no_grad, logged every learn()):
+        # per-horizon latent MSE + an EMA at horizon k for readiness gating.
+        self.rollout_metric_k = max(0, int(rollout_metric_k))
+        self.wm_rollout_error: Optional[list] = None
+        self.wm_rollout_error_ema: Optional[float] = None
+        self._wm_ema_beta = 0.9
         self.compute_backend = "torch"
         self.compute_device = compute_device
 
@@ -496,8 +576,15 @@ class PPOSequenceLearner:
         self._chunk_h0: Optional[np.ndarray] = None
 
     def imagination_active(self) -> bool:
-        """True when the imagination loss should run now (enabled + past warmup)."""
-        return self.imag_enabled and self.current_tick >= self.imag_warmup
+        """True when the imagination loss should run now: enabled, past the
+        tick warmup, and (when a readiness threshold is set) the measured
+        k-step rollout error has dropped below it."""
+        if not (self.imag_enabled and self.current_tick >= self.imag_warmup):
+            return False
+        if self.imag_warmup_error > 0.0:
+            ema = self.wm_rollout_error_ema
+            return ema is not None and ema <= self.imag_warmup_error
+        return True
 
     # -- storage -----------------------------------------------------------
 
@@ -639,9 +726,27 @@ class PPOSequenceLearner:
         # Advantages/targets from the CURRENT network (recomputed once,
         # before the optimisation epochs — standard PPO practice).
         with torch.no_grad():
-            _, values_now, v_boot, _, _ = self._mirror.forward_sequence(
+            _, values_now, v_boot, zs_ng, hs_ng = self._mirror.forward_sequence(
                 obs, h0, boot_obs
             )
+            # Model-quality diagnostic: k-step open-loop rollout error on the
+            # sampled real sequences — the quantity the planner's usefulness
+            # actually depends on. Cheap (no_grad) and observable via the
+            # metrics CSV / readiness gating.
+            if self._mirror.has_world_model and self.rollout_metric_k > 0:
+                lat_err, _ = self._mirror.multistep_errors(
+                    hs_ng, zs_ng, actions, rewards_t, valid, dones,
+                    self.rollout_metric_k,
+                )
+                errs = [float(e) for e in lat_err]
+                self.wm_rollout_error = errs
+                ema = self.wm_rollout_error_ema
+                self.wm_rollout_error_ema = (
+                    errs[-1]
+                    if ema is None
+                    else self._wm_ema_beta * ema
+                    + (1.0 - self._wm_ema_beta) * errs[-1]
+                )
         advantages_np = np.zeros((len(chunks), self.seq_len), dtype=np.float32)
         targets_np = np.zeros((len(chunks), self.seq_len), dtype=np.float32)
         values_now_np = values_now.cpu().numpy()
@@ -723,6 +828,19 @@ class PPOSequenceLearner:
                     (r_pred - rewards_t.reshape(-1)) ** 2 * wm_mask
                 ).sum() / wm_n
                 loss = loss + self.world_model_coef * (wm_latent + wm_reward)
+
+                # Multi-step consistency loss (opt-in): the planner rolls the
+                # dynamics open-loop for several steps, but the 1-step loss
+                # above never trains that regime — compounding error is
+                # unconstrained. Horizon 1 is already covered above, so only
+                # horizons 2..k contribute here.
+                if self.ms_k >= 2:
+                    ms_lat, ms_rew = self._mirror.multistep_errors(
+                        hs, zs, actions, rewards_t, valid, dones, self.ms_k
+                    )
+                    loss = loss + self.ms_coef * (
+                        ms_lat[1:].mean() + ms_rew[1:].mean()
+                    )
 
                 # Dreamer-style imagination actor-critic (P3, opt-in). Start from
                 # detached valid hidden states so it distils planning into the

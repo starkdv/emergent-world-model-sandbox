@@ -28,6 +28,7 @@ FIELDS = [
     "mean_fitness",
     "avg_fertility",
     "avg_moisture",
+    "wm_rollout_error",
 ]
 
 
@@ -61,6 +62,16 @@ class MetricsWriter:
         except Exception:
             avg_fert, avg_moist = 0.0, 0.0
 
+        # World-model quality: mean k-step open-loop rollout error EMA over
+        # agents whose learner measures it (PPO + world-model head).
+        wm_errs = [
+            e
+            for a in agents
+            if (e := getattr(getattr(a, "learner", None), "wm_rollout_error_ema", None))
+            is not None
+        ]
+        wm_err = round(sum(wm_errs) / len(wm_errs), 5) if wm_errs else ""
+
         row = {
             "generation": generation,
             "tick": world.tick,
@@ -74,6 +85,7 @@ class MetricsWriter:
             "mean_fitness": round(float(mean_fitness), 3),
             "avg_fertility": round(float(avg_fert), 4),
             "avg_moisture": round(float(avg_moist), 4),
+            "wm_rollout_error": wm_err,
         }
         self._writer.writerow(row)
         self._fh.flush()

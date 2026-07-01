@@ -122,6 +122,11 @@ brain:
       # to `strategy`. 0 = no warmup.
       warmup_ticks: 0
       warmup_strategy: policy_shooting
+      # Readiness gate: instead of a blind tick count, switch to `strategy`
+      # once the MEASURED k-step rollout error (learning.ppo.rollout_metric_k)
+      # EMA drops below this threshold (latched). warmup_ticks, if also set,
+      # becomes a switch-anyway deadline. 0 = tick-based warmup only.
+      warmup_error_threshold: 0.0
 
   # Bootstrap instincts (Brain v3 Phase 2).
   # Small additive biases on the action logits that scaffold early survival
@@ -285,6 +290,20 @@ learning:
     grad_clip: 0.5        # max gradient norm
     chunk_buffer: 64      # chunks kept in the replay buffer
     world_model_coef: 1.0 # weight of the dynamics-head auxiliary loss
+    # Model-quality diagnostic: every learn(), measure the k-step OPEN-LOOP
+    # rollout error of the dynamics head on real sequences (predictions fed
+    # back, real actions) — the compounding-error regime the planner uses.
+    # Exposed as wm_rollout_error(_ema) on the learner, averaged into the
+    # metrics CSV (wm_rollout_error column), and consumed by the planner's
+    # warmup_error_threshold readiness gate. 0 disables.
+    rollout_metric_k: 3
+    # Multi-step world-model training loss: also train the dynamics head on
+    # k-step open-loop rollouts (horizons 2..k; horizon 1 is the standard
+    # loss above). The 1-step loss never constrains compounding error even
+    # though the planner rolls the model several steps. k < 2 = off (legacy).
+    world_model_multistep:
+      k: 0               # rollout training horizon (e.g. 3 = planner depth)
+      coef: 0.5          # weight of the multi-step consistency loss
     # Dreamer-style imagination actor-critic (docs/PLANNING_PROPOSAL.md P3).
     # Trains the actor/critic on rollouts imagined in the latent world model so
     # a strong policy emerges WITHOUT a per-tick planner. Requires
@@ -298,6 +317,8 @@ learning:
       entropy: 0.001     # entropy bonus on the imagined actor
       warmup_ticks: 0    # don't imagine until the world model has trained this
                          # many world ticks (pairs with the planner warmup)
+      warmup_error: 0.0  # readiness gate: additionally require the measured
+                         # k-step rollout-error EMA below this (0 = tick only)
 
   # Curiosity (Brain v3 Phase 4) — requires brain.world_model.enabled.
   # Intrinsic reward = weight * clip(zscore(prediction error), 0, clip):
