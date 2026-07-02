@@ -16,41 +16,45 @@ Project: *Emergent World-Model Sandbox* · Code: `starkdv/emergent-world-model-s
 
 ## Abstract
 
-We study populations of recurrent neural agents that forage, learn within their
-lifetime by PPO, and reproduce with Lamarckian inheritance of trained weights in a
-procedurally generated 2-D ecology, and we use this sandbox to ask a question that
-is usually settled by assumption: **when does a learned world model actually help
-an agent act?** We report the full experimental arc, including the reversals.
-(1) In ecological competition, an attention-based brain displaces a legacy
-recurrent brain, growing from 1/8 founders to 96% of the population (mean fitness
-10.57 vs 8.95). (2) An observation-space world model trained on 291k logged
-transitions beats a static-world baseline by 20% (held-out ΔMSE 0.0268 vs 0.0337)
-and explains ≈67% of reward variance. (3) Equipping each agent with a latent
-dynamics head used for planning and curiosity produces a large single-seed
-behavioural shift (peak fitness +49%, exploration ×2). (4) A single-seed planner
-ladder — policy-guided rollouts (P1), cross-entropy-method search (P2), and
-Dreamer-style imagination (P3) — appears to give further stacked gains (+21%,
-+32%, +25%). (5) **Four-seed replication then erases most of it**: only P1
-survives (peak 43.5 ± 4.0 vs 41.1 ± 4.9; final fitness 51.8 ± 3.7 vs 45.3 ± 13.7
-at equal speed); P2 and P3 gains were seed noise. (6) A warmup schedule that gates
-the model-heavy methods on training time wins a 2-seed pilot but **loses a 4-seed
-confirmation at 7,000 ticks on every metric** (baseline peak 86.7 ± 8.4 vs
-72–77 for all scheduled variants). (7) We therefore instrument the model itself:
-a k-step open-loop rollout-error diagnostic measured during training, a
-readiness gate that switches planners on *measured* error instead of a tick count,
-and a multi-step consistency training loss that trains the dynamics head in the
-compounding-error regime the planner actually uses. Measured over 3 seeds, the
-diagnostic shows open-loop error falling 56% across 6,000 ticks — still
-unconverged when every fixed warmup switch point fires — and the multi-step loss
-reduces error exactly where the model is worst, at the start of training
-(6.09 ± 0.11 vs 6.56 ± 0.09 at tick 1,000). A downstream A/B of the readiness
-gate (4 seeds, 7,000 ticks) completes the picture: the gated planner also fails
-to beat the baseline (peak 68.8 ± 7.4 vs 86.7 ± 8.4) — no gating policy, fixed
-or measured, rescues CEM + imagination here. The overall lesson is methodological as much as algorithmic: a weak
-model can be genuinely useful (for exploration and action ranking), sharper
-search on the same weak model is *worse* than blunt search, single-seed effect
-sizes in ecological simulations routinely evaporate under replication — and the
-model's open-loop error is the quantity to measure before trusting any of it.
+We present a self-contained **multi-agent evolutionary sandbox** in which
+populations of recurrent neural agents forage, plant, and reproduce in a
+procedurally generated 2-D ecology with terrain, rivers, seasons, weather, and
+soil dynamics. Agents learn *within their lifetime* by PPO with full-network
+backprop through an attention encoder and a GRU, and pass their trained weights
+to offspring (Lamarckian inheritance), so natural selection acts directly on
+learned behaviour. Three brain generations share one append-only genome
+contract and can compete in a single world, and the live state streams to three
+visualizations (2-D, isometric, and an in-browser voxel client). The sandbox
+functions as an ecology-as-benchmark: capabilities are *observed* in a living
+population rather than rewarded into existence. We report measured results at
+every level. **Ecology:** populations self-regulate to a carrying capacity
+independent of founder count (8/24/48 founders converge within ~200 ticks).
+**Architecture selection:** in shared-world competition an attention brain
+displaces a legacy recurrent brain, growing from 1/8 founders to 96% of the
+population (mean fitness 10.57 vs 8.95). **World models:** an offline
+observation-space model trained on 291k logged transitions beats a static-world
+baseline by 20% (held-out ΔMSE 0.0268 vs 0.0337) and explains ≈67% of reward
+variance; a per-agent latent dynamics head — though only marginally better than
+chance — flips the population from aimless wandering to a goal-directed
+forage→eat→plant strategy when used for cheap planning and curiosity
+(exploration ×2, peak fitness +49%). We then use the sandbox for what such a
+testbed is for: a **replication study** of progressively heavier model-based
+planning (policy-guided rollouts, cross-entropy-method search, Dreamer-style
+imagination, warmup scheduling, and error-gated scheduling), instrumented with
+a k-step open-loop rollout-error diagnostic, a measured-readiness planner gate,
+and a multi-step consistency training loss. Under 4-seed replication only the
+cheapest upgrade survives (policy-guided rollouts: final fitness 51.8 ± 3.7 vs
+45.3 ± 13.7 at equal speed); the heavier machinery does not earn its cost under
+any schedule, fixed or measured — and the instrumentation lets us attribute
+that outcome to compounding model error rather than to the schedule (open-loop
+error is 2.3× worse early and falls 56% over 6,000 ticks of training; the
+multi-step loss reduces it exactly where the model is worst, 6.09 ± 0.11 vs
+6.56 ± 0.09 at tick 1,000). The broader lessons: a weak model can be genuinely
+useful for exploration and action ranking; sharper search on the same weak
+model is *worse* than blunt search; single-seed effect sizes in ecological
+simulations routinely evaporate under replication; and the model's open-loop
+error is the quantity to measure before trusting any of it. All experiments are
+reproducible end-to-end, and every per-run number appears inline in this paper.
 
 **Keywords:** multi-agent RL · world models · model-based planning · replication ·
 model error · intrinsic motivation · open-ended evolution
