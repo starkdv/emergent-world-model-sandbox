@@ -1,0 +1,3 @@
+generation,tick,alive_agents,total_food,total_plants,total_seeds,mean_energy,mean_age,max_age,mean_fitness,avg_fertility,avg_moisture
+1,1000,30,63,151,99,114.094,321.47,686,30.862,0.9705,0.3102
+2,2000,30,206,295,469,130.343,474.0,941,48.22,0.9144,0.7086

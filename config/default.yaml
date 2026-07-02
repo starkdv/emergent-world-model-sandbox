@@ -104,6 +104,29 @@ brain:
       depth: 3           # imagination horizon
       samples: 16        # candidate rollouts per decision
       gamma: 0.95        # discount inside the rollout
+      # Planner upgrade knobs (docs/PLANNING_PROPOSAL.md, P1). The defaults
+      # below reproduce the legacy random-shooting controller exactly.
+      strategy: shooting       # shooting (uniform continuations) |
+                               # policy_shooting (Dreamer-style: continuation
+                               # actions sampled from the agent's own policy —
+                               # lower-variance, in-distribution rollouts)
+      first_action: uniform    # uniform | policy | policy_topk (how candidate
+                               # first actions are drawn)
+      topk: 3                  # actions kept when first_action: policy_topk
+      normalize: false         # z-score imagined rewards + value before summing
+      commit: 1                # control horizon: execute this many actions of
+                               # the best plan before replanning (1 = pure MPC)
+      # Warmup schedule (P2/P3): at tick 0 the world model is untrained, so a
+      # model-heavy planner (cem) shoots off garbage. Run the cheap exploratory
+      # warmup_strategy until warmup_ticks (letting the model train), then switch
+      # to `strategy`. 0 = no warmup.
+      warmup_ticks: 0
+      warmup_strategy: policy_shooting
+      # Readiness gate: instead of a blind tick count, switch to `strategy`
+      # once the MEASURED k-step rollout error (learning.ppo.rollout_metric_k)
+      # EMA drops below this threshold (latched). warmup_ticks, if also set,
+      # becomes a switch-anyway deadline. 0 = tick-based warmup only.
+      warmup_error_threshold: 0.0
 
   # Bootstrap instincts (Brain v3 Phase 2).
   # Small additive biases on the action logits that scaffold early survival
@@ -267,6 +290,35 @@ learning:
     grad_clip: 0.5        # max gradient norm
     chunk_buffer: 64      # chunks kept in the replay buffer
     world_model_coef: 1.0 # weight of the dynamics-head auxiliary loss
+    # Model-quality diagnostic: every learn(), measure the k-step OPEN-LOOP
+    # rollout error of the dynamics head on real sequences (predictions fed
+    # back, real actions) — the compounding-error regime the planner uses.
+    # Exposed as wm_rollout_error(_ema) on the learner, averaged into the
+    # metrics CSV (wm_rollout_error column), and consumed by the planner's
+    # warmup_error_threshold readiness gate. 0 disables.
+    rollout_metric_k: 3
+    # Multi-step world-model training loss: also train the dynamics head on
+    # k-step open-loop rollouts (horizons 2..k; horizon 1 is the standard
+    # loss above). The 1-step loss never constrains compounding error even
+    # though the planner rolls the model several steps. k < 2 = off (legacy).
+    world_model_multistep:
+      k: 0               # rollout training horizon (e.g. 3 = planner depth)
+      coef: 0.5          # weight of the multi-step consistency loss
+    # Dreamer-style imagination actor-critic (docs/PLANNING_PROPOSAL.md P3).
+    # Trains the actor/critic on rollouts imagined in the latent world model so
+    # a strong policy emerges WITHOUT a per-tick planner. Requires
+    # brain.world_model.enabled. EXPERIMENTAL — default off.
+    imagination:
+      enabled: false     # turn on to distil planning into the policy
+      horizon: 5         # imagined rollout length
+      weight: 0.5        # weight of the imagination loss
+      batch: 256         # imagined start states per update
+      lambda: 0.95       # TD(λ) for imagined returns
+      entropy: 0.001     # entropy bonus on the imagined actor
+      warmup_ticks: 0    # don't imagine until the world model has trained this
+                         # many world ticks (pairs with the planner warmup)
+      warmup_error: 0.0  # readiness gate: additionally require the measured
+                         # k-step rollout-error EMA below this (0 = tick only)
 
   # Curiosity (Brain v3 Phase 4) — requires brain.world_model.enabled.
   # Intrinsic reward = weight * clip(zscore(prediction error), 0, clip):

@@ -95,6 +95,8 @@ Related design: `OBJECTS_GUIDE.md`, `ECOSYSTEM.md`.
 | `test_world_model.py` | 19 | Latent dynamics head (predicts next-latent + reward). **Pass:** head shapes/param count, it only extends the genome (prefix stays valid), curiosity = clipped z-scored prediction error, planner picks actions from imagined rollouts. |
 | `test_dream_evolution.py` | 10 | Population world model + dream-based evolution. **Pass:** the dream model trains from logged transitions and agents evolved inside it transfer back. *(The action-conditional-dynamics convergence test is stochastic — see the note above.)* |
 | `test_world_model_logger.py` | 1 | Transition logging. **Pass:** transitions/episodes/world-state CSVs are written with the documented schema (`WORLD_MODEL_LOGGING_FORMAT.md`). |
+| `test_planner.py` | 16 | Latent planner upgrades (`docs/PLANNING_PROPOSAL.md` P1+P2). **Pass:** `shooting`/`policy_shooting`/`cem` strategies each pick the best first action and return valid actions, action-mask is honoured, reward/value normalization runs, the `commit` control-horizon queues and replays, TD(λ) `_score` matches the closed form at λ∈{0,1}, and `from_config` defaults reproduce the legacy controller. |
+| `test_imagination.py` | 5 | Dreamer-style imagination actor-critic (P3). **Pass:** `TorchBrainMirror.imagine_loss` returns a finite scalar with gradients reaching the policy/value heads (horizon ≥ 1), and the PPO learner's `imagination` config is off by default and read when enabled. *(Skipped without torch.)* |
 
 ## 7. Substrate: spatial index & checkpointing (W6)
 

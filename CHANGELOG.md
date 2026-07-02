@@ -1,5 +1,173 @@
 # Changelog
 
+## [Unreleased] — readiness gate measured downstream (does not rescue CEM+imagination)
+
+A/B of the M2 readiness gate at the sweep's exact conditions
+(`config/planning_sched_gated_v35.yaml`: P1 until the per-agent rollout-error
+EMA ≤ 4.5, deadline 6k; seeds 1–4 × 7,000 ticks):
+
+- **Gated peak 68.8 ± 7.4, final 49.9 ± 8.5 — 0/4 seeds beat the baseline**
+  (86.7 ± 8.4 / 61.5 ± 4.7); trails even fixed sched@4k (77.4 ± 6.3).
+- The gate works as designed and re-confirms the ordering: the seed whose error
+  crossed earliest (≈2.5k) scored the best gated run (81.5); two seeds never
+  crossed and rode the 6k deadline. Per-agent gating + population turnover
+  (newborns re-enter warmup with a fresh EMA) keeps switches late/partial.
+- Conclusion across three designs (20-run replication, 16-run sweep, 4-run
+  gated A/B): **no gating policy, fixed or measured, makes CEM + imagination
+  competitive with plain `shooting` here** — the negative result is about the
+  machinery, not the schedule. Data: `docs/sample_planning_warmup_sweep/`
+  (`results_gated.csv`, `gated_s*_metrics.csv`); paper Sec. 6.7 (Table 11b),
+  hatched bar in the sweep figure.
+
+## [Unreleased] — world-model quality toolkit (M1–M3) + paper rewrite
+
+The planning studies kept implicating compounding open-loop model error, which
+nothing measured or trained. Three config-gated mechanisms (defaults preserve
+legacy behaviour exactly) close that gap:
+
+- **M1 — k-step rollout-error diagnostic** (`learning.ppo.rollout_metric_k`,
+  default 3): every learner update, roll the dynamics head open-loop k steps
+  from real hidden states (own predictions fed back, real logged actions),
+  measure per-horizon latent MSE vs the real latents. Exposed as
+  `wm_rollout_error`/`wm_rollout_error_ema` on the PPO learner and averaged
+  into the metrics CSV (new `wm_rollout_error` column).
+- **M2 — readiness gating**: `planner.warmup_error_threshold` switches the
+  planner to its main strategy when the *measured* error EMA drops below the
+  threshold (latched; `warmup_ticks` becomes a switch-anyway deadline);
+  `imagination.warmup_error` gates P3 the same way.
+- **M3 — multi-step consistency loss**
+  (`learning.ppo.world_model_multistep: {k, coef}`, off by default): train the
+  dynamics head on k-step open-loop rollouts (horizons 2..k), the regime the
+  planner actually uses (Venkatraman'15 / objective-mismatch fix).
+- Code: `agents/ppo.py` (`TorchBrainMirror.multistep_errors` + learner),
+  `agents/planner.py`, `agents/agent.py`, `utils/agents/metrics.py`. Tests:
+  `tests/test_model_quality.py` (13 tests); full suite 554 green. Validation
+  data (1-step vs multi-step, 3 seeds × 6,000 ticks): `docs/sample_wm_quality/`,
+  configs `config/wm_quality_{1step,multistep}_v35.yaml`.
+- **Paper rewritten** (`docs/PAPER.md` + `paper/paper.html` + PDF): full
+  narrative arc with ALL per-run data inline (competition, offline world model,
+  planning+curiosity, planner ladder, 4-seed replication, warmup pilot +
+  sweep, model-quality measurements, founders sweep), new figures
+  (`multiseed_replication.png`, `warmup_sweep.png`, `rollout_error.png`).
+
+## [Unreleased] — warmup scheduling: 4-seed confirmation (honest correction)
+
+The 2-seed warmup result below **did not replicate**. A **4-seed confirmation +
+`warmup_ticks` sweep at 7,000 ticks** (`docs/sample_planning_warmup_sweep/`)
+finds the plain `shooting` baseline is the strongest arm on every aggregate
+metric:
+
+- **baseline (`shooting`): peak 86.7 ± 8.4, final 61.5 ± 4.7, 2667 seeds** —
+  beats every scheduled arm.
+- sched@4k 77.4 / sched@5k 74.8 / sched@6k 72.2 (peak). *Earlier* switch points
+  beat later ones (4k > 5k > 6k), but none beat the baseline.
+- The earlier 2-seed "scheduled wins" was within noise (per-seed peaks swing
+  77–100 for baseline; 50–83 for sched@6k).
+- **Takeaway: default to `strategy: shooting`.** Warmup gating is implemented and
+  correct, but CEM + imagination — even gated on a warmed-up model — did not earn
+  their cost on this 64×64 v3.5 task. Scheduled configs remain for re-exploration
+  at larger scale. Proposal updated; the 2-seed study carries a "superseded"
+  banner. Caveat: n=4 (suggestive, ~1.4σ gap), but baseline ≥ every scheduled
+  arm on every metric across all 4 seeds.
+
+## [Unreleased] — validated: warmup scheduling fixes P2/P3 cold-start
+
+> **Superseded by the 4-seed confirmation above — this 2-seed result did not
+> replicate.** Kept as a record of how a small sweep can mislead.
+
+A 6,000-tick, 2-seed A/B (`docs/sample_planning_scheduled/`) tested gating CEM +
+imagination on world-model readiness:
+
+- **Scheduled (P1 `policy_shooting` for 5k ticks → CEM + imagination) beat the
+  `shooting` baseline on BOTH seeds** (mean peak fitness 66.5 vs 57.8; most stable
+  final fitness 48.7±2.5; most planting), and is faster than cold-start because
+  the heavy methods only run after warmup.
+- **Naive cold-start (CEM + imagination from tick 0) was a coin-flip** — lost
+  badly on one seed (52 vs baseline 74), won on the other — confirming the
+  hypothesis that an untrained world model makes model-based planning unreliable.
+- Recommended recipe: `config/planning_scheduled_v35.yaml`. Caveat: n=2,
+  directional; the robust signal is scheduled > baseline 2/2.
+
+## [Unreleased] — planner upgrades: multi-seed replication (honest correction)
+
+Replicated the P1/P2/P3 A/Bs across **4 seeds** (`docs/sample_planning_multiseed/`)
+— the authoritative result; the earlier single-seed write-ups are superseded.
+
+- **P1 (policy_shooting)** is the only reliably-good upgrade: highest mean peak
+  fitness (43.5 vs 41.1) and best, **far steadier** final fitness (51.8±4.3 vs
+  the baseline 45.3±15.8) at equal cost — its real benefit is **variance
+  reduction**, not the single-seed "+21%".
+- **P2 (CEM) did not replicate**: across seeds it ties the baseline on peak and
+  is worse on final fitness while ~20% slower (the single-seed +32% was luck).
+- **P3 (imagination) did not replicate**: imag_on ≈ imag_off (the +25% was noise).
+- Caveat: n=4, error bars overlap — directional, not significant. P2/P3 likely
+  need a better world model + longer horizons to pay off.
+- Disposition unchanged: all phases stay implemented + config-gated with legacy
+  `shooting` as the default; **P1 is the recommended planner setting**. Per-phase
+  sample READMEs and the proposal status are annotated with this correction.
+
+# Changelog
+
+## [Unreleased] — planner P3: Dreamer-style imagination actor-critic (experimental)
+
+Implements Phase **P3** of `docs/PLANNING_PROPOSAL.md` as an opt-in, default-OFF
+training mode.
+
+- **`agents/ppo.py`**: `TorchBrainMirror.imagine_loss` rolls the actor forward in
+  the latent world model, scores with TD(λ) returns from the critic, and trains
+  the actor (REINFORCE + value baseline) and critic in imagination. Wired into
+  the PPO update behind `learning.ppo.imagination.enabled` (default false);
+  start states detached and returns detached so it only distils planning into
+  the policy without perturbing representation learning.
+- **Tests**: `tests/test_imagination.py` (5 tests; full suite 536 passed).
+- **Measured** (`docs/sample_planning_p3/`, seed-42 A/B, planner OFF in both):
+  imagination training lifted **peak fitness +25%** (lifespan +11%, planting
+  +38%, idle WAIT 31%→15%) — nearly matching the best decision-time planner
+  (CEM, +32%) **without its per-tick cost**. Configs:
+  `config/planning_p3_v35.yaml` (+ `_base`); knob documented in
+  `config/default.yaml`.
+
+# Changelog
+
+## [Unreleased] — planner P2: categorical CEM + λ-returns
+
+Implements the two self-contained items of Phase **P2** of
+`docs/PLANNING_PROPOSAL.md` (the dynamics-ensemble uncertainty item is deferred —
+it needs a genome change).
+
+- **`agents/planner.py`**: `strategy: cem` (categorical cross-entropy method —
+  per-step action distribution refined toward elite sequences over `cem_iters`
+  iterations) and `lam` (TD(λ) return over the imagined trajectory). Legacy
+  defaults unchanged.
+- **Tests**: `tests/test_planner.py` now 16 tests (CEM best-action, masking,
+  commit, λ-return extremes, config).
+- **Measured** (`docs/sample_planning_p2/`, seed-42 A/B): CEM is the strongest
+  controller — **peak fitness +32% over baseline / +8% over P1** (eating +59%,
+  planting +72%) at ~20% throughput cost. Ordering: cem > policy_shooting >
+  shooting. Recommended config: `config/planning_p2_v35.yaml`.
+
+# Changelog
+
+## [Unreleased] — planner P1: policy-guided rollouts (Dreamer-style)
+
+Implements Phase **P1** of `docs/PLANNING_PROPOSAL.md`.
+
+- **`agents/planner.py`**: the latent planner gains `strategy: policy_shooting`
+  (rollout continuations sampled from the agent's own policy instead of
+  uniform-random), plus `first_action` (uniform|policy|policy_topk), `topk`,
+  `normalize` (z-score imagined rewards+value), and `commit` (control horizon).
+  `agents/brain` gains `policy_from_hidden(h)`. **Legacy `strategy: shooting`
+  stays the exact default**, so existing configs are unchanged.
+- **Tests**: `tests/test_planner.py` (10 tests) — strategies, masking,
+  normalization, commit queue/replay, config defaults.
+- **Measured** (`docs/sample_planning_p1/`, matched seed-42 A/B): policy-guided
+  continuations beat random shooting **+21% peak fitness / +26% planting at
+  ~equal cost** — but only with an *exploratory first action*; biasing the first
+  action toward the immature policy hurt (WAIT 22%→39%). Recommended config:
+  `config/planning_p1_v35.yaml`. Knobs documented in `config/default.yaml`.
+
+# Changelog
+
 ## [Unreleased] — proposal: planning — current vs. improvements
 
 - **docs/PLANNING_PROPOSAL.md** (new): a research + design doc on the agent

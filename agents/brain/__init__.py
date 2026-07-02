@@ -167,6 +167,32 @@ class Brain:
         r_pred = float((d @ dyn["Wr"] + dyn["br"]).item())
         return z_pred, r_pred
 
+    def policy_from_hidden(
+        self, h: np.ndarray, action_mask: Optional[np.ndarray] = None
+    ) -> np.ndarray:
+        """
+        Action probabilities directly from a (possibly imagined) GRU hidden
+        state — the same masked softmax ``forward`` computes from ``h``, but
+        without re-encoding an observation or applying instincts.
+
+        Used by the latent planner to sample *policy-guided* rollout
+        continuations (Dreamer-style imagination) instead of uniform-random
+        actions, which keeps imagined trajectories in-distribution.
+
+        Args:
+            h: GRU hidden state.
+            action_mask: Optional binary mask (1 = valid). Imagined steps past
+                the first usually pass None (validity depends on world state
+                the model does not expose).
+
+        Returns:
+            Probability vector over the ``output_size`` actions.
+        """
+        logits = h @ self.params["policy_head"]["W"] + self.params["policy_head"]["b"]
+        if action_mask is not None:
+            logits = np.where(action_mask > 0, logits, -1e9)
+        return modules.softmax(logits)
+
     def initial_state(self) -> np.ndarray:
         """
         Get initial GRU hidden state (zeros).

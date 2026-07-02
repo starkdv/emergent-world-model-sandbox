@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>How Useful Is a Learned World Model? Planning, Replication, and Model-Quality Diagnostics</title>
+<style>
+  @page { size: Letter; margin: 0.85in 0.7in; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Times New Roman", Times, Georgia, serif;
+         font-size: 9.6pt; line-height: 1.33; color: #111; margin: 0; }
+  .head { text-align: center; margin: 0 0 9pt; }
+  h1.title { font-size: 16.5pt; line-height: 1.16; margin: 0 0 8pt; font-weight: 700; }
+  .authors { font-size: 11pt; margin: 2pt 0; }
+  .affil { font-size: 9pt; color: #333; }
+  .meta { font-size: 8.4pt; color: #555; margin-top: 3pt; }
+  .abstract { margin: 9pt 6% 4pt; font-size: 9.1pt; text-align: justify; }
+  .abstract h3, .kw h3 { text-align: center; font-variant: small-caps;
+    font-size: 9.5pt; margin: 0 0 4pt; letter-spacing: .5px; }
+  .kw { margin: 2pt 6% 8pt; font-size: 8.7pt; text-align: center; color:#333; }
+  hr.rule { border: none; border-top: 1px solid #bbb; margin: 8pt 0; }
+
+  .body { column-count: 2; column-gap: 20pt; text-align: justify; }
+  .body h2 { font-size: 10.4pt; margin: 9pt 0 3pt; font-weight: 700; break-after: avoid; }
+  .body h3 { font-size: 9.7pt; margin: 6pt 0 2pt; font-weight: 700; font-style: italic; break-after: avoid; }
+  p { margin: 0 0 5pt; }
+  .body p { text-indent: 1.1em; }
+  .body p.noindent { text-indent: 0; }
+  ol.disc { margin: 3pt 0 6pt 1.2em; padding: 0; }
+  ol.disc li { margin: 0 0 3pt; }
+  ul.disc { margin: 3pt 0 6pt 1.2em; padding: 0; }
+  ul.disc li { margin: 0 0 3pt; }
+  code { font-family: "DejaVu Sans Mono", Consolas, monospace; font-size: 8.1pt; }
+
+  table.t { column-span: all; border-collapse: collapse; width: 100%;
+    margin: 8pt 0; font-size: 8.5pt; break-inside: avoid; }
+  table.t caption { caption-side: top; text-align: left; font-size: 8.5pt;
+    margin-bottom: 3pt; color:#222; }
+  table.t caption b, figcaption b { font-variant: small-caps; }
+  table.t th, table.t td { padding: 2.3pt 6pt; text-align: center; }
+  table.t thead th { border-top: 1.1px solid #222; border-bottom: 0.6px solid #222; }
+  table.t tbody tr:last-child td { border-bottom: 1.1px solid #222; }
+  table.t td.l, table.t th.l { text-align: left; }
+  table.t.dense { font-size: 7.7pt; }
+  table.t.dense th, table.t.dense td { padding: 1.6pt 4pt; }
+  table.t tbody tr.rule td { border-top: 0.6px solid #999; }
+  .win { font-weight: 700; }
+
+  /* figures */
+  figure.fw { column-span: all; margin: 9pt 0 5pt; text-align: center; break-inside: avoid; }
+  figure.col { margin: 7pt 0 5pt; text-align: center; break-inside: avoid; }
+  figure img { max-width: 100%; height: auto; border: 0.5px solid #ddd; }
+  figcaption { font-size: 8.1pt; text-align: left; margin-top: 3pt; color: #222; }
+  .uirow { display: flex; gap: 7pt; align-items: flex-end; }
+  .uirow > div { flex: 1; text-align: center; }
+  .uirow .cap { font-size: 7.6pt; color: #444; margin-top: 1pt; }
+  svg { width: 100%; height: auto; }
+  .svgbox { fill: #f3f6f9; stroke: #4a5568; stroke-width: 1.2; rx: 4; }
+  .svgacc { fill: #eaf2fb; stroke: #2f6fb0; stroke-width: 1.2; }
+  .svgwm  { fill: #eef7ee; stroke: #2e8b57; stroke-width: 1.2; }
+  .svgt   { font: 12px "Times New Roman", serif; fill: #111; }
+  .svgti  { font: italic 12px "Times New Roman", serif; fill: #111; }
+  .svgs   { font: 10.5px "Times New Roman", serif; fill: #333; }
+
+  .refs { column-span: all; margin-top: 8pt; }
+  .refs h2 { font-size: 10.4pt; margin: 8pt 0 3pt; }
+  ol.bib { font-size: 8.1pt; margin: 0 0 0 1.4em; padding: 0; line-height: 1.3; }
+  ol.bib li { margin: 0 0 2.4pt; }
+  .foot { column-span: all; margin-top: 9pt; border-top: 1px solid #ccc;
+          padding-top: 5pt; font-size: 7.7pt; color: #555; }
+  .small { font-size: 8.3pt; }
+</style>
+</head>
+<body>
+
+<div class="head">
+  <h1 class="title">How Useful Is a Learned World Model?<br/>
+  Planning, Replication, and Model-Quality Diagnostics in a
+  Multi-Agent Evolutionary Sandbox</h1>
+  <div class="authors">Karan Vasa</div>
+  <div class="affil">Independent Researcher &nbsp;·&nbsp; <i>Emergent World-Model Sandbox</i></div>
+  <div class="meta">Technical Report — 2 July 2026 ·
+    DOI: <code>10.5281/zenodo.21133600</code> ·
+    Code &amp; data: <code>starkdv/emergent-world-model-sandbox</code></div>
+</div>
+
+<div class="abstract">
+  <h3>Abstract</h3>
+  We present a self-contained <b>multi-agent evolutionary sandbox</b> in which
+  populations of recurrent neural agents forage, plant, and reproduce in a
+  procedurally generated 2-D ecology with terrain, rivers, seasons, weather,
+  and soil dynamics. Agents learn <i>within their lifetime</i> by PPO with
+  full-network backprop through an attention encoder and a GRU, and pass their
+  trained weights to offspring (Lamarckian inheritance), so natural selection
+  acts directly on learned behaviour. Three brain generations share one
+  append-only genome contract and can compete in a single world, and the live
+  state streams to three visualizations (2-D, isometric, and an in-browser
+  voxel client). The sandbox functions as an ecology-as-benchmark: capabilities
+  are <i>observed</i> in a living population rather than rewarded into
+  existence. We report measured results at every level. <b>Ecology:</b>
+  populations self-regulate to a carrying capacity independent of founder count
+  (8/24/48 founders converge within ~200 ticks). <b>Architecture
+  selection:</b> in shared-world competition an attention brain displaces a
+  legacy recurrent brain, growing from 1/8 founders to 96% of the population
+  (mean fitness 10.57 vs 8.95). <b>World models:</b> an offline
+  observation-space model trained on 291k logged transitions beats a
+  static-world baseline by 20% (held-out &Delta;o MSE 0.0268 vs 0.0337) and
+  explains &asymp;67% of reward variance; a per-agent latent dynamics head —
+  though only marginally better than chance — flips the population from aimless
+  wandering to a goal-directed forage&rarr;eat&rarr;plant strategy when used
+  for cheap planning and curiosity (exploration &times;2, peak fitness +49%).
+  We then use the sandbox for what such a testbed is for: a <b>replication
+  study</b> of progressively heavier model-based planning (policy-guided
+  rollouts, cross-entropy-method search, Dreamer-style imagination, warmup
+  scheduling, and error-gated scheduling), instrumented with a k-step open-loop
+  rollout-error diagnostic, a measured-readiness planner gate, and a multi-step
+  consistency training loss. Under 4-seed replication only the cheapest upgrade
+  survives (policy-guided rollouts: final fitness 51.8&nbsp;±&nbsp;3.7 vs
+  45.3&nbsp;±&nbsp;13.7 at equal speed); the heavier machinery does not earn
+  its cost under any schedule, fixed or measured — and the instrumentation lets
+  us attribute that outcome to compounding model error rather than to the
+  schedule (open-loop error is 2.3&times; worse early and falls 56% over 6,000
+  ticks of training; the multi-step loss reduces it exactly where the model is
+  worst, 6.09&nbsp;±&nbsp;0.11 vs 6.56&nbsp;±&nbsp;0.09 at tick 1,000). The
+  broader lessons: a weak model can be genuinely useful for exploration and
+  action ranking; sharper search on the same weak model is <i>worse</i> than
+  blunt search; single-seed effect sizes in ecological simulations routinely
+  evaporate under replication; and the model's open-loop error is the quantity
+  to measure before trusting any of it. All experiments are reproducible
+  end-to-end, and every per-run number appears inline in this paper.
+</div>
+<div class="kw"><b>Keywords:</b> multi-agent reinforcement learning · world models
+· model-based planning · replication · model error · intrinsic motivation ·
+open-ended evolution</div>
+
+<hr class="rule" />
+
+<div class="body">
+
+<h2>1. Introduction</h2>
+<p class="noindent">Reinforcement-learning agents are usually trained one policy
+at a time against a fixed task, with a learned "world model" either absent or
+assumed helpful. This work instead studies <i>populations</i> of agents that
+live, learn during their lifetime, and reproduce with inheritance of learned
+weights (a Lamarckian scheme), so selection and individual learning act together
+and behaviour is <i>observed</i> rather than rewarded into existence. Into this
+sandbox we introduce a per-agent latent world model and ask, with matched A/B
+runs and multi-seed replication, what it is actually good for. The
+contributions:</p>
+<ol class="disc">
+  <li><b>A complete, reproducible sandbox</b> — procedural ecology, three brain
+  generations under one append-only genome contract, PPO with full-network
+  backprop through a GRU, Lamarckian inheritance, and three live visualizations
+  (2-D, isometric, browser voxel).</li>
+  <li><b>Measured capabilities</b>: architecture selection by ecological
+  competition (Sec.&nbsp;6.1); an offline world model with quantified accuracy
+  (Sec.&nbsp;6.2); a planning+curiosity phase change in behaviour (Sec.&nbsp;6.3).</li>
+  <li><b>A replication study of planner upgrades</b> (policy-guided rollouts,
+  CEM, imagination, warmup scheduling) whose headline is honest: most single-
+  and two-seed wins did not survive four seeds; policy-guided rollouts did
+  (Sec.&nbsp;6.4&ndash;6.6).</li>
+  <li><b>A model-quality toolkit</b> motivated by the failures: a k-step
+  open-loop rollout-error diagnostic computed during training, an
+  error-threshold readiness gate for model-based planners, and a multi-step
+  consistency training loss — with measurements (Sec.&nbsp;6.7).</li>
+</ol>
+
+<h2>2. Related work</h2>
+<p class="noindent"><i>World models and latent imagination.</i> Ha and
+Schmidhuber [1] train agents inside a learned generative model; PlaNet [3] and
+the Dreamer line [2,4] learn latent dynamics and optimise behaviour on imagined
+rollouts. Our offline population model is the [1]-style predictor; the per-agent
+latent head is the Dreamer-style component the planner, curiosity, and
+imagination losses consume.</p>
+<p><i>Decision-time planning.</i> Random shooting and PETS [5] act on the best
+of many sampled model rollouts; MPPI [6] reweights trajectories; MuZero [7] runs
+policy/value-guided search; MBPO [8] uses short model rollouts as training data.
+Our controllers are the simplest instances of shooting, policy-guided shooting,
+and categorical CEM.</p>
+<p><i>Policy learning and curiosity.</i> Lifetime learning is PPO [9] with
+GAE(&lambda;) [10] (a legacy A2C/A3C [11] learner exists); intrinsic reward is
+forward-model prediction error, the ICM signal [12] (related: RND [13]).
+<i>Perception, memory, evolution:</i> attention [14], GRU [15], fission-with-
+mutation neuroevolution [16], novelty metrics [17].</p>
+<p><i>Model error.</i> The failure mode we measure — a planner exploiting the
+compounding open-loop error of a model trained one step at a time — is the
+objective-mismatch problem [19]; our multi-step consistency loss follows the
+data-as-demonstrator insight of training on the model's own predictions [18].</p>
+
+<h2>3. The sandbox</h2>
+<h3>3.1 World generation</h3>
+<p class="noindent">Each world is procedurally generated (Fig.&nbsp;1): layered
+value noise &rarr; an elevation field; downhill tracing from high-elevation
+sources carves rivers; biomes (soil/sand/water/rock) derive from elevation plus
+a moisture field with fertile corridors along rivers; an ecology pass seeds
+plants that grow through seed&rarr;sprout&rarr;mature stages, fruit into
+berries, and drop seeds that germinate under a neighbourhood carrying-capacity
+cap (&le;3 plants within radius 2). The default experimental arena is
+64&times;64 with soil/rock/water/sand ratios 0.62/0.18/0.12/0.08.</p>
+
+<figure class="fw">
+<svg viewBox="0 0 920 132" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4"
+    orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#4a5568"/></marker></defs>
+  <g>
+    <rect class="svgbox" x="4"   y="20" width="128" height="48" rx="4"/>
+    <text class="svgt" x="68"  y="40" text-anchor="middle">Layered noise</text>
+    <text class="svgs" x="68"  y="56" text-anchor="middle">elevation field</text>
+    <rect class="svgbox" x="160" y="20" width="128" height="48" rx="4"/>
+    <text class="svgt" x="224" y="40" text-anchor="middle">Rivers</text>
+    <text class="svgs" x="224" y="56" text-anchor="middle">downhill trace</text>
+    <rect class="svgbox" x="316" y="20" width="148" height="48" rx="4"/>
+    <text class="svgt" x="390" y="40" text-anchor="middle">Biomes</text>
+    <text class="svgs" x="390" y="56" text-anchor="middle">soil·sand·water·rock</text>
+    <rect class="svgbox" x="492" y="20" width="150" height="48" rx="4"/>
+    <text class="svgt" x="567" y="40" text-anchor="middle">Soil fields</text>
+    <text class="svgs" x="567" y="56" text-anchor="middle">fertility · moisture</text>
+    <rect class="svgwm"  x="670" y="20" width="150" height="48" rx="4"/>
+    <text class="svgt" x="745" y="40" text-anchor="middle">Ecology</text>
+    <text class="svgs" x="745" y="56" text-anchor="middle">plant→fruit→seed</text>
+    <rect class="svgacc" x="848" y="20" width="68" height="48" rx="4"/>
+    <text class="svgt" x="882" y="40" text-anchor="middle">Agents</text>
+    <text class="svgs" x="882" y="56" text-anchor="middle">spawn</text>
+    <line x1="132" y1="44" x2="158" y2="44" stroke="#4a5568" marker-end="url(#ah)"/>
+    <line x1="288" y1="44" x2="314" y2="44" stroke="#4a5568" marker-end="url(#ah)"/>
+    <line x1="464" y1="44" x2="490" y2="44" stroke="#4a5568" marker-end="url(#ah)"/>
+    <line x1="642" y1="44" x2="668" y2="44" stroke="#4a5568" marker-end="url(#ah)"/>
+    <line x1="820" y1="44" x2="846" y2="44" stroke="#4a5568" marker-end="url(#ah)"/>
+    <text class="svgs" x="460" y="104" text-anchor="middle">Per-tick dynamics:
+      day/night &amp; seasons · weather (rain/drought) · wildfire · growth &amp;
+      germination · soil recovery</text>
+  </g>
+</svg>
+<figcaption><b>Figure 1.</b> Procedural world-generation pipeline and the
+per-tick ecological dynamics layered on top.</figcaption>
+</figure>
+
+<h3>3.2 World dynamics</h3>
+<p class="noindent">Per tick: a day/night cycle (length 200) modulates light;
+seasons (length 2,000) modulate temperature; weather switches between rain
+(recovering soil moisture) and drought (evaporation &times;2); optional wildfire
+ignites, spreads against a moisture threshold, and returns nutrients; soil
+fertility/moisture relax slowly toward equilibrium; plants consume fertility and
+moisture as they grow. Agents pay a metabolism cost scaled by temperature, eat
+berries (+20 energy), can plant seeds (&minus;5 energy), and die at zero energy
+or <code>max_age</code> 1,000, returning 15% of consumed fertility to the soil.
+Water is impassable. Reproduction is energetic: above 45% of max energy and age
+&ge;&nbsp;50, an agent splits 40% of its energy into an offspring whose genome
+is the parent's trained weights plus Gaussian mutation (&sigma;=0.02), capped at
+30 alive agents in the experimental arena.</p>
+
+<h3>3.3 Observability: three live views</h3>
+<p class="noindent">The same live world is observable three ways (Fig.&nbsp;3),
+all fed by one read-only state bridge that never affects dynamics: a top-down
+2-D biome/elevation map, an isometric 2.5-D render, and an interactive
+in-browser voxel client streamed over server-sent events (terrain columns,
+trees that scale with plant maturity, berries, seeds, agents with follow-markers
+and vision-grid overlays, weather, and a live HUD reporting the population's
+brain mix). Every study below was spot-checked visually in at least one
+viewer.</p>
+
+<figure class="fw">
+  <div class="uirow">
+    <div><img src="figures/ui_2d.png" alt="2D"/><div class="cap">(a) top-down 2-D</div></div>
+    <div><img src="figures/ui_iso.png" alt="iso"/><div class="cap">(b) isometric 2.5-D</div></div>
+    <div><img src="figures/ui_voxel.png" alt="voxel"/><div class="cap">(c) interactive voxel (live)</div></div>
+  </div>
+<figcaption><b>Figure 3.</b> Three views of the <i>same</i> simulation, all from
+the read-only state bridge: (a) data-driven top-down map (160&times;160), (b)
+isometric render of a 64&times;64 crop, (c) the live browser voxel client.</figcaption>
+</figure>
+
+<h2>4. Agents</h2>
+<p class="noindent">Agents act once per tick on an egocentric, facing-rotated
+5&times;5 vision grid plus internal state, stimulus features, inventory, and
+(v3.5) social/climate features. Three architectures share one genome/IO contract
+(Table&nbsp;1); the genome layout is <i>append-only</i>, so a saved population
+trained under one version migrates forward and can compete in a shared world.</p>
+
+<table class="t">
+  <caption><b>Table 1.</b> The three agent architectures (shared append-only
+  genome/IO contract).</caption>
+  <thead><tr><th class="l">Brain</th><th>Obs</th><th>Actions</th><th>Params</th>
+    <th class="l">Core</th></tr></thead>
+  <tbody>
+    <tr><td class="l">v2 (legacy)</td><td>72</td><td>8</td><td>&asymp;8.9k</td>
+      <td class="l">dense encoder &rarr; GRU &rarr; policy/value</td></tr>
+    <tr><td class="l">v3 (attention)</td><td>72</td><td>8</td><td>&asymp;17.3k</td>
+      <td class="l">tokenised vision + attention &rarr; GRU &rarr; [z,h] value</td></tr>
+    <tr><td class="l">v3.5 (social)</td><td>78</td><td>9</td><td>&asymp;21.1k</td>
+      <td class="l">v3 + 6 social/climate inputs + SIGNAL + pheromones</td></tr>
+  </tbody>
+</table>
+
+<h3>4.1 The v3 / v3.5 brain</h3>
+<p class="noindent">Figure&nbsp;2 shows the data flow. Each of the 25 vision
+tiles is embedded by one shared matrix (position codes appended —
+position-equivariant perception at constant parameter count); a single attention
+query derived from the agent's internal state pools the tiles [14]; the latent
+<i>z=[state&nbsp;|&nbsp;pooled-vision]</i> feeds a GRU [15] memory <i>h</i>; the
+policy head reads <i>h</i>, the value head the joint <i>[z,h]</i>.</p>
+
+<figure class="fw">
+<svg viewBox="0 0 920 250" xmlns="http://www.w3.org/2000/svg">
+  <defs><marker id="ah2" markerWidth="9" markerHeight="9" refX="7" refY="4"
+    orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#4a5568"/></marker></defs>
+  <rect class="svgbox" x="4" y="22" width="150" height="40" rx="4"/>
+  <text class="svgt" x="79" y="40" text-anchor="middle">5×5 vision</text>
+  <text class="svgs" x="79" y="55" text-anchor="middle">25 tiles × 2</text>
+  <rect class="svgbox" x="4" y="150" width="150" height="50" rx="4"/>
+  <text class="svgs" x="79" y="170" text-anchor="middle">state · stimulus ·</text>
+  <text class="svgs" x="79" y="186" text-anchor="middle">inventory · social</text>
+  <rect class="svgbox" x="184" y="22" width="140" height="40" rx="4"/>
+  <text class="svgt" x="254" y="40" text-anchor="middle">tile embed</text>
+  <text class="svgs" x="254" y="55" text-anchor="middle">(shared) → tokens</text>
+  <rect class="svgbox" x="184" y="155" width="140" height="40" rx="4"/>
+  <text class="svgt" x="254" y="173" text-anchor="middle">state encoder</text>
+  <text class="svgs" x="254" y="188" text-anchor="middle">→ s</text>
+  <rect class="svgacc" x="354" y="80" width="150" height="56" rx="4"/>
+  <text class="svgt" x="429" y="103" text-anchor="middle">attention pool</text>
+  <text class="svgs" x="429" y="119" text-anchor="middle">query = s</text>
+  <rect class="svgbox" x="534" y="84" width="96" height="48" rx="4"/>
+  <text class="svgti" x="582" y="106" text-anchor="middle">z = [s|pool]</text>
+  <rect class="svgbox" x="660" y="84" width="86" height="48" rx="4"/>
+  <text class="svgt" x="703" y="106" text-anchor="middle">GRU → h</text>
+  <rect class="svgbox" x="776" y="22" width="140" height="48" rx="4"/>
+  <text class="svgt" x="846" y="42" text-anchor="middle">policy head</text>
+  <text class="svgs" x="846" y="58" text-anchor="middle">→ actions (masked)</text>
+  <rect class="svgbox" x="776" y="98" width="140" height="42" rx="4"/>
+  <text class="svgt" x="846" y="118" text-anchor="middle">value head [z,h]→V</text>
+  <rect class="svgwm" x="534" y="178" width="212" height="48" rx="4"/>
+  <text class="svgt" x="640" y="198" text-anchor="middle">latent dynamics head</text>
+  <text class="svgti" x="640" y="214" text-anchor="middle">g(h,a) → (ẑ′, r̂)</text>
+  <rect class="svgwm" x="776" y="158" width="140" height="26" rx="4"/>
+  <text class="svgt" x="846" y="175" text-anchor="middle">Planner (rollouts)</text>
+  <rect class="svgwm" x="776" y="190" width="140" height="26" rx="4"/>
+  <text class="svgt" x="846" y="207" text-anchor="middle">Curiosity (error)</text>
+  <rect class="svgwm" x="776" y="222" width="140" height="26" rx="4"/>
+  <text class="svgt" x="846" y="239" text-anchor="middle">Imagination (P3)</text>
+  <line x1="154" y1="42" x2="182" y2="42" stroke="#4a5568" marker-end="url(#ah2)"/>
+  <line x1="154" y1="175" x2="182" y2="175" stroke="#4a5568" marker-end="url(#ah2)"/>
+  <line x1="324" y1="46" x2="352" y2="95" stroke="#4a5568" marker-end="url(#ah2)"/>
+  <line x1="324" y1="172" x2="352" y2="120" stroke="#4a5568" marker-end="url(#ah2)"/>
+  <line x1="504" y1="108" x2="532" y2="108" stroke="#4a5568" marker-end="url(#ah2)"/>
+  <line x1="630" y1="108" x2="658" y2="108" stroke="#4a5568" marker-end="url(#ah2)"/>
+  <line x1="746" y1="100" x2="774" y2="60" stroke="#4a5568" marker-end="url(#ah2)"/>
+  <line x1="746" y1="115" x2="774" y2="119" stroke="#4a5568" marker-end="url(#ah2)"/>
+  <line x1="703" y1="132" x2="640" y2="176" stroke="#4a5568" marker-end="url(#ah2)"/>
+  <line x1="746" y1="188" x2="774" y2="172" stroke="#4a5568" marker-end="url(#ah2)"/>
+  <line x1="746" y1="200" x2="774" y2="203" stroke="#4a5568" marker-end="url(#ah2)"/>
+  <line x1="746" y1="212" x2="774" y2="234" stroke="#4a5568" marker-end="url(#ah2)"/>
+</svg>
+<figcaption><b>Figure 2.</b> The v3/v3.5 agent brain. Green blocks are the
+optional latent world model and its three consumers — planner (Sec.&nbsp;5),
+curiosity, and the imagination actor-critic (Sec.&nbsp;5.4).</figcaption>
+</figure>
+
+<h3>4.2 Lifetime learning and inheritance</h3>
+<p class="noindent">PPO [9] on stored sequences (seq_len 8, GAE
+&lambda;=0.95, clip 0.2, entropy 0.01, lr 3&times;10<sup>&minus;4</sup>, 1 epoch
+per update) with <b>full-network backprop</b>: gradients flow through the policy
+and value heads, the GRU through time, and the attention encoder. A global
+scheduler staggers updates across ticks. Trained weights are written back into
+the genome (<b>Lamarckian</b>), so offspring inherit learned behaviour [16].
+Newborns get fading instinct biases (eat-when-hungry, approach-food) that decay
+to zero by age 150.</p>
+
+<h3>4.3 The per-agent latent world model</h3>
+<p class="noindent">When enabled, the genome grows a dynamics head
+<i>g(h,a)&rarr;(ẑ′,r̂)</i> — a one-hidden-layer MLP (width 32) from the GRU
+hidden state and a one-hot action to a predicted next latent and reward, trained
+as an auxiliary loss in the same PPO update (targets stop-gradient). It powers
+<i>planning</i> (Sec.&nbsp;5), <i>curiosity</i> (ICM-style z-scored prediction
+error [12]), and <i>imagination</i> (Sec.&nbsp;5.4).</p>
+
+<h3>4.4 The offline population world model</h3>
+<p class="noindent">Separately, a population-level model
+<i>f(o,a)&rarr;(&Delta;o,r̂,p<sub>done</sub>)</i> (two tanh layers, 128 hidden)
+trains offline by regression on logged transitions from full runs [1], giving a
+measurable reference for what these small models can learn (Sec.&nbsp;6.2).</p>
+
+<h2>5. Planning methods</h2>
+<p class="noindent">The planner is receding-horizon model-predictive control in
+latent space: from the current hidden state <i>h</i>, imagine <i>S</i> candidate
+action sequences of depth <i>D</i> through the dynamics head, score each by
+&sum;<sub>k</sub>&gamma;<sup>k</sup>r̂<sub>k</sub>+&gamma;<sup>D</sup>V, execute
+the best first action, and (by default) replan next tick. All variants are
+config-gated and off by default; the defaults reproduce the legacy controller
+exactly. Experiments use depth 2, 6 samples.</p>
+<p><b>5.1 Shooting (baseline).</b> First actions uniform over the valid-action
+mask; continuations uniform-random [5].</p>
+<p><b>5.2 P1 — policy-guided rollouts.</b> Continuations sampled from the
+agent's <i>own policy</i> at the imagined latent state (Dreamer-style [2]):
+in-distribution, lower-variance rollouts. Optional first-action biasing,
+reward/value z-scoring, and plan commitment are implemented; P1 experiments use
+uniform first actions, no normalisation, commit 1.</p>
+<p><b>5.3 P2 — cross-entropy method.</b> A categorical distribution per step,
+refined over 3 iterations: sample the population, keep the top-30% elites, refit
+smoothed action frequencies [5,6]. TD(&lambda;) scoring implemented
+(&lambda;=1 used below).</p>
+<p><b>5.4 P3 — imagination actor-critic.</b> Dreamer-style [2]: from detached
+real hidden states the actor rolls 5 steps in the dynamics head; TD(&lambda;)
+returns from the critic score the trajectory; REINFORCE with a value baseline
+trains the actor, regression the critic. Planning is <i>distilled into the
+policy</i> instead of paid per tick.</p>
+<p><b>5.5 Warmup scheduling.</b> At tick 0 the model is untrained, so
+model-heavy planning "shoots off" a garbage model. The planner can run a cheap
+exploratory strategy (P1) until <code>warmup_ticks</code>, then switch to the
+configured strategy; imagination is gated the same way.</p>
+<p><b>5.6 Model-quality toolkit (this work).</b> Three mechanisms motivated by
+Sec.&nbsp;6.5&ndash;6.6: <b>(i) a k-step rollout-error diagnostic</b> — every
+learner update, roll the dynamics head <i>open-loop</i> for k steps from real
+hidden states (its own predictions fed back through the GRU, real logged
+actions) and measure latent MSE against the real encoded latents at each
+horizon: exactly the compounding-error regime the planner uses, measured
+on-line per agent at negligible cost and logged per generation;
+<b>(ii) readiness gating</b> — the planner switches to its main strategy when
+the measured error EMA drops below a threshold (latched;
+<code>warmup_ticks</code> becomes a switch-anyway deadline) instead of on a
+blind tick count; <b>(iii) a multi-step consistency loss</b> — the standard
+auxiliary loss trains one-step prediction only, leaving compounding error
+unconstrained [18,19]; this loss rolls the head open-loop for k steps on stored
+sequences and penalises latent/reward error at horizons 2..k.</p>
+
+<h2>6. Experiments and results</h2>
+<p class="noindent">Throughout: <i>peak fitness</i> is the highest
+per-generation mean agent fitness in a run; <i>final</i> is the last
+generation's mean; <i>tiles</i> is unique tiles visited per agent; <i>EAT</i>
+counts successful eats; <i>seeds</i> counts seeds planted; ticks/s is
+single-core throughput including learning. All planning runs: 64&times;64
+world, v3.5+PPO, world-model head on, curiosity off, cap 30, generation length
+1,000. Fitness is the simulation's internal proxy; comparisons are
+within-simulation.</p>
+
+<h3>6.1 Ecological competition between architectures</h3>
+<p class="noindent">One 160&times;160 world, 8 founders (1 v2, 7 v3), offspring
+breed true, 4,000 ticks, cap 100. The attention brain displaces the legacy
+brain — final population {v3:96, v2:4} (Table&nbsp;2). Both cohorts reach 100%
+eating success, so the edge is foraging efficiency and reproduction, not basic
+feeding.</p>
+
+<table class="t">
+  <caption><b>Table 2.</b> Cohort comparison from a single shared 4,000-tick run
+  (lifetime totals).</caption>
+  <thead><tr><th class="l">Cohort</th><th>Agents</th><th>Mean age</th><th>Max age</th>
+    <th>Mean fitness</th><th>Eat&nbsp;succ.</th></tr></thead>
+  <tbody>
+    <tr><td class="l">v2 (legacy)</td><td>255</td><td>98.3</td><td>259</td><td>8.95</td><td>100%</td></tr>
+    <tr><td class="l win">v3 (attention)</td><td class="win">1715</td><td>101.3</td><td class="win">493</td>
+      <td class="win">10.57</td><td>100%</td></tr>
+  </tbody>
+</table>
+
+<h3>6.2 Accuracy of the offline world model</h3>
+<p class="noindent">291,300 transitions logged from a v3.5+PPO run (64&times;64,
+pop 30; all nine actions exercised, SIGNAL 67,027 times). Training: 20 epochs,
+loss 3.20&rarr;1.71 (Fig.&nbsp;4). Held-out accuracy in Table&nbsp;3. The model
+is real but modest — <b>20% better than "nothing changes"</b> — a number to keep
+in mind for everything that follows.</p>
+
+<figure class="fw">
+  <img src="figures/worldmodel_loss.png" alt="world model loss" style="max-width:84%"/>
+<figcaption><b>Figure 4.</b> World-model training loss (left) and held-out
+next-state error vs. the predict-&Delta;=0 baseline (right).</figcaption>
+</figure>
+
+<table class="t">
+  <caption><b>Table 3.</b> Held-out predictive accuracy of the population world
+  model.</caption>
+  <thead><tr><th class="l">Metric</th><th>Model</th><th>Baseline / scale</th>
+    <th class="l">Reading</th></tr></thead>
+  <tbody>
+    <tr><td class="l">&Delta;o MSE</td><td class="win">0.0268</td><td>0.0337 (&Delta;=0)</td>
+      <td class="l">20% lower error</td></tr>
+    <tr><td class="l">Reward MSE</td><td class="win">1.70</td><td>variance 5.15</td>
+      <td class="l">&asymp;67% variance explained</td></tr>
+    <tr><td class="l"><i>done</i> acc.</td><td class="win">0.999</td><td>&mdash;</td>
+      <td class="l">termination solved</td></tr>
+  </tbody>
+</table>
+
+<h3>6.3 Planning + curiosity: a behavioural phase change (single seed)</h3>
+<p class="noindent">Matched A/B (seed 42, 3,000 ticks): identical worlds and
+learning; the treatment adds the dynamics head + shooting planner + curiosity
+(Table&nbsp;4). Behaviour flips from aimless turning to the
+forage&rarr;eat&rarr;plant loop; per-agent strategy entropy <i>rises</i> while
+pairwise novelty <i>falls</i> (0.320&rarr;0.092): agents independently converge
+on the same effective strategy [17]. This is the honest headline for a weak
+model: it doubled exploration and halved idling <i>despite</i> being only 20%
+better than chance, because ranking actions and flagging surprise demand far
+less of a model than accurate simulation does.</p>
+
+<table class="t">
+  <caption><b>Table 4.</b> Matched A/B (single seed 42): planning + curiosity
+  vs. baseline, v3.5+PPO, 3,000 ticks.</caption>
+  <thead><tr><th class="l">Metric</th><th>Baseline</th><th>+Plan&amp;Curiosity</th>
+    <th>&Delta;</th></tr></thead>
+  <tbody>
+    <tr><td class="l">Avg peak fitness</td><td>38.7</td><td class="win">57.8</td><td>+49%</td></tr>
+    <tr><td class="l">Mean fitness (final)</td><td>40.8</td><td class="win">70.7</td><td>+73%</td></tr>
+    <tr><td class="l">Avg lifespan (ticks)</td><td>422</td><td class="win">548</td><td>+30%</td></tr>
+    <tr><td class="l">Mean energy (final)</td><td>109</td><td class="win">165</td><td>+51%</td></tr>
+    <tr><td class="l">Tiles explored / agent</td><td>27.7</td><td class="win">54.9</td><td>+98%</td></tr>
+    <tr><td class="l">EAT attempts</td><td>185</td><td class="win">1196</td><td>&times;6.5</td></tr>
+    <tr><td class="l">Seeds planted</td><td>226</td><td class="win">929</td><td>&times;4.1</td></tr>
+    <tr><td class="l">Turning (L+R) share</td><td>51%</td><td class="win">36%</td><td>&minus;15pt</td></tr>
+    <tr><td class="l">Strategy entropy</td><td>1.61</td><td class="win">2.44</td><td>+0.83</td></tr>
+    <tr><td class="l">Pairwise novelty</td><td>0.320</td><td>0.092</td><td>converges</td></tr>
+  </tbody>
+</table>
+
+<h3>6.4 The planner ladder, single seed: an apparent staircase</h3>
+<p class="noindent">Matched single-seed A/Bs (seed 42, 2,000 ticks;
+Table&nbsp;5): each rung of model-based sophistication appears to buy more
+fitness — P1 +21%, P2 +32% over the baseline; and in a separate A/B with the
+planner off in both arms, the P3 imagination loss appears to add +25% peak
+fitness (32.6&rarr;40.6), +38% planting, and &minus;16pt idle waiting for a 20%
+training-time cost. Sec.&nbsp;6.5 is why face value is not enough.</p>
+
+<table class="t">
+  <caption><b>Table 5.</b> Single-seed planner ladder (seed 42, 2,000 ticks,
+  depth 2, 6 samples) and the P3 imagination A/B (planner off in both arms).</caption>
+  <thead><tr><th class="l">Variant</th><th>rollouts/decision</th><th>peak</th>
+    <th>EAT</th><th>seeds</th><th>WAIT</th><th>ticks/s</th></tr></thead>
+  <tbody>
+    <tr><td class="l">shooting (baseline)</td><td>6</td><td>33.8</td><td>306</td><td>230</td><td>21.9%</td><td>6.54</td></tr>
+    <tr><td class="l">policy_shooting (P1)</td><td>6</td><td>41.1</td><td>341</td><td>289</td><td>22.6%</td><td>6.35</td></tr>
+    <tr><td class="l">cem (P2)</td><td>18 (3&times;6)</td><td class="win">44.5</td><td class="win">487</td><td class="win">396</td><td>26.9%</td><td>5.19</td></tr>
+    <tr class="rule"><td class="l">imag off</td><td>0</td><td>32.6</td><td>458</td><td>61</td><td>31.0%</td><td>9.05</td></tr>
+    <tr><td class="l">imag on (P3)</td><td>0</td><td class="win">40.6</td><td>187</td><td class="win">84</td><td class="win">15.4%</td><td>7.22</td></tr>
+  </tbody>
+</table>
+
+<h3>6.5 Four-seed replication: the staircase collapses</h3>
+<p class="noindent">The identical five arms re-run at seeds 1&ndash;4 (2,000
+ticks; 20 runs). Table&nbsp;6 gives every run; Table&nbsp;7 the aggregates;
+Fig.&nbsp;5 the picture. Three findings: <b>(i) P1 survives replication</b> —
+policy-guided rollouts beat the baseline on mean peak (43.5 vs 41.1), on final
+fitness with far lower variance (51.8&nbsp;±&nbsp;3.7 vs 45.3&nbsp;±&nbsp;13.7),
+on eating and planting, at equal speed; the mechanism is cheap and plausible
+(in-distribution continuations cut rollout variance without extra rollouts).
+<b>(ii) P2's +32% was one seed</b> — across seeds CEM ties the baseline on peak
+(41.1&nbsp;±&nbsp;6.4), is clearly worse on final fitness (34.5&nbsp;±&nbsp;9.9),
+and runs ~23% slower; its seed-1 win (51.9) is bracketed by losses at seeds
+2&ndash;4. <b>(iii) P3's +25% was noise</b> — imagination on vs off:
+35.3&nbsp;±&nbsp;5.2 vs 34.8&nbsp;±&nbsp;2.8, at a 22% throughput cost.</p>
+
+<table class="t dense">
+  <caption><b>Table 6.</b> Four-seed replication, complete per-run data (2,000
+  ticks per run).</caption>
+  <thead><tr><th>seed</th><th class="l">variant</th><th>peak</th><th>lifespan</th>
+    <th>tiles</th><th>EAT</th><th>seeds</th><th>final</th><th>ticks/s</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td class="l">shooting</td><td>33.15</td><td>409.0</td><td>40.7</td><td>108</td><td>156</td><td>30.05</td><td>5.57</td></tr>
+    <tr><td>1</td><td class="l">policy_shooting</td><td>43.12</td><td>453.2</td><td>50.4</td><td>562</td><td>318</td><td>55.96</td><td>6.90</td></tr>
+    <tr><td>1</td><td class="l">cem</td><td>51.89</td><td>503.3</td><td>49.7</td><td>640</td><td>395</td><td>51.02</td><td>4.96</td></tr>
+    <tr><td>1</td><td class="l">imag_off</td><td>33.74</td><td>395.4</td><td>14.6</td><td>65</td><td>326</td><td>41.51</td><td>8.37</td></tr>
+    <tr><td>1</td><td class="l">imag_on</td><td>28.10</td><td>384.9</td><td>28.9</td><td>123</td><td>229</td><td>27.11</td><td>6.58</td></tr>
+    <tr class="rule"><td>2</td><td class="l">shooting</td><td>41.25</td><td>463.9</td><td>38.9</td><td>328</td><td>283</td><td>35.26</td><td>6.62</td></tr>
+    <tr><td>2</td><td class="l">policy_shooting</td><td>45.26</td><td>449.2</td><td>38.6</td><td>504</td><td>519</td><td>47.69</td><td>6.15</td></tr>
+    <tr><td>2</td><td class="l">cem</td><td>39.67</td><td>456.7</td><td>47.8</td><td>263</td><td>428</td><td>26.75</td><td>5.10</td></tr>
+    <tr><td>2</td><td class="l">imag_off</td><td>31.52</td><td>364.5</td><td>16.5</td><td>125</td><td>101</td><td>22.04</td><td>8.85</td></tr>
+    <tr><td>2</td><td class="l">imag_on</td><td>32.65</td><td>436.4</td><td>13.1</td><td>156</td><td>63</td><td>36.36</td><td>6.62</td></tr>
+    <tr class="rule"><td>3</td><td class="l">shooting</td><td>45.74</td><td>467.6</td><td>39.8</td><td>738</td><td>383</td><td>51.23</td><td>6.76</td></tr>
+    <tr><td>3</td><td class="l">policy_shooting</td><td>48.34</td><td>478.9</td><td>40.2</td><td>779</td><td>393</td><td>48.40</td><td>6.69</td></tr>
+    <tr><td>3</td><td class="l">cem</td><td>35.10</td><td>446.3</td><td>33.3</td><td>174</td><td>179</td><td>27.10</td><td>5.29</td></tr>
+    <tr><td>3</td><td class="l">imag_off</td><td>34.49</td><td>430.0</td><td>41.5</td><td>328</td><td>274</td><td>45.25</td><td>8.81</td></tr>
+    <tr><td>3</td><td class="l">imag_on</td><td>41.22</td><td>443.0</td><td>19.5</td><td>153</td><td>252</td><td>36.54</td><td>6.85</td></tr>
+    <tr class="rule"><td>4</td><td class="l">shooting</td><td>44.42</td><td>466.3</td><td>46.0</td><td>355</td><td>320</td><td>64.81</td><td>6.92</td></tr>
+    <tr><td>4</td><td class="l">policy_shooting</td><td>37.32</td><td>438.8</td><td>42.2</td><td>248</td><td>185</td><td>54.98</td><td>5.99</td></tr>
+    <tr><td>4</td><td class="l">cem</td><td>37.66</td><td>426.9</td><td>49.5</td><td>254</td><td>268</td><td>33.25</td><td>4.73</td></tr>
+    <tr><td>4</td><td class="l">imag_off</td><td>39.32</td><td>426.9</td><td>31.2</td><td>242</td><td>147</td><td>46.03</td><td>8.33</td></tr>
+    <tr><td>4</td><td class="l">imag_on</td><td>39.10</td><td>397.5</td><td>51.4</td><td>440</td><td>551</td><td>39.32</td><td>6.85</td></tr>
+  </tbody>
+</table>
+
+<table class="t">
+  <caption><b>Table 7.</b> Replication aggregates (mean ± std over 4 seeds).</caption>
+  <thead><tr><th class="l">Variant</th><th>peak fitness</th><th>final fitness</th>
+    <th>EAT</th><th>seeds</th><th>ticks/s</th></tr></thead>
+  <tbody>
+    <tr><td class="l">shooting</td><td>41.1 ± 4.9</td><td>45.3 ± 13.7</td><td>382 ± 227</td><td>286 ± 83</td><td>6.5</td></tr>
+    <tr><td class="l win">policy_shooting (P1)</td><td class="win">43.5 ± 4.0</td><td class="win">51.8 ± 3.7</td><td class="win">523 ± 189</td><td class="win">354 ± 121</td><td>6.4</td></tr>
+    <tr><td class="l">cem (P2)</td><td>41.1 ± 6.4</td><td>34.5 ± 9.9</td><td>333 ± 181</td><td>318 ± 100</td><td>5.0</td></tr>
+    <tr><td class="l">imag_off</td><td>34.8 ± 2.8</td><td>38.7 ± 9.8</td><td>190 ± 102</td><td>212 ± 91</td><td>8.6</td></tr>
+    <tr><td class="l">imag_on (P3)</td><td>35.3 ± 5.2</td><td>34.8 ± 4.6</td><td>218 ± 129</td><td>274 ± 176</td><td>6.7</td></tr>
+  </tbody>
+</table>
+
+<figure class="fw">
+  <img src="figures/multiseed_replication.png" alt="multiseed replication" style="max-width:88%"/>
+<figcaption><b>Figure 5.</b> Four-seed replication of the planner ladder (peak
+fitness, mean ± std). Left: planner strategies. Right: the imagination A/B
+(planner off in both arms). Only P1 separates from its baseline.</figcaption>
+</figure>
+
+<h3>6.6 Warmup scheduling: hypothesis, pilot win, honest reversal</h3>
+<p class="noindent"><b>Hypothesis.</b> P2/P3 fail from a <i>cold start</i>: at
+tick 0 the dynamics head is random, so CEM optimises fantasies and imagination
+trains the actor on garbage. Gate them on model training time and they should
+work. <b>Pilot (2 seeds, 6,000 ticks; Table&nbsp;8):</b> <i>scheduled</i> (P1
+until tick 5,000, then CEM+imagination) beat the baseline on both seeds (77.9
+&gt; 74.5; 55.1 &gt; 41.1), mean peak 66.5&nbsp;±&nbsp;11.4 vs
+57.8&nbsp;±&nbsp;16.7, while cold-start CEM+imagination was a coin flip. The
+hypothesis looked confirmed.</p>
+
+<table class="t">
+  <caption><b>Table 8.</b> Warmup pilot, complete per-run data (2 seeds, 6,000
+  ticks). <i>naive</i> = CEM+imagination from tick 0; <i>scheduled</i> = P1
+  until 5,000 then CEM+imagination.</caption>
+  <thead><tr><th>seed</th><th class="l">variant</th><th>peak</th><th>lifespan</th>
+    <th>tiles</th><th>EAT</th><th>seeds</th><th>final</th><th>ticks/s</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td class="l">baseline</td><td>74.47</td><td>721.8</td><td>64.0</td><td>2225</td><td>1818</td><td>51.69</td><td>5.10</td></tr>
+    <tr><td>1</td><td class="l">naive</td><td>52.35</td><td>620.5</td><td>70.5</td><td>925</td><td>1015</td><td>40.77</td><td>3.24</td></tr>
+    <tr><td>1</td><td class="l">scheduled</td><td>77.90</td><td>701.6</td><td>85.1</td><td>2372</td><td>2532</td><td>46.19</td><td>4.35</td></tr>
+    <tr class="rule"><td>2</td><td class="l">baseline</td><td>41.11</td><td>415.2</td><td>42.9</td><td>1805</td><td>1394</td><td>41.30</td><td>5.23</td></tr>
+    <tr><td>2</td><td class="l">naive</td><td>73.34</td><td>713.1</td><td>64.4</td><td>2047</td><td>1260</td><td>52.92</td><td>3.36</td></tr>
+    <tr><td>2</td><td class="l">scheduled</td><td>55.14</td><td>645.9</td><td>58.8</td><td>1168</td><td>803</td><td>51.20</td><td>4.17</td></tr>
+  </tbody>
+</table>
+
+<p><b>Confirmation + switch-point sweep (4 seeds, 7,000 ticks, 16 runs;
+Table&nbsp;9&ndash;10, Fig.&nbsp;6).</b> The pilot result reverses: <b>the plain
+shooting baseline wins every aggregate metric across four seeds</b> (peak
+86.7&nbsp;±&nbsp;8.4 vs 72&ndash;77; final 61.5&nbsp;±&nbsp;4.7 vs 44&ndash;59;
+most planting; fastest). Within the scheduled family earlier switches beat later
+ones (4k &gt; 5k &gt; 6k — sched@6k even collapses at seed 1: peak 50.2, 443
+seeds planted), but no switch point closes the gap. The 2-seed pilot win sits
+comfortably inside per-seed swings (baseline peaks range 77&ndash;100; sched@6k
+50&ndash;83). Warmup gating is implemented correctly and its internal ordering
+is sensible — the heavy machinery it protects simply is not worth its cost on
+this task at this model quality.</p>
+
+<table class="t dense">
+  <caption><b>Table 9.</b> Warmup confirmation + switch-point sweep, complete
+  per-run data (4 seeds, 7,000 ticks). sched@N = P1 until tick N, then
+  CEM+imagination.</caption>
+  <thead><tr><th>seed</th><th class="l">arm</th><th>peak</th><th>lifespan</th>
+    <th>tiles</th><th>EAT</th><th>seeds</th><th>final</th><th>ticks/s</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td class="l">baseline</td><td>100.11</td><td>794.6</td><td>100.9</td><td>4154</td><td>3112</td><td>61.55</td><td>6.48</td></tr>
+    <tr><td>1</td><td class="l">sched@4k</td><td>82.99</td><td>743.5</td><td>77.8</td><td>2992</td><td>2758</td><td>54.54</td><td>5.56</td></tr>
+    <tr><td>1</td><td class="l">sched@5k</td><td>79.70</td><td>743.4</td><td>53.1</td><td>2754</td><td>2771</td><td>59.54</td><td>5.52</td></tr>
+    <tr><td>1</td><td class="l">sched@6k</td><td>50.24</td><td>621.1</td><td>87.2</td><td>543</td><td>443</td><td>40.58</td><td>6.32</td></tr>
+    <tr class="rule"><td>2</td><td class="l">baseline</td><td>84.49</td><td>745.9</td><td>80.8</td><td>2930</td><td>2499</td><td>55.04</td><td>6.31</td></tr>
+    <tr><td>2</td><td class="l">sched@4k</td><td>66.83</td><td>684.7</td><td>49.6</td><td>1424</td><td>1358</td><td>55.59</td><td>5.07</td></tr>
+    <tr><td>2</td><td class="l">sched@5k</td><td>74.96</td><td>751.5</td><td>59.8</td><td>2234</td><td>1673</td><td>52.83</td><td>5.75</td></tr>
+    <tr><td>2</td><td class="l">sched@6k</td><td>82.70</td><td>740.8</td><td>80.6</td><td>2825</td><td>2261</td><td>40.67</td><td>6.35</td></tr>
+    <tr class="rule"><td>3</td><td class="l">baseline</td><td>76.97</td><td>744.2</td><td>57.3</td><td>2102</td><td>2457</td><td>61.13</td><td>7.23</td></tr>
+    <tr><td>3</td><td class="l">sched@4k</td><td>81.16</td><td>765.3</td><td>92.4</td><td>2385</td><td>2029</td><td>62.35</td><td>5.35</td></tr>
+    <tr><td>3</td><td class="l">sched@5k</td><td>77.83</td><td>743.5</td><td>76.3</td><td>2508</td><td>2235</td><td>51.82</td><td>5.37</td></tr>
+    <tr><td>3</td><td class="l">sched@6k</td><td>72.97</td><td>779.7</td><td>77.0</td><td>1934</td><td>1599</td><td>47.16</td><td>5.96</td></tr>
+    <tr class="rule"><td>4</td><td class="l">baseline</td><td>85.06</td><td>788.5</td><td>95.2</td><td>2265</td><td>2600</td><td>68.27</td><td>7.14</td></tr>
+    <tr><td>4</td><td class="l">sched@4k</td><td>78.49</td><td>762.5</td><td>48.2</td><td>2671</td><td>1767</td><td>62.37</td><td>5.10</td></tr>
+    <tr><td>4</td><td class="l">sched@5k</td><td>66.71</td><td>691.6</td><td>69.0</td><td>1146</td><td>1243</td><td>49.94</td><td>5.73</td></tr>
+    <tr><td>4</td><td class="l">sched@6k</td><td>82.73</td><td>743.2</td><td>92.6</td><td>3179</td><td>3142</td><td>49.22</td><td>6.00</td></tr>
+  </tbody>
+</table>
+
+<table class="t">
+  <caption><b>Table 10.</b> Sweep aggregates (mean ± std over 4 seeds).</caption>
+  <thead><tr><th class="l">Arm</th><th>peak fitness</th><th>final fitness</th>
+    <th>seeds planted</th><th>ticks/s</th></tr></thead>
+  <tbody>
+    <tr><td class="l win">baseline (shooting)</td><td class="win">86.7 ± 8.4</td>
+      <td class="win">61.5 ± 4.7</td><td class="win">2667 ± 262</td><td class="win">6.8</td></tr>
+    <tr><td class="l">sched@4k</td><td>77.4 ± 6.3</td><td>58.7 ± 3.7</td><td>1978 ± 510</td><td>5.3</td></tr>
+    <tr><td class="l">sched@5k</td><td>74.8 ± 5.0</td><td>53.5 ± 3.6</td><td>1981 ± 576</td><td>5.6</td></tr>
+    <tr><td class="l">sched@6k</td><td>72.2 ± 13.3</td><td>44.4 ± 3.9</td><td>1861 ± 985</td><td>6.2</td></tr>
+  </tbody>
+</table>
+
+<figure class="fw">
+  <img src="figures/warmup_sweep.png" alt="warmup sweep" style="max-width:88%"/>
+<figcaption><b>Figure 6.</b> Warmup confirmation + switch-point sweep (4 seeds,
+7,000 ticks, mean ± std). Left: peak fitness by arm; the hatched bar is the
+readiness-<i>gated</i> variant (switch on measured error &le; 4.5, Sec.&nbsp;6.7).
+Right: the fixed-switch family against the baseline reference — earlier
+switches are better, none reach the baseline.</figcaption>
+</figure>
+
+<h3>6.7 Measuring the model itself</h3>
+<p class="noindent">The consistent pattern of Sec.&nbsp;6.4&ndash;6.6 — the
+sharper the search, the worse the outcome — points at compounding model error
+rather than at the search algorithms. Every planner variant rolls the dynamics
+head open-loop for D steps, yet the head is trained <i>only on one-step
+prediction</i>; nothing constrains the regime the planner actually consumes
+[18,19]. We therefore (i) measure that regime directly during training and (ii)
+train it directly. <b>Setup:</b> two arms, seeds 1&ndash;3, 6,000 ticks each
+(identical to the sweep baseline: shooting planner, world-model head on) —
+<i>1-step</i>, the standard auxiliary loss; <i>multi-step</i>, plus the k-step
+consistency loss (k=3, horizons 2&ndash;3, coefficient 0.5). Both arms log the
+open-loop rollout-error diagnostic (k=3) every learner update; the population
+mean is recorded each generation.</p>
+
+<table class="t">
+  <caption><b>Table 11.</b> Open-loop rollout error (latent MSE at horizon k=3),
+  complete per-run data: population mean at each generation boundary, 3 seeds
+  per arm, 6,000 ticks.</caption>
+  <thead><tr><th>tick</th><th>1-step s1</th><th>s2</th><th>s3</th><th>mean ± std</th>
+    <th>multi-step s1</th><th>s2</th><th>s3</th><th>mean ± std</th></tr></thead>
+  <tbody>
+    <tr><td>1000</td><td>6.49</td><td>6.50</td><td>6.69</td><td>6.56 ± 0.09</td>
+      <td>6.24</td><td>6.02</td><td>6.00</td><td class="win">6.09 ± 0.11</td></tr>
+    <tr><td>2000</td><td>6.16</td><td>6.03</td><td>5.90</td><td>6.03 ± 0.11</td>
+      <td>6.12</td><td>5.94</td><td>6.19</td><td>6.08 ± 0.11</td></tr>
+    <tr><td>3000</td><td>5.91</td><td>5.17</td><td>5.35</td><td>5.48 ± 0.31</td>
+      <td>5.85</td><td>5.20</td><td>5.73</td><td>5.59 ± 0.28</td></tr>
+    <tr><td>4000</td><td>5.23</td><td>4.88</td><td>4.25</td><td>4.79 ± 0.40</td>
+      <td>5.04</td><td>4.18</td><td>4.59</td><td>4.60 ± 0.35</td></tr>
+    <tr><td>5000</td><td>4.16</td><td>3.49</td><td>3.28</td><td>3.64 ± 0.37</td>
+      <td>3.81</td><td>4.20</td><td>3.71</td><td>3.91 ± 0.21</td></tr>
+    <tr><td>6000</td><td>2.64</td><td>3.49</td><td>2.54</td><td>2.89 ± 0.43</td>
+      <td>2.22</td><td>3.42</td><td>3.15</td><td>2.93 ± 0.52</td></tr>
+  </tbody>
+</table>
+
+<figure class="fw">
+  <img src="figures/rollout_error.png" alt="rollout error" style="max-width:66%"/>
+<figcaption><b>Figure 7.</b> Open-loop rollout error (k=3) during training,
+three seeds per arm (thin lines) with per-arm means (thick). Error falls
+monotonically in all six runs; the multi-step loss separates only at the
+start — exactly where the model is worst.</figcaption>
+</figure>
+
+<p class="noindent"><b>Three findings.</b> <b>(i) The diagnostic works, and it
+quantifies the cold-start problem.</b> Open-loop error falls monotonically in
+all six runs — 6.56&rarr;2.89 (&minus;56%) under the standard loss. At tick
+1,000 the error is <b>2.3&times; its tick-6,000 level</b>: the measured version
+of the warmup hypothesis — early planning really does consume a much worse
+model. Critically, the error is <i>still falling</i> at tick 6,000; the model
+never "finishes" training at these horizons, consistent with no fixed switch
+point working in Sec.&nbsp;6.6. <b>(ii) The multi-step loss helps exactly where
+the model is worst.</b> At tick 1,000 the multi-step arm's error is
+6.09&nbsp;±&nbsp;0.11 vs 6.56&nbsp;±&nbsp;0.09 — a 7% reduction, and the only
+measurement point where the two arms' seed ranges do not overlap
+(6.00&ndash;6.24 vs 6.49&ndash;6.69). From tick 2,000 on the arms are
+statistically indistinguishable: multi-step training accelerates early
+open-loop competence — the regime a cold-start planner consumes — without
+changing converged model quality at this capacity. <b>(iii) No downstream
+fitness change</b> (the no-harm check): final fitness 63.2&nbsp;±&nbsp;10.7
+(1-step: 48.2/72.0/69.5) vs 56.2&nbsp;±&nbsp;6.0 (multi-step: 56.3/63.4/48.7);
+peak 66.1&nbsp;±&nbsp;6.7 vs 57.4&nbsp;±&nbsp;7.6 — overlapping ranges at
+n&nbsp;=&nbsp;3, no benefit and no clear harm. Together with Sec.&nbsp;6.6 this
+says early model error is real and reducible, but <i>not the only</i> binding
+constraint on model-based planning here.</p>
+
+<p><b>Downstream test of the readiness gate.</b> Finally, we A/B the gate
+itself: the scheduled planner re-run at the sweep's exact conditions (seeds
+1&ndash;4, 7,000 ticks) but switching on the <b>measured</b> per-agent error
+EMA (threshold 4.5, picked where the mean curve of Fig.&nbsp;7 crosses &asymp;
+the sweep's best fixed point; deadline 6,000). Table&nbsp;11b gives every run.
+Aggregate: peak <b>68.8&nbsp;±&nbsp;7.4</b>, final 49.9&nbsp;±&nbsp;8.5 —
+<b>0/4 seeds beat the baseline</b> (86.7&nbsp;±&nbsp;8.4 /
+61.5&nbsp;±&nbsp;4.7), and the mean trails even the fixed sched@4k
+(77.4&nbsp;±&nbsp;6.3; the hatched bar in Fig.&nbsp;6). The gate behaved
+exactly as designed, and its internal pattern re-confirms the sweep's
+ordering: the seed whose error crossed earliest (seed 2, &asymp;2,500)
+produced the best gated run (81.5), while the two seeds that never crossed
+rode the 6k deadline — the worst fixed switch point. Two structural effects
+kept switches late: at threshold 4.5 the population-mean error stays high for
+most of the run, and the gate is <i>per-agent</i> — newborns start with a
+fresh error EMA, so population turnover continually re-enters warmup (visible
+as the gated arm's higher ticks/s: it pays for CEM&nbsp;+&nbsp;imagination
+less often). Raising the threshold can only converge toward sched@4k, which
+still loses. Across three independent designs — the 20-run replication, the
+16-run sweep, and this 4-run gated A/B — <b>no gating policy, fixed or
+measured, makes CEM&nbsp;+&nbsp;imagination competitive with plain shooting on
+this task.</b></p>
+
+<table class="t">
+  <caption><b>Table 11b.</b> Readiness-gated scheduled planner, complete
+  per-run data (switch when per-agent rollout-error EMA &le; 4.5, deadline
+  6,000; seeds 1&ndash;4, 7,000 ticks).</caption>
+  <thead><tr><th>seed</th><th>peak</th><th>lifespan</th><th>tiles</th><th>EAT</th>
+    <th>seeds</th><th>final</th><th>ticks/s</th><th class="l">pop-mean err crosses 4.5</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>64.43</td><td>720.1</td><td>98.9</td><td>2045</td><td>1358</td><td>37.27</td><td>6.81</td><td class="l">&asymp; tick 4,700</td></tr>
+    <tr><td>2</td><td class="win">81.49</td><td>773.9</td><td>98.2</td><td>2420</td><td>1966</td><td>60.92</td><td>7.22</td><td class="l">&asymp; tick 2,500 (earliest)</td></tr>
+    <tr><td>3</td><td>65.65</td><td>715.4</td><td>65.8</td><td>1888</td><td>1718</td><td>48.91</td><td>6.92</td><td class="l">never — 6k deadline</td></tr>
+    <tr><td>4</td><td>63.66</td><td>708.1</td><td>44.4</td><td>1211</td><td>909</td><td>52.32</td><td>8.08</td><td class="l">never — 6k deadline</td></tr>
+  </tbody>
+</table>
+
+<h3>6.8 Population dynamics across founder counts</h3>
+<p class="noindent">Three v3.5+PPO worlds (48&times;48, cap 60) seeded with 8,
+24, and 48 founders (distinct seeds). Table&nbsp;12 samples the trajectories;
+Fig.&nbsp;8 shows the full curves. All three converge to the same carrying
+capacity (the cap) within 100&ndash;200 ticks regardless of founder count while
+fitness keeps rising: the ecology self-regulates, and population size is set by
+the environment, not the initial condition — the stability prerequisite for the
+long-horizon studies above.</p>
+
+<table class="t">
+  <caption><b>Table 12.</b> Population and mean fitness vs. tick for three
+  founder counts (sampled; full curves in Fig.&nbsp;8).</caption>
+  <thead><tr><th>tick</th><th>pop (8 f.)</th><th>fitness</th><th>pop (24 f.)</th>
+    <th>fitness</th><th>pop (48 f.)</th><th>fitness</th></tr></thead>
+  <tbody>
+    <tr><td>0</td><td>8</td><td>0.0</td><td>24</td><td>0.0</td><td>48</td><td>0.0</td></tr>
+    <tr><td>100</td><td>32</td><td>4.05</td><td>60</td><td>5.83</td><td>60</td><td>6.99</td></tr>
+    <tr><td>200</td><td>60</td><td>4.70</td><td>60</td><td>9.11</td><td>60</td><td>11.58</td></tr>
+    <tr><td>400</td><td>60</td><td>7.84</td><td>60</td><td>9.55</td><td>60</td><td>8.83</td></tr>
+    <tr><td>600</td><td>60</td><td>10.35</td><td>59</td><td>12.84</td><td>60</td><td>11.33</td></tr>
+  </tbody>
+</table>
+
+<figure class="fw">
+  <img src="figures/population_dynamics.png" alt="population dynamics" style="max-width:92%"/>
+<figcaption><b>Figure 8.</b> Population (left) and mean fitness (right) vs. tick
+for three founder counts. Different starts, same carrying capacity.</figcaption>
+</figure>
+
+<h2>7. Discussion</h2>
+<p class="noindent"><b>A weak model is useful for cheap things and harmful for
+expensive ones.</b> The same 20%-better-than-nothing model family produced a
+genuine behavioural phase change when used for blunt search and surprise signals
+(Sec.&nbsp;6.3), a small robust gain when used to keep rollouts in-distribution
+(P1, Sec.&nbsp;6.5), and consistent losses when used as the substrate for
+concentrated optimisation (CEM, imagination; Sec.&nbsp;6.5&ndash;6.6). Ranking a
+handful of action candidates needs only the model's gradient of "better vs
+worse"; CEM's elites and imagination's training targets need its <i>absolute</i>
+predictions several steps out — precisely where one-step training gives no
+guarantees. Sharper search amplifies model error instead of value [19].</p>
+<p><b>Scheduling cannot rescue a model that stays weak.</b> The warmup results
+order correctly (later switches are worse — less time to amortise the expensive
+controller) but never cross the baseline: at no switch point does the model
+become good enough for CEM+imagination to pay their bills. The structural
+reasons are visible in the sandbox: 9 discrete actions and depth-2 horizons mean
+uniform shooting already covers the search space, and fitness is dominated by
+reactive behaviours a greedy policy discovers anyway.</p>
+<p><b>Measure, then trust.</b> The toolkit of Sec.&nbsp;5.6 turns "the model is
+probably bad early" from a hypothesis into a logged per-generation quantity,
+gates the expensive machinery on that quantity rather than a guess, and trains
+the model in the regime the planner consumes. The measurement (Sec.&nbsp;6.7)
+both vindicates and reframes the warmup idea: at tick 1,000 the model's rollout
+error is 2.3&times; its tick-6,000 level — the cold-start problem is real — but
+the error is still falling when every fixed switch point of Sec.&nbsp;6.6
+fires, so the gate was pointing at the right quantity and that quantity never
+reached "good." The gated A/B closes the loop: switching on the measured error
+behaves sensibly (earliest crossing &rarr; best gated run) yet still loses to
+never switching at all — the right gate on machinery that does not pay for
+itself is still a loss. This is the infrastructure the earlier experiments
+should have had, and it is how we can now say the negative result is about the
+machinery, not the schedule.</p>
+<p><b>Replication is not optional.</b> Two effect sizes of +25&ndash;32% (P2,
+P3) and one 2-of-2-seed win (scheduled) all evaporated under 4 seeds. Ecological
+simulations with reproduction, death, and weather have enormous seed variance —
+baseline peaks alone ranged 77&ndash;100 across seeds in the sweep. Any
+single-seed claim in such systems should be read as an anecdote.</p>
+
+<h2>8. Limitations</h2>
+<p class="noindent">n = 4 seeds is still small: the sweep's baseline-vs-scheduled
+gap is ~1.4&sigma; — robust in <i>direction</i> (baseline &ge; every scheduled
+arm on every metric) but not a formal significance result. Horizons are short
+(2k&ndash;7k ticks), worlds small (48&ndash;160 per side, &le;100 agents), and
+fitness is an in-silico proxy. The dynamics head is a deterministic MLP; the
+planner ignores predictive uncertainty (no ensemble). Sec.&nbsp;6.3 toggles
+planner and curiosity together. The multi-step-loss experiment measures model
+error, not downstream fitness, and its n = 3; the readiness-gate A/B is n = 4
+at a single, untuned threshold (4.5).</p>
+
+<h2>9. Conclusion</h2>
+<p class="noindent">We built a reproducible multi-agent evolutionary sandbox,
+measured what a small learned world model can and cannot do in it, and reported
+the full arc including the reversals: architecture selection by competition
+works; a weak model powers a real behavioural phase change; policy-guided
+rollouts survive replication; CEM, imagination, and warmup scheduling do not;
+and the model's open-loop rollout error — now measured on-line and trainable
+directly — is the quantity that decides which of these outcomes you get.
+<span class="small">Reproducibility: Sec.&nbsp;6.1
+<code>scripts/competition_run.py --ticks 4000</code>; Sec.&nbsp;6.2
+<code>main.py --world-model-log</code> then
+<code>scripts/train_world_model.py</code>; Sec.&nbsp;6.3&ndash;6.6 matched
+<code>main.py --no-viz --learning --mode rl</code> runs over the
+<code>config/planning_*_v35.yaml</code> configs at the stated seeds/lengths;
+Sec.&nbsp;6.7 <code>config/wm_quality_{1step,multistep}_v35.yaml</code> with
+<code>--metrics-csv</code> (column <code>wm_rollout_error</code>), and the
+gated A/B <code>config/planning_sched_gated_v35.yaml</code>; analysis
+<code>scripts/analyze_logs.py</code>; figures
+<code>paper/make_figures.py</code>. All per-run data appears inline in
+Tables&nbsp;6, 8, 9, 11, and 11b.</span></p>
+
+<div class="refs">
+<h2>References</h2>
+<ol class="bib">
+<li>D. Ha and J. Schmidhuber. World Models. <i>NeurIPS</i>, 2018. arXiv:1803.10122.</li>
+<li>D. Hafner, T. Lillicrap, J. Ba, M. Norouzi. Dream to Control: Learning Behaviors by Latent Imagination (Dreamer). <i>ICLR</i>, 2020. arXiv:1912.01603.</li>
+<li>D. Hafner et&nbsp;al. Learning Latent Dynamics for Planning from Pixels (PlaNet). <i>ICML</i>, 2019. arXiv:1811.04551.</li>
+<li>D. Hafner, J. Pasukonis, J. Ba, T. Lillicrap. Mastering Diverse Domains through World Models (DreamerV3). 2023. arXiv:2301.04104.</li>
+<li>K. Chua, R. Calandra, R. McAllister, S. Levine. Deep RL in a Handful of Trials using Probabilistic Dynamics Models (PETS). <i>NeurIPS</i>, 2018. arXiv:1805.12114.</li>
+<li>G. Williams, A. Aldrich, E. Theodorou. Model Predictive Path Integral Control (MPPI). <i>J. Guidance, Control, and Dynamics</i>, 2017.</li>
+<li>J. Schrittwieser et&nbsp;al. Mastering Atari, Go, Chess and Shogi by Planning with a Learned Model (MuZero). <i>Nature</i>, 2020. arXiv:1911.08265.</li>
+<li>M. Janner, J. Fu, M. Zhang, S. Levine. When to Trust Your Model: Model-Based Policy Optimization (MBPO). <i>NeurIPS</i>, 2019. arXiv:1906.08253.</li>
+<li>J. Schulman, F. Wolski, P. Dhariwal, A. Radford, O. Klimov. Proximal Policy Optimization Algorithms (PPO). 2017. arXiv:1707.06347.</li>
+<li>J. Schulman et&nbsp;al. High-Dimensional Continuous Control Using Generalized Advantage Estimation (GAE). <i>ICLR</i>, 2016. arXiv:1506.02438.</li>
+<li>V. Mnih et&nbsp;al. Asynchronous Methods for Deep Reinforcement Learning (A3C/A2C). <i>ICML</i>, 2016. arXiv:1602.01783.</li>
+<li>D. Pathak, P. Agrawal, A. Efros, T. Darrell. Curiosity-driven Exploration by Self-supervised Prediction (ICM). <i>ICML</i>, 2017. arXiv:1705.05363.</li>
+<li>Y. Burda, H. Edwards, A. Storkey, O. Klimov. Exploration by Random Network Distillation (RND). <i>ICLR</i>, 2019. arXiv:1810.12894.</li>
+<li>A. Vaswani et&nbsp;al. Attention Is All You Need. <i>NeurIPS</i>, 2017. arXiv:1706.03762.</li>
+<li>K. Cho et&nbsp;al. Learning Phrase Representations using RNN Encoder–Decoder (GRU). <i>EMNLP</i>, 2014. arXiv:1406.1078.</li>
+<li>K. O. Stanley, R. Miikkulainen. Evolving Neural Networks through Augmenting Topologies (NEAT). <i>Evolutionary Computation</i>, 2002.</li>
+<li>J. Lehman, K. O. Stanley. Abandoning Objectives: Evolution through the Search for Novelty Alone. <i>Evolutionary Computation</i>, 2011.</li>
+<li>A. Venkatraman, M. Hebert, J. A. Bagnell. Improving Multi-Step Prediction of Learned Time Series Models (Data as Demonstrator). <i>AAAI</i>, 2015.</li>
+<li>N. Lambert, B. Amos, O. Yadan, R. Calandra. Objective Mismatch in Model-based Reinforcement Learning. <i>L4DC</i>, 2020.</li>
+</ol>
+</div>
+
+<div class="foot">This report describes only implemented, measured functionality
+of the Emergent World-Model Sandbox. Every per-run number is inline in the
+tables above; figures are generated from real simulation state and committed run
+artifacts (<code>paper/make_figures.py</code>). Cited works are the sources of
+ideas adapted here; the implementations are deliberately simplified and any
+shortfalls are the author's.</div>
+
+</div>
+</body>
+</html>

@@ -170,6 +170,11 @@ class Agent:
         if not self.alive:
             return
 
+        # Current world tick — used by planner/learner warmup schedules so the
+        # model-based planner (P2/P3) only kicks in once the world model has had
+        # time to train (see docs/PLANNING_PROPOSAL.md "warmup").
+        self._world_tick = int(getattr(world, "tick", 0))
+
         # Age the agent
         self.age += 1
 
@@ -329,6 +334,8 @@ class Agent:
                     can_train_now = self.age % 3 == 0
 
             if can_train_now:
+                # let the learner gate imagination by world tick (warmup)
+                setattr(self.learner, "current_tick", getattr(self, "_world_tick", 0))
                 self.learner.learn(self.brain)
 
             # Store current observation and hidden state for next step
@@ -378,7 +385,13 @@ class Agent:
                 instinct_strength=instinct_strength,
             )
             self.h = h_next
-            action_idx = self.planner.plan(self.brain, self.h, action_mask)
+            action_idx = self.planner.plan(
+                self.brain,
+                self.h,
+                action_mask,
+                tick=getattr(self, "_world_tick", 0),
+                model_error=getattr(self.learner, "wm_rollout_error_ema", None),
+            )
             # Log-prob of the planner's choice under the policy — keeps
             # PPO's importance ratio meaningful (clipping bounds the rest)
             logprob = float(np.log(max(probs[action_idx], 1e-8)))
@@ -809,6 +822,9 @@ class Agent:
                         "cpu" if compute_device == "auto" else compute_device
                     ),
                     world_model_coef=ppo.get("world_model_coef", 1.0),
+                    imagination=ppo.get("imagination", None),
+                    world_model_multistep=ppo.get("world_model_multistep", None),
+                    rollout_metric_k=ppo.get("rollout_metric_k", 3),
                 )
                 self._ppo_config = ppo_config
                 self.learning_enabled = True
