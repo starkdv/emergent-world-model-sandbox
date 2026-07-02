@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software or the accompanying technical report,
+  please cite it using the metadata below.
+type: software
+title: Emergent World-Model Sandbox
+authors:
+  - family-names: Vasa
+    given-names: Karan
+repository-code: https://github.com/starkdv/emergent-world-model-sandbox
+license: MIT
+keywords:
+  - multi-agent reinforcement learning
+  - world models
+  - model-based planning
+  - open-ended evolution
+  - artificial life
+preferred-citation:
+  type: report
+  title: >-
+    How Useful Is a Learned World Model? Planning, Replication, and
+    Model-Quality Diagnostics in a Multi-Agent Evolutionary Sandbox
+  authors:
+    - family-names: Vasa
+      given-names: Karan
+  year: 2026
+  month: 7
+  doi: 10.5281/zenodo.21133600
