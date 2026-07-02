@@ -6,6 +6,7 @@
 
 **Karan Vasa** — Independent Researcher
 Project: *Emergent World-Model Sandbox* · Code: `starkdv/emergent-world-model-sandbox`
+DOI: [10.5281/zenodo.21133600](https://doi.org/10.5281/zenodo.21133600)
 
 > 📄 The **typeset two-column PDF with all figures** is
 > [`paper/emergent_world_model.pdf`](../paper/emergent_world_model.pdf). This
