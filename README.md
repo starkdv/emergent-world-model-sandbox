@@ -1191,12 +1191,17 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Citation
 
-If you use this work in research, please cite:
+If you use this work in research, please cite the technical report
+([DOI: 10.5281/zenodo.21133600](https://doi.org/10.5281/zenodo.21133600)):
 
 ```
-Vasa, K. (2025). Emergent World-Model Sandbox: Evolution of Complex Behaviors
-in Artificial Life Simulations. GitHub repository.
+Vasa, K. (2026). How Useful Is a Learned World Model? Planning, Replication,
+and Model-Quality Diagnostics in a Multi-Agent Evolutionary Sandbox.
+Zenodo. https://doi.org/10.5281/zenodo.21133600
 ```
+
+A machine-readable version is in [`CITATION.cff`](CITATION.cff) (GitHub's
+"Cite this repository" button).
 
 ---
 
