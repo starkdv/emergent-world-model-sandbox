@@ -735,7 +735,12 @@ class PPOSequenceLearner:
             # metrics CSV / readiness gating.
             if self._mirror.has_world_model and self.rollout_metric_k > 0:
                 lat_err, _ = self._mirror.multistep_errors(
-                    hs_ng, zs_ng, actions, rewards_t, valid, dones,
+                    hs_ng,
+                    zs_ng,
+                    actions,
+                    rewards_t,
+                    valid,
+                    dones,
                     self.rollout_metric_k,
                 )
                 errs = [float(e) for e in lat_err]
@@ -744,8 +749,7 @@ class PPOSequenceLearner:
                 self.wm_rollout_error_ema = (
                     errs[-1]
                     if ema is None
-                    else self._wm_ema_beta * ema
-                    + (1.0 - self._wm_ema_beta) * errs[-1]
+                    else self._wm_ema_beta * ema + (1.0 - self._wm_ema_beta) * errs[-1]
                 )
         advantages_np = np.zeros((len(chunks), self.seq_len), dtype=np.float32)
         targets_np = np.zeros((len(chunks), self.seq_len), dtype=np.float32)
@@ -838,9 +842,7 @@ class PPOSequenceLearner:
                     ms_lat, ms_rew = self._mirror.multistep_errors(
                         hs, zs, actions, rewards_t, valid, dones, self.ms_k
                     )
-                    loss = loss + self.ms_coef * (
-                        ms_lat[1:].mean() + ms_rew[1:].mean()
-                    )
+                    loss = loss + self.ms_coef * (ms_lat[1:].mean() + ms_rew[1:].mean())
 
                 # Dreamer-style imagination actor-critic (P3, opt-in). Start from
                 # detached valid hidden states so it distils planning into the

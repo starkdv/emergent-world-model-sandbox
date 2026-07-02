@@ -45,9 +45,7 @@ def _batch(mirror, brain, batch=3, length=6, seed=0):
         g.normal(size=(batch, length, brain.input_size)).astype(np.float32)
     )
     h0 = torch.zeros(batch, brain.gru_hidden_size)
-    boot = torch.as_tensor(
-        g.normal(size=(batch, brain.input_size)).astype(np.float32)
-    )
+    boot = torch.as_tensor(g.normal(size=(batch, brain.input_size)).astype(np.float32))
     actions = torch.as_tensor(
         g.integers(0, brain.output_size, size=(batch, length)).astype(np.int64)
     )
@@ -136,8 +134,14 @@ def _feed_learner(lrn, brain, steps=24, seed=1):
         obs = g.normal(size=brain.input_size).astype(np.float32)
         nxt = g.normal(size=brain.input_size).astype(np.float32)
         lrn.store_step(
-            obs, h, int(g.integers(brain.output_size)), float(g.normal()),
-            nxt, False, -1.0, mask,
+            obs,
+            h,
+            int(g.integers(brain.output_size)),
+            float(g.normal()),
+            nxt,
+            False,
+            -1.0,
+            mask,
         )
 
 
@@ -211,9 +215,7 @@ def test_planner_error_gate_switches_and_latches():
 
 
 def test_planner_error_gate_tick_deadline():
-    p = LatentPlanner(
-        strategy="cem", warmup_ticks=1000, warmup_error_threshold=0.5
-    )
+    p = LatentPlanner(strategy="cem", warmup_ticks=1000, warmup_error_threshold=0.5)
     # error never drops below the threshold → warmup_ticks is the deadline
     assert p.effective_strategy(999, model_error=2.0) == "policy_shooting"
     assert p.effective_strategy(1000, model_error=2.0) == "cem"
@@ -226,9 +228,7 @@ def test_planner_tick_mode_unchanged_without_threshold():
 
 
 def test_planner_from_config_reads_error_threshold():
-    p = LatentPlanner.from_config(
-        {"strategy": "cem", "warmup_error_threshold": 0.25}
-    )
+    p = LatentPlanner.from_config({"strategy": "cem", "warmup_error_threshold": 0.25})
     assert p.warmup_error_threshold == 0.25
     d = LatentPlanner.from_config({})
     assert d.warmup_error_threshold == 0.0  # legacy default

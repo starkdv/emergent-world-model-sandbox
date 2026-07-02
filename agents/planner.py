@@ -165,9 +165,7 @@ class LatentPlanner:
             warmup_error_threshold=config.get("warmup_error_threshold", 0.0),
         )
 
-    def effective_strategy(
-        self, tick: int, model_error: Optional[float] = None
-    ) -> str:
+    def effective_strategy(self, tick: int, model_error: Optional[float] = None) -> str:
         """The strategy active now.
 
         Readiness mode (``warmup_error_threshold > 0``): warmup_strategy until

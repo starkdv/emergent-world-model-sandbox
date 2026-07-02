@@ -286,22 +286,35 @@ def _bars(ax, names, stats, colors, labels):
 def fig_multiseed():
     """4-seed replication of the planner ladder (Sec. 6.5)."""
     path = os.path.join(
-        os.path.dirname(os.path.dirname(FIG)), "docs", "sample_planning_multiseed", "results.csv"
+        os.path.dirname(os.path.dirname(FIG)),
+        "docs",
+        "sample_planning_multiseed",
+        "results.csv",
     )
     if not os.path.exists(path):
         print("(no multiseed results.csv — skipping)")
         return
     colors = {
-        "shooting": "#888888", "policy_shooting": "#2e8b57", "cem": "#1f6fb0",
-        "imag_off": "#888888", "imag_on": "#d1495b",
+        "shooting": "#888888",
+        "policy_shooting": "#2e8b57",
+        "cem": "#1f6fb0",
+        "imag_off": "#888888",
+        "imag_on": "#d1495b",
     }
     labels = {
-        "shooting": "shooting\n(baseline)", "policy_shooting": "policy\nshooting (P1)",
-        "cem": "CEM (P2)", "imag_off": "imagination\noff", "imag_on": "imagination\non (P3)",
+        "shooting": "shooting\n(baseline)",
+        "policy_shooting": "policy\nshooting (P1)",
+        "cem": "CEM (P2)",
+        "imag_off": "imagination\noff",
+        "imag_on": "imagination\non (P3)",
     }
     stats = _arm_stats(path, list(colors))
     fig, (a1, a2) = plt.subplots(
-        1, 2, figsize=(6.8, 2.6), dpi=160, sharey=True,
+        1,
+        2,
+        figsize=(6.8, 2.6),
+        dpi=160,
+        sharey=True,
         gridspec_kw={"width_ratios": [3, 2]},
     )
     _bars(a1, ["shooting", "policy_shooting", "cem"], stats, colors, labels)
@@ -319,7 +332,9 @@ def fig_multiseed():
 def fig_warmup_sweep():
     """4-seed warmup confirmation + switch-point sweep (Sec. 6.6)."""
     path = os.path.join(
-        os.path.dirname(os.path.dirname(FIG)), "docs", "sample_planning_warmup_sweep",
+        os.path.dirname(os.path.dirname(FIG)),
+        "docs",
+        "sample_planning_warmup_sweep",
         "results.csv",
     )
     if not os.path.exists(path):
@@ -328,8 +343,10 @@ def fig_warmup_sweep():
     arms = ["baseline", "sched4k", "sched5k", "sched6k"]
     colors = dict(zip(arms, ["#888888", "#2e8b57", "#1f6fb0", "#d1495b"]))
     labels = {
-        "baseline": "baseline\n(shooting)", "sched4k": "sched@4k",
-        "sched5k": "sched@5k", "sched6k": "sched@6k",
+        "baseline": "baseline\n(shooting)",
+        "sched4k": "sched@4k",
+        "sched5k": "sched@5k",
+        "sched6k": "sched@6k",
     }
     stats = _arm_stats(path, arms)
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(6.8, 2.6), dpi=160)
@@ -339,17 +356,33 @@ def fig_warmup_sweep():
     ws = [4000, 5000, 6000]
     mus = [stats[a][0] for a in arms[1:]]
     sds = [stats[a][1] for a in arms[1:]]
-    a2.errorbar(ws, mus, yerr=sds, marker="o", ms=4, capsize=4,
-                color="#1f6fb0", lw=1.6, label="scheduled")
-    a2.axhline(stats["baseline"][0], ls="--", lw=1.2, color="#888888",
-               label="baseline (shooting)")
+    a2.errorbar(
+        ws,
+        mus,
+        yerr=sds,
+        marker="o",
+        ms=4,
+        capsize=4,
+        color="#1f6fb0",
+        lw=1.6,
+        label="scheduled",
+    )
+    a2.axhline(
+        stats["baseline"][0],
+        ls="--",
+        lw=1.2,
+        color="#888888",
+        label="baseline (shooting)",
+    )
     a2.set_xticks(ws)
     a2.set_xlabel("warmup_ticks (switch point)")
     a2.set_ylabel("peak fitness")
     a2.set_title("Switch-point tuning", fontsize=9)
     a2.grid(alpha=0.3)
     a2.legend(fontsize=6.5)
-    fig.suptitle("Warmup scheduling: 4 seeds, 7000 ticks (mean ± std)", fontsize=9, y=1.02)
+    fig.suptitle(
+        "Warmup scheduling: 4 seeds, 7000 ticks (mean ± std)", fontsize=9, y=1.02
+    )
     fig.tight_layout(pad=0.5)
     fig.savefig(os.path.join(FIG, "warmup_sweep.png"), bbox_inches="tight")
     plt.close(fig)
@@ -364,7 +397,10 @@ def fig_rollout_error():
     import csv
 
     data_dir = os.path.join(os.path.dirname(FIG), "data")
-    arms = {"1step": ("#1f6fb0", "1-step loss"), "multistep": ("#2e8b57", "+ multi-step loss")}
+    arms = {
+        "1step": ("#1f6fb0", "1-step loss"),
+        "multistep": ("#2e8b57", "+ multi-step loss"),
+    }
     fig, ax = plt.subplots(figsize=(4.6, 2.7), dpi=160)
     plotted = False
     for arm, (color, label) in arms.items():
@@ -388,8 +424,10 @@ def fig_rollout_error():
         return
     ax.set_xlabel("world tick")
     ax.set_ylabel("open-loop latent MSE (k=3)")
-    ax.set_title("World-model rollout error during training\n(3 seeds; thin = per seed, thick = mean)",
-                 fontsize=8.5)
+    ax.set_title(
+        "World-model rollout error during training\n(3 seeds; thin = per seed, thick = mean)",
+        fontsize=8.5,
+    )
     ax.grid(alpha=0.3)
     ax.legend(fontsize=7)
     fig.tight_layout(pad=0.5)
