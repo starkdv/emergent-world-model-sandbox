@@ -347,15 +347,27 @@ def fig_warmup_sweep():
         "sched4k": "sched@4k",
         "sched5k": "sched@5k",
         "sched6k": "sched@6k",
+        "gated": "gated\n(err\u22644.5)",
     }
     stats = _arm_stats(path, arms)
+    # adaptive readiness-gated arm (separate CSV; hatched = same scheduled
+    # family, switch point measured instead of fixed)
+    gpath = os.path.join(os.path.dirname(path), "results_gated.csv")
+    if os.path.exists(gpath):
+        stats.update(_arm_stats(gpath, ["gated"]))
+        arms = arms + ["gated"]
+        colors["gated"] = "#1f6fb0"
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(6.8, 2.6), dpi=160)
     _bars(a1, arms, stats, colors, labels)
+    if "gated" in stats:  # hatch distinguishes the adaptive variant
+        a1.patches[len(arms) - 1].set_hatch("//")
+        a1.patches[len(arms) - 1].set_edgecolor("white")
     a1.set_ylabel("peak fitness")
     a1.set_title("Peak fitness by arm", fontsize=9)
     ws = [4000, 5000, 6000]
-    mus = [stats[a][0] for a in arms[1:]]
-    sds = [stats[a][1] for a in arms[1:]]
+    sched = ["sched4k", "sched5k", "sched6k"]
+    mus = [stats[a][0] for a in sched]
+    sds = [stats[a][1] for a in sched]
     a2.errorbar(
         ws,
         mus,

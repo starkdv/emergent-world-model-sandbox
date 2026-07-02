@@ -352,6 +352,14 @@ error wiring), `utils/agents/metrics.py`. Tests: `tests/test_model_quality.py`.
 Measured validation (1-step vs multi-step arms, 3 seeds × 6,000 ticks) lives in
 `docs/sample_wm_quality/` and the paper's Sec. 6.7.
 
+**M2 measured downstream (4 seeds × 7,000 ticks,
+`config/planning_sched_gated_v35.yaml`): the gate does not rescue
+CEM + imagination.** Gated peak 68.8 ± 7.4 vs baseline 86.7 ± 8.4 (0/4 seeds
+win; trails fixed sched@4k too). The mechanism behaves correctly — earliest
+error crossing produced the best gated run — but across the replication, the
+sweep, and this A/B, no gating policy makes the heavy planners pay on this
+task. See `docs/sample_planning_warmup_sweep/` (gated section).
+
 ## 5. Recommendation & sequencing
 
 1. **P1 now.** Policy-guided rollouts + policy-biased first action +

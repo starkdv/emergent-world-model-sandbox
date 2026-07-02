@@ -112,7 +112,11 @@
   the diagnostic shows open-loop error falling 56% across 6,000 ticks — still
   unconverged when every fixed warmup switch point fires — and the multi-step
   loss reduces error exactly where the model is worst, at the start of training
-  (6.09&nbsp;±&nbsp;0.11 vs 6.56&nbsp;±&nbsp;0.09 at tick 1,000). The lesson is
+  (6.09&nbsp;±&nbsp;0.11 vs 6.56&nbsp;±&nbsp;0.09 at tick 1,000). A downstream
+  A/B of the readiness gate (4 seeds, 7,000 ticks) completes the picture: the
+  gated planner also fails to beat the baseline (peak 68.8&nbsp;±&nbsp;7.4 vs
+  86.7&nbsp;±&nbsp;8.4) — no gating policy, fixed or measured, rescues
+  CEM&nbsp;+&nbsp;imagination here. The lesson is
   methodological as much as algorithmic: a weak model can be genuinely useful
   (for exploration and action ranking), sharper search on the same weak model is
   <i>worse</i> than blunt search, single-seed effect sizes in ecological
@@ -664,9 +668,10 @@ this task at this model quality.</p>
 <figure class="fw">
   <img src="figures/warmup_sweep.png" alt="warmup sweep" style="max-width:88%"/>
 <figcaption><b>Figure 6.</b> Warmup confirmation + switch-point sweep (4 seeds,
-7,000 ticks, mean ± std). Left: peak fitness by arm. Right: the scheduled family
-against the baseline reference — earlier switches are better, none reach the
-baseline.</figcaption>
+7,000 ticks, mean ± std). Left: peak fitness by arm; the hatched bar is the
+readiness-<i>gated</i> variant (switch on measured error &le; 4.5, Sec.&nbsp;6.7).
+Right: the fixed-switch family against the baseline reference — earlier
+switches are better, none reach the baseline.</figcaption>
 </figure>
 
 <h3>6.7 Measuring the model itself</h3>
@@ -735,6 +740,43 @@ n&nbsp;=&nbsp;3, no benefit and no clear harm. Together with Sec.&nbsp;6.6 this
 says early model error is real and reducible, but <i>not the only</i> binding
 constraint on model-based planning here.</p>
 
+<p><b>Downstream test of the readiness gate.</b> Finally, we A/B the gate
+itself: the scheduled planner re-run at the sweep's exact conditions (seeds
+1&ndash;4, 7,000 ticks) but switching on the <b>measured</b> per-agent error
+EMA (threshold 4.5, picked where the mean curve of Fig.&nbsp;7 crosses &asymp;
+the sweep's best fixed point; deadline 6,000). Table&nbsp;11b gives every run.
+Aggregate: peak <b>68.8&nbsp;±&nbsp;7.4</b>, final 49.9&nbsp;±&nbsp;8.5 —
+<b>0/4 seeds beat the baseline</b> (86.7&nbsp;±&nbsp;8.4 /
+61.5&nbsp;±&nbsp;4.7), and the mean trails even the fixed sched@4k
+(77.4&nbsp;±&nbsp;6.3; the hatched bar in Fig.&nbsp;6). The gate behaved
+exactly as designed, and its internal pattern re-confirms the sweep's
+ordering: the seed whose error crossed earliest (seed 2, &asymp;2,500)
+produced the best gated run (81.5), while the two seeds that never crossed
+rode the 6k deadline — the worst fixed switch point. Two structural effects
+kept switches late: at threshold 4.5 the population-mean error stays high for
+most of the run, and the gate is <i>per-agent</i> — newborns start with a
+fresh error EMA, so population turnover continually re-enters warmup (visible
+as the gated arm's higher ticks/s: it pays for CEM&nbsp;+&nbsp;imagination
+less often). Raising the threshold can only converge toward sched@4k, which
+still loses. Across three independent designs — the 20-run replication, the
+16-run sweep, and this 4-run gated A/B — <b>no gating policy, fixed or
+measured, makes CEM&nbsp;+&nbsp;imagination competitive with plain shooting on
+this task.</b></p>
+
+<table class="t">
+  <caption><b>Table 11b.</b> Readiness-gated scheduled planner, complete
+  per-run data (switch when per-agent rollout-error EMA &le; 4.5, deadline
+  6,000; seeds 1&ndash;4, 7,000 ticks).</caption>
+  <thead><tr><th>seed</th><th>peak</th><th>lifespan</th><th>tiles</th><th>EAT</th>
+    <th>seeds</th><th>final</th><th>ticks/s</th><th class="l">pop-mean err crosses 4.5</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>64.43</td><td>720.1</td><td>98.9</td><td>2045</td><td>1358</td><td>37.27</td><td>6.81</td><td class="l">&asymp; tick 4,700</td></tr>
+    <tr><td>2</td><td class="win">81.49</td><td>773.9</td><td>98.2</td><td>2420</td><td>1966</td><td>60.92</td><td>7.22</td><td class="l">&asymp; tick 2,500 (earliest)</td></tr>
+    <tr><td>3</td><td>65.65</td><td>715.4</td><td>65.8</td><td>1888</td><td>1718</td><td>48.91</td><td>6.92</td><td class="l">never — 6k deadline</td></tr>
+    <tr><td>4</td><td>63.66</td><td>708.1</td><td>44.4</td><td>1211</td><td>909</td><td>52.32</td><td>8.08</td><td class="l">never — 6k deadline</td></tr>
+  </tbody>
+</table>
+
 <h3>6.8 Population dynamics across founder counts</h3>
 <p class="noindent">Three v3.5+PPO worlds (48&times;48, cap 60) seeded with 8,
 24, and 48 founders (distinct seeds). Table&nbsp;12 samples the trajectories;
@@ -790,8 +832,12 @@ both vindicates and reframes the warmup idea: at tick 1,000 the model's rollout
 error is 2.3&times; its tick-6,000 level — the cold-start problem is real — but
 the error is still falling when every fixed switch point of Sec.&nbsp;6.6
 fires, so the gate was pointing at the right quantity and that quantity never
-reached "good." This is the infrastructure the earlier experiments should have
-had.</p>
+reached "good." The gated A/B closes the loop: switching on the measured error
+behaves sensibly (earliest crossing &rarr; best gated run) yet still loses to
+never switching at all — the right gate on machinery that does not pay for
+itself is still a loss. This is the infrastructure the earlier experiments
+should have had, and it is how we can now say the negative result is about the
+machinery, not the schedule.</p>
 <p><b>Replication is not optional.</b> Two effect sizes of +25&ndash;32% (P2,
 P3) and one 2-of-2-seed win (scheduled) all evaporated under 4 seeds. Ecological
 simulations with reproduction, death, and weather have enormous seed variance —
@@ -806,7 +852,8 @@ arm on every metric) but not a formal significance result. Horizons are short
 fitness is an in-silico proxy. The dynamics head is a deterministic MLP; the
 planner ignores predictive uncertainty (no ensemble). Sec.&nbsp;6.3 toggles
 planner and curiosity together. The multi-step-loss experiment measures model
-error, not downstream fitness, and its n = 3.</p>
+error, not downstream fitness, and its n = 3; the readiness-gate A/B is n = 4
+at a single, untuned threshold (4.5).</p>
 
 <h2>9. Conclusion</h2>
 <p class="noindent">We built a reproducible multi-agent evolutionary sandbox,
@@ -823,10 +870,11 @@ directly — is the quantity that decides which of these outcomes you get.
 <code>main.py --no-viz --learning --mode rl</code> runs over the
 <code>config/planning_*_v35.yaml</code> configs at the stated seeds/lengths;
 Sec.&nbsp;6.7 <code>config/wm_quality_{1step,multistep}_v35.yaml</code> with
-<code>--metrics-csv</code> (column <code>wm_rollout_error</code>); analysis
+<code>--metrics-csv</code> (column <code>wm_rollout_error</code>), and the
+gated A/B <code>config/planning_sched_gated_v35.yaml</code>; analysis
 <code>scripts/analyze_logs.py</code>; figures
 <code>paper/make_figures.py</code>. All per-run data appears inline in
-Tables&nbsp;6, 8, 9, and 11.</span></p>
+Tables&nbsp;6, 8, 9, 11, and 11b.</span></p>
 
 <div class="refs">
 <h2>References</h2>

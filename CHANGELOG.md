@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] — readiness gate measured downstream (does not rescue CEM+imagination)
+
+A/B of the M2 readiness gate at the sweep's exact conditions
+(`config/planning_sched_gated_v35.yaml`: P1 until the per-agent rollout-error
+EMA ≤ 4.5, deadline 6k; seeds 1–4 × 7,000 ticks):
+
+- **Gated peak 68.8 ± 7.4, final 49.9 ± 8.5 — 0/4 seeds beat the baseline**
+  (86.7 ± 8.4 / 61.5 ± 4.7); trails even fixed sched@4k (77.4 ± 6.3).
+- The gate works as designed and re-confirms the ordering: the seed whose error
+  crossed earliest (≈2.5k) scored the best gated run (81.5); two seeds never
+  crossed and rode the 6k deadline. Per-agent gating + population turnover
+  (newborns re-enter warmup with a fresh EMA) keeps switches late/partial.
+- Conclusion across three designs (20-run replication, 16-run sweep, 4-run
+  gated A/B): **no gating policy, fixed or measured, makes CEM + imagination
+  competitive with plain `shooting` here** — the negative result is about the
+  machinery, not the schedule. Data: `docs/sample_planning_warmup_sweep/`
+  (`results_gated.csv`, `gated_s*_metrics.csv`); paper Sec. 6.7 (Table 11b),
+  hatched bar in the sweep figure.
+
 ## [Unreleased] — world-model quality toolkit (M1–M3) + paper rewrite
 
 The planning studies kept implicating compounding open-loop model error, which

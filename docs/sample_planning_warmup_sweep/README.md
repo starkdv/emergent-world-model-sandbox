@@ -63,6 +63,36 @@ close the gap.
   `shooting` planner is the recommended default — CEM and imagination, even
   gated on a warmed-up world model, did not earn their keep.
 
+## Follow-up: readiness-GATED switching (measured error, not ticks)
+
+The model-quality toolkit (`docs/sample_wm_quality/`) makes it possible to gate
+the switch on the **measured k-step rollout error** instead of a blind tick
+count (`config/planning_sched_gated_v35.yaml`: P1 until the per-agent error EMA
+≤ 4.5, deadline 6k, imagination gated the same way). Re-run at the same 4 seeds
+× 7,000 ticks (`results_gated.csv`, per-run metrics `gated_s*_metrics.csv`):
+
+| seed | peak | final | seeds planted | ticks/s | pop-mean err crosses 4.5 |
+|---|---|---|---|---|---|
+| 1 | 64.43 | 37.27 | 1358 | 6.81 | ≈ tick 4,700 |
+| 2 | **81.49** | 60.92 | 1966 | 7.22 | ≈ tick 2,500 (earliest → best gated run) |
+| 3 | 65.65 | 48.91 | 1718 | 6.92 | never — 6k deadline fired |
+| 4 | 63.66 | 52.32 | 909 | 8.08 | never — 6k deadline fired |
+| **mean ± std** | **68.8 ± 7.4** | 49.9 ± 8.5 | 1488 | 7.3 | — |
+
+**The adaptive gate does not close the gap either**: 0/4 seeds beat the
+baseline (86.7 ± 8.4), and the aggregate trails even the fixed sched@4k
+(77.4 ± 6.3). The mechanism worked as designed — and its internal pattern
+re-confirms the sweep's ordering (the seed whose error crossed earliest scored
+best; the two deadline seeds behaved like sched@6k, the worst fixed point).
+Two structural reasons: with threshold 4.5 the population-mean error often
+stays high until late, and the gate is **per-agent** — newborns start with a
+fresh error EMA, so population turnover keeps much of the population in the
+cheap warmup strategy (visible as the higher ticks/s). Raising the threshold
+would only converge toward sched@4k, which still loses. Across three
+independent designs (20-run replication, 16-run sweep, 4-run gated A/B), no
+gating policy — fixed or measured — makes CEM + imagination competitive with
+plain `shooting` on this task.
+
 ## Why this matters (and what it doesn't say)
 
 This does **not** show CEM/imagination are useless in general — only that on
