@@ -144,6 +144,9 @@ class EcologyConfig:
         kleiber_exponent: metabolic scaling exponent (0.75 = Kleiber)
         move_cost_exponent: movement cost scaling (1.0 = proportional to mass)
         acuity_cost: per-tick coefficient k in k*R^2
+        calorie_scale: global multiplier on food energy — the world's energy
+            density, which the shipped numbers never calibrated because the
+            reproduction subsidy hid the deficit
         diet_width: sigma of the assimilation kernel
         diet_floor: minimum assimilation efficiency
         energy_conservation: offspring receive what the parent gives up,
@@ -155,6 +158,7 @@ class EcologyConfig:
     allometry: bool = True
     acuity: bool = True
     diet: bool = True
+    calorie_scale: float = 1.0
     energy_conservation: bool = True
     birth_overhead: float = 0.0
     birth_subsidy: float = 1.0
@@ -188,6 +192,7 @@ class EcologyConfig:
             acuity_cost=float(eco.get("acuity_cost", DEFAULT_ACUITY_COST)),
             diet_width=float(eco.get("diet_width", DEFAULT_DIET_WIDTH)),
             diet_floor=float(eco.get("diet_floor", DEFAULT_DIET_FLOOR)),
+            calorie_scale=float(eco.get("calorie_scale", 1.0)),
             energy_conservation=bool(eco.get("energy_conservation", True)),
             birth_overhead=float(eco.get("birth_overhead", 0.0)),
             birth_subsidy=float(eco.get("birth_subsidy", 1.0)),
@@ -529,3 +534,22 @@ def offspring_starting_energy(
     subsidy = birth_subsidy_at(tick)
     topped = delivered + subsidy * max(0.0, offspring_max_energy - delivered)
     return float(min(offspring_max_energy, topped))
+
+
+def calorie_multiplier() -> float:
+    """
+    Global multiplier on food energy — the world's energy density.
+
+    The shipped numbers were never calibrated against what the agents can
+    actually forage, because the reproduction subsidy covered the gap. With
+    the subsidy withdrawn, a conserved newborn must eat ~11.6 berries in a
+    250-tick life (46.5 eats per agent per 1000 ticks) while the measured
+    baseline manages 1.24 — a 38x shortfall. This knob is the one-parameter
+    rescaling that closes it, and sweeping it locates the frontier at which a
+    closed-energy world is viable at all.
+
+    Returns:
+        Multiplier applied to a food item's calories (1.0 = shipped)
+    """
+    eco = get_active_ecology()
+    return eco.calorie_scale if eco.enabled else 1.0

@@ -486,7 +486,12 @@ def execute_eat(agent: "Agent", world: "World") -> ActionResult:
             efficiency = ecology.assimilation_efficiency(
                 getattr(agent, "traits", {}), species_id
             )
-            gain = edible.calories * edible.freshness * efficiency
+            gain = (
+                edible.calories
+                * edible.freshness
+                * efficiency
+                * ecology.calorie_multiplier()
+            )
             toxic_loss = edible.toxicity * edible.freshness * TOXICITY_DAMAGE
             energy_delta = gain - toxic_loss
             # Cap at max energy; net loss can drive energy below 0 (the death
