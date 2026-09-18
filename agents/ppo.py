@@ -1057,11 +1057,12 @@ class PPOSequenceLearner:
         advantages_all = torch.as_tensor(advantages_np, device=device)
         targets = torch.as_tensor(targets_np, device=device)
 
-        # Value-target scaling: the long head's returns are ~1/(1-gamma_l)
-        # times larger than the short head's, so regressing both at the same
-        # loss weight would make the critic loss all about the long head.
-        # Targets are divided by a running percentile spread per head and the
-        # critic predicts in that scaled space (Dreamer-V3's trick).
+        # Return scaling: the long head's returns are ~1/(1-gamma_l) times
+        # larger than the short head's, so at equal loss weight the critic
+        # loss would be entirely about the long head. A running percentile
+        # spread per head (the Dreamer-V3 trick) divides that head's squared
+        # error. The critic keeps predicting in RAW units — scaling its output
+        # space instead would leave GAE mixing raw rewards with scaled values.
         if self.return_scale:
             for head in range(n_values):
                 flat = targets[head][valid > 0]
@@ -1072,7 +1073,8 @@ class PPOSequenceLearner:
                     self._return_spread[head] = (
                         0.95 * self._return_spread[head] + 0.05 * spread
                     )
-                targets[head] = targets[head] / self._return_spread[head]
+        else:
+            self._return_spread = [1.0, 1.0]
 
         # Per-head advantage normalisation, then the evolved mixture.
         normalised = []
@@ -1105,16 +1107,13 @@ class PPOSequenceLearner:
             )
             policy_loss = -(torch.min(surr1, surr2) * valid).sum() / n_valid
 
-            # One regression per discount head, in the scaled target space.
+            # One regression per discount head, each divided by that head's
+            # own return spread so neither dominates.
             scale = torch.as_tensor(
                 self._return_spread[:n_values], device=device, dtype=values.dtype
             )
-            scaled_values = values / scale if self.return_scale else values
-            value_loss = (
-                0.5
-                * ((scaled_values - targets.permute(1, 2, 0)) ** 2).sum(dim=-1)
-                * valid
-            ).sum() / n_valid
+            residual = (values - targets.permute(1, 2, 0)) / scale
+            value_loss = (0.5 * (residual**2).sum(dim=-1) * valid).sum() / n_valid
 
             probs = torch.softmax(logits, dim=-1)
             entropy = (

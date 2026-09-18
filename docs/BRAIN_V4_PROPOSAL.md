@@ -893,7 +893,7 @@ Totals (E=8, S=40, H_f=48, H_s=24, V=16, A=9, C=4, M=8, wm=32):
 | **v4 full** | **27,756** | **+31.5%** |
 | v4 lean (H_f=40, H_s=20) | 22,976 | +8.9% |
 
-> These are the design-time estimates. The as-built numbers are in §9.6
+> These are the design-time estimates. The as-built numbers are in §9.7
 > (27,689 with the world model); the small difference is §9.1's move of the
 > memory compressor from the write side to the read side.
 
@@ -1117,7 +1117,17 @@ finds a use for the long-horizon head. Drive weights are clipped to
 `[-4, 4]` at read time: mutation is unbounded, and an agent whose curiosity
 weight random-walked to 1e3 would not be exploring, it would be diverging.
 
-### 9.6 Final sizes
+### 9.6 Return scaling divides the loss, not the critic's output space
+
+§4.3 said to "train it on returns normalised by a running percentile spread
+and undo the scaling before forming `A`". The as-built code divides each
+head's **squared error** by that head's spread instead, leaving the critic
+predicting in raw units. Scaling the critic's output space would leave GAE
+computing `delta = r + gamma V_scaled - V_scaled` — raw rewards against
+scaled values — which is a bug that would have been invisible except as
+slightly-wrong advantages. Same effect on the loss balance, no unit mismatch.
+
+### 9.7 Final sizes
 
 | Build | Params | vs v3.5 + world model |
 |---|---|---|
