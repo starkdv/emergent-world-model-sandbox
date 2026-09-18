@@ -202,6 +202,11 @@ def _execute_and_log(
             death_reason="",
         )
 
+    # Advance the v4 episodic memory before the step is stored, exactly as
+    # the serial path does (see Agent.update).
+    agent.advance_memory(obs_before, action, reward)
+    agent._energy_last_tick = agent.energy
+
     return (agent, action, reward, obs_after)
 
 
@@ -236,6 +241,7 @@ def _learn_step(
             done=False,
             logprob=logprob,
             action_mask=action_mask,
+            moved=getattr(agent, "_last_move_succeeded", False),
         )
     elif agent.last_observation is not None and agent.last_hidden_state is not None:
         agent.learner.store_experience(

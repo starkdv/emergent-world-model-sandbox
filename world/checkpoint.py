@@ -130,6 +130,12 @@ def save_state(world, path: str, *, config: Optional[dict] = None) -> str:
         "pheromones": (
             None if world.pheromones is None else np.asarray(world.pheromones).copy()
         ),
+        # Brain v4 vector communication field (absent in pre-v4 checkpoints)
+        "comm_field": (
+            None
+            if getattr(world, "comm_field", None) is None
+            else np.asarray(world.comm_field).copy()
+        ),
         "environment": dict(env.__dict__),
         "agents": [_agent_state(a) for a in world.agents.values()],
         "counters": {
@@ -213,6 +219,8 @@ def load_state(path: str, *, config: Optional[dict] = None):
     world.pheromones = (
         None if state["pheromones"] is None else np.asarray(state["pheromones"]).copy()
     )
+    comm = state.get("comm_field")
+    world.comm_field = None if comm is None else np.asarray(comm).copy()
     world.environment.__dict__.update(state["environment"])
 
     # Rebuild the spatial index (W6a) from the restored objects.

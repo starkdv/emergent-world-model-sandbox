@@ -62,6 +62,11 @@ class Genome:
 
         self.generation = generation
         self.parent_ids = parent_ids
+        # Birth-time fingerprint (Brain v4 §4.7). Computed once here; the
+        # Lamarckian write-back changes `weights` during a lifetime but the
+        # fingerprint deliberately does NOT follow it — relatedness is about
+        # inheritance, not about what an individual learned.
+        self.fingerprint = genome_fingerprint(self.weights)
 
     @staticmethod
     def random(
@@ -82,6 +87,17 @@ class Genome:
         """
         # Random weights (small values near zero)
         weights = np.random.randn(weight_count) * weight_init_std
+
+        # A few tensors carry structured priors that random initialisation
+        # would destroy — a random slow.rho collapses every v4 time constant
+        # to ~2 ticks, a random drive.lam makes the reward arbitrary. The
+        # active genome layout (set at startup alongside the observation
+        # spec) restores them; specs without priors are a no-op.
+        from agents.brain.spec import get_active_param_spec
+
+        active = get_active_param_spec()
+        if active is not None and active.count() == weight_count:
+            active.apply_inits(weights)
 
         # Random traits within ranges
         traits = {}
@@ -270,6 +286,75 @@ class Genome:
             f"Genome(lineage={self.lineage_id}, gen={self.generation}, "
             f"weights={len(self.weights)}, traits={list(self.traits.keys())})"
         )
+
+
+# ---------------------------------------------------------------------------
+# Genetic fingerprint — cheap graded relatedness (Brain v3.6 §9.4, shipped
+# as part of Brain v4 §4.7)
+# ---------------------------------------------------------------------------
+
+# Dimensionality of the fingerprint. Small enough that comparing two agents
+# is one k-dim dot product per tick, against the ONE nearest neighbour that
+# perception has already located for the proximity feature.
+FINGERPRINT_DIM = 8
+
+# Cache of fixed projections, one per genome length. Deterministic (seeded),
+# so a fingerprint is stable across a run and across runs.
+_PROJECTIONS: dict[int, np.ndarray] = {}
+
+
+def _projection(weight_count: int) -> np.ndarray:
+    """Fixed (k, W) random projection for genomes of this length."""
+    proj = _PROJECTIONS.get(weight_count)
+    if proj is None:
+        rng = np.random.default_rng(20260918)
+        proj = rng.standard_normal((FINGERPRINT_DIM, weight_count)).astype(np.float32)
+        _PROJECTIONS[weight_count] = proj
+    return proj
+
+
+def genome_fingerprint(weights: np.ndarray) -> np.ndarray:
+    """
+    Birth-time genetic fingerprint: ``f = normalize(P w)``.
+
+    Comparing two full genomes per agent per tick is far too expensive
+    (thousands of weights x N^2 neighbours). A fixed random projection to
+    ``FINGERPRINT_DIM`` preserves cosine similarity in expectation
+    (Johnson-Lindenstrauss), so relatedness costs one k-dim dot product.
+
+    Args:
+        weights: Flat genome weight vector
+
+    Returns:
+        Unit-norm (FINGERPRINT_DIM,) fingerprint
+    """
+    w = np.asarray(weights, dtype=np.float32).ravel()
+    f = _projection(w.shape[0]) @ w
+    norm = float(np.linalg.norm(f))
+    if norm < 1e-8:
+        return np.zeros(FINGERPRINT_DIM, dtype=np.float32)
+    return (f / norm).astype(np.float32)
+
+
+def kin_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """
+    Graded relatedness in [0, 1] from two fingerprints.
+
+    ``kin = (cos + 1) / 2``: clones score ~1, unrelated lineages project to
+    near-orthogonal fingerprints and score ~0.5. It is a smooth genetic
+    distance, not a same-lineage bit — which is what kin-selection theory
+    actually wants.
+
+    Args:
+        a: Fingerprint of one agent
+        b: Fingerprint of the other
+
+    Returns:
+        Similarity in [0, 1] (0.5 when either fingerprint is missing)
+    """
+    if a is None or b is None or a.shape != b.shape:
+        return 0.5
+    return float(np.clip(0.5 * (1.0 + float(np.dot(a, b))), 0.0, 1.0))
 
 
 def create_default_trait_config() -> dict[str, tuple[float, float]]:

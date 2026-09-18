@@ -189,9 +189,8 @@ def session_from_config(
 
     from agents.agent import Agent
     from agents.genome import Genome
-    from agents.brain import calculate_weight_count_for_config, _is_v35
+    from agents.brain import calculate_weight_count_for_config, activate_brain_layout
     from agents.brain.instincts import InstinctModule
-    from agents.brain.spec import set_observation_version
     from utils.agents.learning_utils import RewardConfig, set_active_reward_config
     from world.world import World
     from world.object_registry import ObjectRegistry, register_builtin_objects
@@ -211,8 +210,12 @@ def session_from_config(
     brain_cfg = config.get("brain", {"version": 3})
 
     # Activate observation layout + reward diet from config (as main.py does).
-    set_observation_version(2 if _is_v35(brain_cfg.get("version", 2)) else 1)
+    activate_brain_layout(brain_cfg)
     set_active_reward_config(RewardConfig.from_dict(config.get("reward", None)))
+
+    from agents.scoring import ScoringConfig, set_active_scoring_config
+
+    set_active_scoring_config(ScoringConfig.from_config(config))
 
     world = World(
         width=wcfg.get("width", 100),

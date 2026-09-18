@@ -9,6 +9,8 @@ Author: Karan Vasa
 
 import random
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+
+import numpy as np
 from world.tiles import Tile, TerrainType
 from world.objects import WorldObject
 from world.systems import WorldSystemManager
@@ -146,13 +148,30 @@ class World:
         self.signal_strength = float(sig.get("strength", 1.0))
         self.signal_decay = float(sig.get("decay", 0.9))
         self.signal_diffuse = float(sig.get("diffuse", 0.0))
+        # Energy an agent pays to emit. The legacy value (0.12) makes SIGNAL
+        # the cheapest always-legal action, which the v3.5 baseline campaign
+        # shows the population exploiting; `config/v4_baseline.yaml` raises it
+        # to WAIT's cost. See agents/scoring.py.
+        self.signal_cost = float(sig.get("energy_cost", 0.12))
+        # Per-unit-amplitude surcharge for the v4 vector channel (costly
+        # signalling); 0 under the legacy scalar field.
+        self.signal_amplitude_cost = float(sig.get("amplitude_cost", 0.0))
         # The field is only allocated when signalling is on (None = no field,
         # which perception reads as "no signal anywhere").
         self.pheromones = None
+        # Brain v4 §4.6: the same medium carries a C-channel VECTOR, so a
+        # symbol can have content. `pheromones` stays the scalar magnitude
+        # field every legacy consumer (renderer, checkpoint, v3.5 perception)
+        # already reads; `comm_field` is the vector alongside it.
+        self.signal_channels = max(1, int(sig.get("channels", 1)))
+        self.comm_field = None
         if self.signal_enabled:
             import numpy as _np
 
             self.pheromones = _np.zeros((height, width), dtype=_np.float32)
+            self.comm_field = _np.zeros(
+                (height, width, self.signal_channels), dtype=_np.float32
+            )
 
         # W5: social capabilities (opt-in). When transfer_enabled, the USE
         # action transfers the first inventory item to a living agent on the
@@ -816,12 +835,35 @@ class World:
         # Drop negligible residue so the field doesn't carry float dust forever
         self.pheromones[self.pheromones < 1e-3] = 0.0
 
-    def emit_signal(self, x: int, y: int, strength: float = None) -> bool:
-        """
-        Deposit a signal at (x, y) on the pheromone field (W4 SIGNAL action).
+        if self.comm_field is not None:
+            if self.signal_diffuse > 0.0:
+                f = self.comm_field
+                blurred = f.copy()
+                blurred[1:, :, :] += self.signal_diffuse * f[:-1, :, :]
+                blurred[:-1, :, :] += self.signal_diffuse * f[1:, :, :]
+                blurred[:, 1:, :] += self.signal_diffuse * f[:, :-1, :]
+                blurred[:, :-1, :] += self.signal_diffuse * f[:, 1:, :]
+                blurred /= 1.0 + 4.0 * self.signal_diffuse
+                self.comm_field = blurred
+            self.comm_field *= self.signal_decay
+            self.comm_field[np.abs(self.comm_field) < 1e-3] = 0.0
 
-        Returns False when signalling is disabled or the field is absent, so
-        the caller can treat SIGNAL as a no-op in that case.
+    def emit_signal(self, x: int, y: int, strength: float = None, vector=None) -> bool:
+        """
+        Deposit a signal at (x, y) (W4 SIGNAL action; v4 vector channel).
+
+        Args:
+            x: Tile x
+            y: Tile y
+            strength: Magnitude deposited on the scalar field (default
+                ``signal_strength``)
+            vector: Optional C-channel symbol (Brain v4). Deposited on
+                ``comm_field`` scaled by ``strength``; ignored when the
+                vector field is absent.
+
+        Returns:
+            False when signalling is disabled or the field is absent, so the
+            caller can treat SIGNAL as a no-op in that case.
         """
         if self.pheromones is None:
             return False
@@ -829,6 +871,10 @@ class World:
             return False
         s = self.signal_strength if strength is None else strength
         self.pheromones[y, x] = min(1.0, self.pheromones[y, x] + s)
+        if self.comm_field is not None and vector is not None:
+            v = np.asarray(vector, dtype=np.float32).ravel()[: self.signal_channels]
+            cell = self.comm_field[y, x]
+            cell[: v.shape[0]] = np.clip(cell[: v.shape[0]] + s * v, -1.0, 1.0)
         return True
 
     @property

@@ -19,6 +19,12 @@ from agents.actions import Action, ActionResult, DIRECTIONS
 from agents.brain import Brain, create_brain  # noqa: F401 (Brain re-exported)
 from agents.brain.instincts import InstinctModule
 from agents.genome import Genome
+from utils.agents.learning_utils import get_active_reward_config
+from agents.scoring import (
+    FLAT_ACTION_ENERGY_COST,
+    LEGACY_BASE_COST,
+    get_active_scoring_config,
+)
 import utils.agents.agent_utils as agent_utils
 
 if TYPE_CHECKING:
@@ -129,6 +135,13 @@ class Agent:
         self.cohort = "default"
         self.traits = genome.traits.copy()
         self.fitness = 0.0
+        # Reproduction bookkeeping for the `reproduction` fitness model
+        # (agents/scoring.py): who my parent is, how many children I have had,
+        # and how many of them reached reproductive age themselves.
+        self.parent_agent_id: Optional[int] = None
+        self.offspring_count = 0
+        self.offspring_matured = 0
+        self._credited_parent = False
 
         # GRU hidden state (memory)
         self.h = self.brain.initial_state()
@@ -156,6 +169,10 @@ class Agent:
         self._previous_action: Optional[Action] = None
         self._consecutive_turns = 0
         self._consecutive_waits = 0
+        self._last_move_succeeded = False
+        # Previous tick's energy, for the v4 `social` drive (a neighbour's
+        # energy delta is the only thing an agent can "care" about).
+        self._energy_last_tick = self.energy
         # Apply trait-based modifications
         self.metabolism_rate = metabolism_rate * self.traits.get("metabolism_rate", 1.0)
         self.vision_radius = int(self.traits.get("vision_radius", 5.0))
@@ -177,6 +194,11 @@ class Agent:
 
         # Age the agent
         self.age += 1
+
+        # Fitness bookkeeping under the `reproduction` model: once this agent
+        # reaches reproductive age it counts toward its parent's fitness, and
+        # its own fitness is recomputed from descendants + lifespan.
+        self._refresh_fitness(world)
 
         # Consume energy for metabolism (temperature extremes cost more
         # when the environment engine is enabled — W1)
@@ -290,6 +312,12 @@ class Agent:
                 death_reason="",
             )
 
+        # Advance the v4 episodic memory (path integration + write). Done
+        # before the step is stored, so the state carried into the NEXT step
+        # is the one the learner will reproduce during replay.
+        self.advance_memory(observation, action, reward)
+        self._energy_last_tick = self.energy
+
         # Learning step
         if self.learning_enabled and self.learner:
             if uses_sequences:
@@ -305,6 +333,7 @@ class Agent:
                     done=False,
                     logprob=step_logprob,
                     action_mask=action_mask,
+                    moved=self._last_move_succeeded,
                 )
             elif (
                 self.last_observation is not None and self.last_hidden_state is not None
@@ -341,6 +370,44 @@ class Agent:
             # Store current observation and hidden state for next step
             self.last_observation = obs_after.copy()
             self.last_hidden_state = self.h.copy()
+
+    def _refresh_fitness(self, world: "World") -> None:
+        """
+        Recompute fitness under the `reproduction` scoring model.
+
+        Fitness is the number of offspring that themselves reached
+        reproductive age, plus a small per-tick lifespan tiebreak. Nothing
+        about *what* the agent did enters it — that is the point (see
+        agents/scoring.py and docs/BRAIN_V4_PROPOSAL.md §4.5).
+
+        Crediting is done by the child, not the parent: the first time a
+        child reaches `offspring_maturity_ticks` it increments its parent's
+        `offspring_matured`. A parent that has already died is not credited —
+        its fitness is no longer read by anything.
+
+        Args:
+            world: The world (used to find the parent agent)
+        """
+        scoring = get_active_scoring_config()
+        if not scoring.reproduction_fitness:
+            return
+
+        if (
+            not self._credited_parent
+            and self.age >= scoring.offspring_maturity_ticks
+            and self.parent_agent_id is not None
+        ):
+            self._credited_parent = True
+            parent = world.agents.get(self.parent_agent_id)
+            if parent is not None and parent.alive:
+                parent.offspring_matured += 1
+                parent.fitness = float(parent.offspring_matured) + (
+                    scoring.fitness_lifespan_coef * parent.age
+                )
+
+        self.fitness = float(self.offspring_matured) + (
+            scoring.fitness_lifespan_coef * self.age
+        )
 
     def choose_action(
         self, observation: np.ndarray, action_mask: np.ndarray
@@ -440,14 +507,134 @@ class Agent:
         Returns:
             Total reward (extrinsic + intrinsic)
         """
+        cfg = get_active_reward_config()
+        if cfg.preset == "drives" and hasattr(self.brain, "drive_weights"):
+            return self._drive_reward(energy_before, obs_after, world, cfg)
+
         reward = self.learner.reward_shaper.calculate_reward(
             action, result, energy_before, self.energy, self, world
         )
         if self.curiosity is not None and self.brain.has_world_model:
             z_pred, _ = self.brain.predict_next_latent(self.h, action.value)
-            z_actual = self.brain.encode(obs_after)
-            reward += self.curiosity.intrinsic_reward(z_pred, z_actual)
+            reward += self.curiosity.intrinsic_reward(z_pred, self._latent(obs_after))
         return reward
+
+    def _latent(self, observation: np.ndarray) -> np.ndarray:
+        """
+        The latent the dynamics head predicts, for this observation.
+
+        v2/v3 encode the observation alone. A v4 latent also carries the
+        episodic memory read, so it needs the current recurrent state; the
+        advanced state ``core_step`` returns is discarded here — this is a
+        read-only measurement of "what does the world look like now".
+
+        Args:
+            observation: Observation vector
+
+        Returns:
+            Latent of the same width as the dynamics head's output
+        """
+        step = getattr(self.brain, "core_step", None)
+        if step is None:
+            return self.brain.encode(observation)
+        return step(observation, self.h)[0]
+
+    def _drive_reward(
+        self,
+        energy_before: float,
+        obs_after: np.ndarray,
+        world: "World",
+        cfg,
+    ) -> float:
+        """
+        The v4 evolved-motivation reward (docs/BRAIN_V4_PROPOSAL.md §4.5).
+
+            r = lambda . ( homeostasis, empowerment, curiosity, social )
+
+        with ``lambda`` read from the genome, so the objective is selected on
+        reproductive success rather than written down. The four terms:
+
+        * **homeostasis** — ``d_{t-1} - d_t`` with ``d = (1 - e/e_max)^2``.
+          The sum telescopes to ``d_0 - d_T``, so this is exactly a
+          potential-based shaping function with ``Phi = -d``, which leaves the
+          optimal policy of the underlying MDP unchanged (Ng, Harada & Russell
+          1999). It says having energy is good and nothing whatever about how
+          to get it — the difference between a drive and a strategy.
+        * **empowerment** — the spread of predicted next latents across
+          actions: "how much does my choice matter here".
+        * **curiosity** — the existing normalised dynamics prediction error.
+        * **social** — the summed energy change of neighbours within
+          ``drive_social_radius``. Deliberately *unsigned*: the weight may
+          evolve positive (altruism), negative (spite) or zero. We do not
+          choose; Hamilton's rule makes a prediction and the run tests it.
+
+        Args:
+            energy_before: Energy at the start of this tick
+            obs_after: Observation after the action
+            world: The world
+            cfg: Active RewardConfig
+
+        Returns:
+            The weighted drive reward
+        """
+        lam = np.asarray(self.brain.drive_weights, dtype=np.float32)
+
+        inv = 1.0 / max(self.max_energy, 1e-6)
+        d_prev = (1.0 - min(1.0, max(0.0, energy_before * inv))) ** 2
+        d_now = (1.0 - min(1.0, max(0.0, self.energy * inv))) ** 2
+        r_homeo = d_prev - d_now
+        if not self.alive:
+            r_homeo -= 1.0
+
+        r_emp = 0.0
+        if self.brain.has_world_model:
+            r_emp = cfg.drive_empowerment_scale * self.brain.action_latent_spread(
+                self.h
+            )
+
+        r_cur = 0.0
+        if self.curiosity is not None and self.brain.has_world_model:
+            z_pred, _ = self.brain.predict_next_latent(self.h, 0)
+            r_cur = self.curiosity.intrinsic_reward(z_pred, self._latent(obs_after))
+
+        r_soc = 0.0
+        radius = cfg.drive_social_radius
+        if radius > 0 and abs(float(lam[3])) > 1e-6:
+            total = 0.0
+            for other in world.agents.values():
+                if other is self or not other.alive:
+                    continue
+                if abs(other.x - self.x) + abs(other.y - self.y) > radius:
+                    continue
+                total += other.energy - getattr(
+                    other, "_energy_last_tick", other.energy
+                )
+            r_soc = cfg.drive_social_scale * total
+
+        return float(
+            lam[0] * r_homeo + lam[1] * r_emp + lam[2] * r_cur + lam[3] * r_soc
+        )
+
+    def advance_memory(
+        self, observation: np.ndarray, action: Action, reward: float
+    ) -> None:
+        """
+        Advance the v4 episodic place memory by one tick.
+
+        No-op for brains without one. Called after the action's reward is
+        known, because the reward's magnitude is the write salience.
+
+        Args:
+            observation: The decision-time observation of this step
+            action: The action taken
+            reward: The reward received
+        """
+        update = getattr(self.brain, "update_memory", None)
+        if update is None:
+            return
+        self.h = update(
+            self.h, observation, action.value, reward, self._last_move_succeeded
+        )
 
     def get_action_mask(self, world: "World") -> np.ndarray:
         """
@@ -509,10 +696,24 @@ class Agent:
         elif action == Action.SIGNAL:
             result = agent_utils.execute_signal(self, world)
 
-        # Dynamic energy shaping (behavior economics, not reward shaping)
+        # Action cost model (agents/scoring.py).
+        #   flat   — the cost is a constant of the action plus whatever the
+        #            world charged (slope, hazard). Nothing depends on what
+        #            the agent did last tick.
+        #   legacy — the shipped "behaviour economics" below.
+        scoring = get_active_scoring_config()
         effective_energy_cost = result.energy_cost
 
-        if action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
+        if scoring.flat_costs:
+            base = FLAT_ACTION_ENERGY_COST.get(action)
+            if base is not None and result.success:
+                # Keep the world-derived surcharge (slope climb, hazard
+                # contact) that the executor added on top of its own base.
+                surcharge = max(0.0, result.energy_cost - LEGACY_BASE_COST[action])
+                effective_energy_cost = base + surcharge
+            self._consecutive_turns = 0
+            self._consecutive_waits = 0
+        elif action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
             self._consecutive_turns += 1
             self._consecutive_waits = 0
             # Mild escalating turn cost — only punishes extended spin loops.
@@ -526,7 +727,7 @@ class Agent:
             # Very gentle escalating wait cost — WAIT should remain affordable
             extra_wait_penalty = max(0, self._consecutive_waits - 2)
             effective_energy_cost += min(0.02 * extra_wait_penalty, 0.10)
-        elif action == Action.MOVE_FORWARD:
+        elif action == Action.MOVE_FORWARD:  # noqa: E501 — legacy branch
             # Reward turn->move transition with a tiny cost discount
             if result.success and self._previous_action in [
                 Action.TURN_LEFT,
@@ -542,23 +743,32 @@ class Agent:
         # Use effective cost for state update and downstream logging
         result = result._replace(energy_cost=round(effective_energy_cost, 3))
 
+        # Did this step actually displace the agent? The v4 episodic memory
+        # path-integrates on the OUTCOME, not the intent — a blocked move
+        # must not shift every stored place by one tile.
+        self._last_move_succeeded = (self.x != x_before) or (self.y != y_before)
+
         # Deduct energy cost
         self.energy -= result.energy_cost
 
         # Track action for next-step energy shaping
         self._previous_action = action
 
-        # Update fitness based on action outcomes.
-        # Successful turns should not be penalized; otherwise the policy
-        # is structurally biased toward MOVE_FORWARD.
-        if result.success:
-            if action == Action.WAIT:
-                # WAIT is neutral from a fitness perspective.
-                self.fitness += 0.0
+        # Fitness model (agents/scoring.py). Under `reproduction`, fitness
+        # counts descendants, not actions, so nothing accrues here — see
+        # _refresh_fitness().
+        if not scoring.reproduction_fitness:
+            # Update fitness based on action outcomes.
+            # Successful turns should not be penalized; otherwise the policy
+            # is structurally biased toward MOVE_FORWARD.
+            if result.success:
+                if action == Action.WAIT:
+                    # WAIT is neutral from a fitness perspective.
+                    self.fitness += 0.0
+                else:
+                    self.fitness += 0.1  # Small reward for successful action
             else:
-                self.fitness += 0.1  # Small reward for successful action
-        else:
-            self.fitness -= 0.05  # Small penalty for failed action
+                self.fitness -= 0.05  # Small penalty for failed action
 
         # Log action if logger is enabled
         if Agent.logger is not None:
@@ -582,17 +792,22 @@ class Agent:
         # Reset hidden state (agent's memory is lost on death)
         self.h = self.brain.initial_state()
 
-        # Death penalty to fitness (proportional to how early the death was)
-        # Dying young = big penalty, dying old = small penalty
-        age_ratio = self.age / self.max_age
-        death_penalty = 10.0 * (
-            1.0 - age_ratio
-        )  # Max -10 for instant death, 0 for old age
-        self.fitness -= death_penalty
+        # Death penalty to fitness (legacy fitness model only). Under the
+        # `reproduction` model, dying young already costs fitness — you stop
+        # accruing lifespan and stop producing offspring — so no extra
+        # hand-written penalty is applied (agents/scoring.py).
+        if not get_active_scoring_config().reproduction_fitness:
+            # proportional to how early the death was:
+            # dying young = big penalty, dying old = small penalty
+            age_ratio = self.age / self.max_age
+            death_penalty = 10.0 * (
+                1.0 - age_ratio
+            )  # Max -10 for instant death, 0 for old age
+            self.fitness -= death_penalty
 
-        # Extra penalty for starvation (should have eaten!)
-        if self.energy <= 0:
-            self.fitness -= 5.0  # Starvation penalty
+            # Extra penalty for starvation (should have eaten!)
+            if self.energy <= 0:
+                self.fitness -= 5.0  # Starvation penalty
 
         # Drop all inventory items with stacking configuration check
         for obj_id in self.inventory:
@@ -752,6 +967,13 @@ class Agent:
                     # Inherit parent's temperature
                     offspring.temperature = self.temperature
 
+                    # Reproduction fitness bookkeeping (agents/scoring.py)
+                    offspring.parent_agent_id = self.id
+                    offspring.offspring_count = 0
+                    offspring.offspring_matured = 0
+                    offspring._credited_parent = False
+                    self.offspring_count += 1
+
                     return offspring
 
         # No valid position found - reproduction fails
@@ -825,6 +1047,9 @@ class Agent:
                     imagination=ppo.get("imagination", None),
                     world_model_multistep=ppo.get("world_model_multistep", None),
                     rollout_metric_k=ppo.get("rollout_metric_k", 3),
+                    long_gamma=ppo.get("long_gamma", 0.999),
+                    advantage_mix=ppo.get("advantage_mix", 0.0),
+                    return_scale=ppo.get("return_scale", True),
                 )
                 self._ppo_config = ppo_config
                 self.learning_enabled = True
