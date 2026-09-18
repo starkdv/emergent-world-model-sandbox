@@ -52,6 +52,10 @@ except Exception:  # pragma: no cover - environment without torch
     torch = None
     TORCH_AVAILABLE = False
 
+from agents.actions import Action
+from agents.brain.v4 import RECENCY_SCALE as V4_RECENCY_SCALE
+from agents.brain.v4 import SALIENCE_DECAY as V4_SALIENCE_DECAY
+from agents.brain.v4 import WRITE_MARGIN as V4_WRITE_MARGIN
 from utils.agents import RewardShaper
 
 if TYPE_CHECKING:
@@ -80,6 +84,10 @@ class SequenceChunk:
         bootstrap_obs: (obs_dim,) observation after the last valid step,
             used to bootstrap V(s_L) in GAE (ignored when the last step
             is terminal)
+        moved: (L,) 1.0 where a MOVE_FORWARD actually displaced the agent.
+            Only the v4 episodic memory uses it — path integration has to
+            follow the outcome, not the intent, or a blocked move silently
+            corrupts every stored displacement.
     """
 
     obs: np.ndarray
@@ -91,6 +99,7 @@ class SequenceChunk:
     masks: np.ndarray
     valid: np.ndarray
     bootstrap_obs: np.ndarray
+    moved: np.ndarray = None
 
 
 class _ChunkBuffer:
@@ -188,12 +197,27 @@ class TorchBrainMirror:
         self.optimizer = torch.optim.Adam(self.params.values(), lr=lr)
 
         # Static structure info needed by the functional forward
-        if self.version == 3:
+        if self.version in (3, 4):
             self.obs_spec = brain.obs_spec
             self.embed_dim = brain.embed_dim
             self.pos_enc = torch.as_tensor(brain.pos_enc, device=self.device)
         else:
             self.encoder_count = len(brain.encoder_layers)
+        self.is_v4 = self.version == 4
+        if self.is_v4:
+            self.state_dim = brain.state_dim
+            self.gru_hidden = brain.gru_hidden_size
+            self.slow_hidden = brain.slow_hidden_size
+            self.core_size = brain.core_size
+            self.latent_pre = brain.latent_pre
+            self.memory_slots = brain.memory_slots
+            self.slot_width = brain.slot_width
+            self.salience_decay = V4_SALIENCE_DECAY
+            self.write_margin = V4_WRITE_MARGIN
+            self.recency_scale = V4_RECENCY_SCALE
+        self.n_values = (
+            int(self.params["value.W2"].shape[1]) if "value.W2" in self.params else 1
+        )
 
     def matches(self, brain: "Brain") -> bool:
         """True if this mirror still corresponds to the brain's spec."""
@@ -250,6 +274,143 @@ class TorchBrainMirror:
             x = torch.tanh(x @ p[f"encoder.{i}.W"] + p[f"encoder.{i}.b"])
         return x
 
+    def _encode_pre(self, obs: "torch.Tensor") -> tuple["torch.Tensor", "torch.Tensor"]:
+        """v4 perception: (z_pre = [s ‖ attended vision], s)."""
+        p = self.params
+        so = self.obs_spec
+        state_feats = torch.cat(
+            [
+                obs[:, so.agent_state],
+                obs[:, so.stimulus],
+                obs[:, so.inventory],
+                obs[:, so.extra],
+            ],
+            dim=1,
+        )
+        s = torch.tanh(state_feats @ p["state_enc.W"] + p["state_enc.b"])
+
+        rows, cols, feats = so.vision_shape
+        tiles = obs[:, so.vision].reshape(-1, rows * cols, feats)
+        pos = self.pos_enc.unsqueeze(0).expand(tiles.shape[0], -1, -1)
+        t = torch.tanh(
+            torch.cat([tiles, pos], dim=2) @ p["tile_embed.W"] + p["tile_embed.b"]
+        )
+
+        q = s @ p["attn.Wq"]
+        k = t @ p["attn.Wk"]
+        v = t @ p["attn.Wv"]
+        scores = torch.einsum("bte,be->bt", k, q) / np.sqrt(self.embed_dim)
+        pooled = torch.einsum("bt,bte->be", torch.softmax(scores, dim=1), v)
+        return torch.cat([s, pooled], dim=1), s
+
+    def _read_memory(
+        self, slots: "torch.Tensor", s: "torch.Tensor", h_slow: "torch.Tensor"
+    ) -> "torch.Tensor":
+        """
+        Batched episodic read (see BrainV4._read_memory).
+
+        Slot *contents* are a detached record — the gradient that trains the
+        memory flows through the token embedding and the read projections,
+        not back into whatever the encoder produced ten ticks ago.
+        """
+        p = self.params
+        batch = s.shape[0]
+        if self.memory_slots == 0:
+            return torch.zeros(batch, self.embed_dim, device=s.device)
+        n = self.latent_pre
+        occupied = slots[:, :, n + 2] != 0.0
+
+        tokens = slots.clone()
+        d = tokens[:, :, n : n + 2]
+        norm = torch.linalg.norm(d, dim=2, keepdim=True)
+        tokens[:, :, n : n + 2] = d / (1.0 + norm)
+        tokens[:, :, n + 3] = torch.exp(-tokens[:, :, n + 3] / self.recency_scale)
+
+        t = torch.tanh(tokens @ p["mem.Wtok"] + p["mem.btok"])
+        q = torch.cat([s, h_slow], dim=1) @ p["mem.Wq"]
+        k = t @ p["mem.Wk"]
+        v = t @ p["mem.Wv"]
+        scores = torch.einsum("bme,be->bm", k, q) / np.sqrt(self.embed_dim)
+        scores = scores.masked_fill(~occupied, -1e9)
+        weights = torch.softmax(scores, dim=1)
+        # An all-empty memory must read as exactly zero, not as a uniform
+        # average of empty slots.
+        weights = weights * occupied.any(dim=1, keepdim=True).float()
+        return torch.einsum("bm,bme->be", weights, v)
+
+    def _slow(self, h_fast: "torch.Tensor", h_slow: "torch.Tensor") -> "torch.Tensor":
+        """Leaky core with genome-encoded per-unit time constants."""
+        if self.slow_hidden == 0:
+            return h_slow
+        p = self.params
+        alpha = torch.sigmoid(p["slow.rho"])
+        u = torch.tanh(h_fast @ p["slow.Wf"] + h_slow @ p["slow.Ws"] + p["slow.b"])
+        return (1.0 - alpha) * h_slow + alpha * u
+
+    def _advance_core(self, z: "torch.Tensor", core: "torch.Tensor") -> "torch.Tensor":
+        """One step of both recurrent cores from a (possibly imagined) latent."""
+        if not self.is_v4:
+            return self._gru(z, core)
+        hf = self._gru(z, core[:, : self.gru_hidden])
+        hs = self._slow(hf, core[:, self.gru_hidden :])
+        return torch.cat([hf, hs], dim=1)
+
+    def _advance_memory(
+        self,
+        slots: "torch.Tensor",
+        z_pre: "torch.Tensor",
+        actions: "torch.Tensor",
+        rewards: "torch.Tensor",
+        moved: "torch.Tensor",
+    ) -> "torch.Tensor":
+        """
+        Replay of BrainV4.update_memory, batched and under no_grad.
+
+        Path integration first (so the written place is where the agent ended
+        up), then a write when this step's salience beats the weakest slot.
+        Exactly mirrors the numpy rule, which is what makes a replayed chunk
+        reproduce the state the agent actually had.
+        """
+        if self.memory_slots == 0:
+            return slots
+        with torch.no_grad():
+            n = self.latent_pre
+            slots = slots.clone()
+            slots[:, :, n + 2] *= self.salience_decay
+            slots[:, :, n + 3] += 1.0
+
+            d_right = slots[:, :, n].clone()
+            d_ahead = slots[:, :, n + 1].clone()
+            turn_l = (actions == Action.TURN_LEFT.value).unsqueeze(1)
+            turn_r = (actions == Action.TURN_RIGHT.value).unsqueeze(1)
+            step = ((actions == Action.MOVE_FORWARD.value) & (moved > 0)).unsqueeze(1)
+            slots[:, :, n] = torch.where(
+                turn_l, d_ahead, torch.where(turn_r, -d_ahead, d_right)
+            )
+            slots[:, :, n + 1] = torch.where(
+                turn_l,
+                -d_right,
+                torch.where(turn_r, d_right, d_ahead - step.float()),
+            )
+
+            salience = rewards.abs()
+            weakest = torch.argmin(slots[:, :, n + 2], dim=1)
+            batch = torch.arange(slots.shape[0], device=slots.device)
+            write = salience > self.write_margin * slots[batch, weakest, n + 2]
+            if bool(write.any()):
+                row = torch.cat(
+                    [
+                        z_pre.detach(),
+                        torch.zeros(slots.shape[0], 2, device=slots.device),
+                        salience.unsqueeze(1),
+                        torch.zeros(slots.shape[0], 1, device=slots.device),
+                    ],
+                    dim=1,
+                )
+                idx = batch[write]
+                slots[idx, weakest[write]] = row[write]
+            return slots
+
     def _gru(self, z: "torch.Tensor", h: "torch.Tensor") -> "torch.Tensor":
         p = self.params
         r = torch.sigmoid(
@@ -267,13 +428,31 @@ class TorchBrainMirror:
         )
         return (1 - u) * h + u * h_tilde
 
-    def _value(self, z: "torch.Tensor", h: "torch.Tensor") -> "torch.Tensor":
+    def _values(self, z: "torch.Tensor", h: "torch.Tensor") -> "torch.Tensor":
+        """
+        All critic outputs: (B, n_values). v4 has two (short and long
+        discount); v2/v3 have one.
+        """
         p = self.params
+        if self.is_v4:
+            # Migration-safe input order [z_pre ‖ h_fast ‖ mem ‖ h_slow];
+            # see BrainV4.value_input.
+            n = self.latent_pre
+            zh = torch.cat(
+                [z[:, :n], h[:, : self.gru_hidden], z[:, n:], h[:, self.gru_hidden :]],
+                dim=1,
+            )
+            hidden = torch.tanh(zh @ p["value.W1"] + p["value.b1"])
+            return hidden @ p["value.W2"] + p["value.b2"]
         if self.version == 3:
             zh = torch.cat([z, h], dim=1)
             hidden = torch.tanh(zh @ p["value.W1"] + p["value.b1"])
-            return (hidden @ p["value.W2"] + p["value.b2"]).squeeze(-1)
-        return (h @ p["value.W"] + p["value.b"]).squeeze(-1)
+            return hidden @ p["value.W2"] + p["value.b2"]
+        return h @ p["value.W"] + p["value.b"]
+
+    def _value(self, z: "torch.Tensor", h: "torch.Tensor") -> "torch.Tensor":
+        """Short-horizon value only, as a (B,) tensor."""
+        return self._values(z, h)[:, 0]
 
     @property
     def has_world_model(self) -> bool:
@@ -285,9 +464,16 @@ class TorchBrainMirror:
     ) -> tuple["torch.Tensor", "torch.Tensor"]:
         """Batched dynamics head: (h, onehot a) → (ẑ', r̂)."""
         p = self.params
-        d = torch.tanh(
-            torch.cat([h, actions_onehot], dim=1) @ p["dyn.W1"] + p["dyn.b1"]
-        )
+        if self.is_v4:
+            # Migration-safe order [h_fast ‖ onehot ‖ h_slow]; see
+            # BrainV4.dynamics_input.
+            head = torch.cat(
+                [h[:, : self.gru_hidden], actions_onehot, h[:, self.gru_hidden :]],
+                dim=1,
+            )
+        else:
+            head = torch.cat([h, actions_onehot], dim=1)
+        d = torch.tanh(head @ p["dyn.W1"] + p["dyn.b1"])
         z_pred = d @ p["dyn.Wz"] + p["dyn.bz"]
         r_pred = (d @ p["dyn.Wr"] + p["dyn.br"]).squeeze(-1)
         return z_pred, r_pred
@@ -297,43 +483,88 @@ class TorchBrainMirror:
         obs_seq: "torch.Tensor",
         h0: "torch.Tensor",
         bootstrap_obs: "torch.Tensor",
+        actions: Optional["torch.Tensor"] = None,
+        rewards: Optional["torch.Tensor"] = None,
+        moved: Optional["torch.Tensor"] = None,
     ) -> tuple[
         "torch.Tensor", "torch.Tensor", "torch.Tensor", "torch.Tensor", "torch.Tensor"
     ]:
         """
         Run the recurrent network over time-ordered sequences.
 
+        For v4 the recurrent state is packed — ``[h_fast | h_slow | slots]`` —
+        and the episodic memory is advanced between steps exactly as the agent
+        advanced it at acting time, which is why the logged actions, rewards
+        and move outcomes are needed here.
+
         Args:
             obs_seq: (B, L, obs_dim) observations
-            h0: (B, H) hidden state before the first step
+            h0: (B, H) hidden state before the first step (packed, for v4)
             bootstrap_obs: (B, obs_dim) observation after the last step
+            actions: (B, L) logged actions — v4 memory replay only
+            rewards: (B, L) logged rewards — v4 memory replay only
+            moved: (B, L) 1 where a MOVE_FORWARD displaced the agent
 
         Returns:
-            (logits (B, L, A), values (B, L), bootstrap_values (B,),
-            latents zs (B, L+1, Z) including the bootstrap latent,
-            hiddens hs (B, L, H)) — the extra tensors feed the
+            (logits (B, L, A), values (B, L, n_values), bootstrap values
+            (B, n_values), latents zs (B, L+1, Z) including the bootstrap
+            latent, cores hs (B, L, H_core)) — the extra tensors feed the
             world-model auxiliary loss.
         """
         p = self.params
         batch, length, _ = obs_seq.shape
-        h = h0
         logits_steps = []
         value_steps = []
         z_steps = []
         h_steps = []
-        for t in range(length):
-            z = self._encode(obs_seq[:, t, :])
-            h = self._gru(z, h)
-            logits_steps.append(h @ p["policy.W"] + p["policy.b"])
-            value_steps.append(self._value(z, h))
-            z_steps.append(z)
-            h_steps.append(h)
 
-        # Bootstrap value of the state after the final step
-        z_boot = self._encode(bootstrap_obs)
-        h_boot = self._gru(z_boot, h)
-        v_boot = self._value(z_boot, h_boot)
-        z_steps.append(z_boot)
+        if self.is_v4:
+            core = h0[:, : self.core_size]
+            slots = h0[:, self.core_size :].reshape(
+                batch, self.memory_slots, self.slot_width
+            )
+            zeros = torch.zeros(batch, length, device=h0.device)
+            actions = (
+                torch.zeros(batch, length, dtype=torch.long, device=h0.device)
+                if actions is None
+                else actions
+            )
+            rewards = zeros if rewards is None else rewards
+            moved = zeros if moved is None else moved
+
+            for t in range(length):
+                z_pre, s_t = self._encode_pre(obs_seq[:, t, :])
+                mem = self._read_memory(slots, s_t, core[:, self.gru_hidden :])
+                z = torch.cat([z_pre, mem], dim=1)
+                core = self._advance_core(z, core)
+                logits_steps.append(core @ p["policy.W"] + p["policy.b"])
+                value_steps.append(self._values(z, core))
+                z_steps.append(z)
+                h_steps.append(core)
+                slots = self._advance_memory(
+                    slots, z_pre, actions[:, t], rewards[:, t], moved[:, t]
+                )
+
+            z_pre_b, s_b = self._encode_pre(bootstrap_obs)
+            mem_b = self._read_memory(slots, s_b, core[:, self.gru_hidden :])
+            z_boot = torch.cat([z_pre_b, mem_b], dim=1)
+            core_boot = self._advance_core(z_boot, core)
+            v_boot = self._values(z_boot, core_boot)
+            z_steps.append(z_boot)
+        else:
+            h = h0
+            for t in range(length):
+                z = self._encode(obs_seq[:, t, :])
+                h = self._gru(z, h)
+                logits_steps.append(h @ p["policy.W"] + p["policy.b"])
+                value_steps.append(self._values(z, h))
+                z_steps.append(z)
+                h_steps.append(h)
+
+            z_boot = self._encode(bootstrap_obs)
+            h_boot = self._gru(z_boot, h)
+            v_boot = self._values(z_boot, h_boot)
+            z_steps.append(z_boot)
 
         return (
             torch.stack(logits_steps, dim=1),
@@ -396,7 +627,7 @@ class TorchBrainMirror:
             r_tgt = rewards[:, j : j + n_win].reshape(-1)
             lat_errs.append((((z_pred - z_tgt) ** 2).mean(dim=1) * win_ok).sum() / n)
             rew_errs.append(((r_pred - r_tgt) ** 2 * win_ok).sum() / n)
-            cur = self._gru(z_pred, cur)
+            cur = self._advance_core(z_pred, cur)
         return torch.stack(lat_errs), torch.stack(rew_errs)
 
     def imagine_loss(
@@ -433,7 +664,7 @@ class TorchBrainMirror:
             ent = -(probs * torch.clamp(logp_all, min=-30.0)).sum(-1)
             onehot = torch.nn.functional.one_hot(a, n_actions).float()
             z, r = self._dynamics(h, onehot)
-            h = self._gru(z, h)
+            h = self._advance_core(z, h)
             v = self._value(z, h)
             logps.append(logp)
             ents.append(ent)
@@ -494,6 +725,9 @@ class PPOSequenceLearner:
         imagination: Optional[dict] = None,
         world_model_multistep: Optional[dict] = None,
         rollout_metric_k: int = 3,
+        long_gamma: float = 0.999,
+        advantage_mix: float = 0.0,
+        return_scale: bool = True,
     ):
         """
         Initialize the PPO learner.
@@ -519,6 +753,17 @@ class PPOSequenceLearner:
             rollout_metric_k: Horizon of the k-step rollout-error diagnostic
                 computed every learn() (0 disables); exposed as
                 ``wm_rollout_error`` (per-horizon) / ``wm_rollout_error_ema``
+            long_gamma: Second discount for the v4 dual-discount critic
+                (docs/BRAIN_V4_PROPOSAL.md §4.3). Ignored by v2/v3 brains,
+                which have a single value output.
+            advantage_mix: beta — how much of the policy's advantage comes
+                from the long-horizon head:
+                ``A = (1-beta)·A_short + beta·A_long``. 0 reproduces v3.5
+                exactly. A v4 genome can override it per agent.
+            return_scale: Normalise each head's value targets by a running
+                percentile spread before regression, so the long head (whose
+                returns are ~1/(1-gamma_l) times larger) does not swamp the
+                policy loss.
         """
         if not TORCH_AVAILABLE:
             raise RuntimeError(
@@ -562,6 +807,12 @@ class PPOSequenceLearner:
         # k-step rollout-error diagnostic (no_grad, logged every learn()):
         # per-horizon latent MSE + an EMA at horizon k for readiness gating.
         self.rollout_metric_k = max(0, int(rollout_metric_k))
+        # Dual-discount critic (v4). `advantage_mix` is the config default;
+        # a v4 genome's own beta overrides it in learn().
+        self.long_gamma = float(long_gamma)
+        self.advantage_mix = float(np.clip(advantage_mix, 0.0, 1.0))
+        self.return_scale = bool(return_scale)
+        self._return_spread = [1.0, 1.0]
         self.wm_rollout_error: Optional[list] = None
         self.wm_rollout_error_ema: Optional[float] = None
         self._wm_ema_beta = 0.9
@@ -598,6 +849,7 @@ class PPOSequenceLearner:
         done: bool,
         logprob: float,
         action_mask: np.ndarray,
+        moved: bool = False,
     ) -> None:
         """
         Append one time-ordered step; finalizes a chunk every seq_len
@@ -612,6 +864,9 @@ class PPOSequenceLearner:
             done: Whether the episode ended at this step
             logprob: Behaviour-policy log π(a|s) at acting time
             action_mask: Action-validity mask at decision time
+            moved: Whether this step actually displaced the agent (the v4
+                episodic memory path-integrates on the outcome, not the
+                intent, so a blocked move must not shift stored places)
         """
         if not self._steps:
             self._chunk_h0 = np.asarray(hidden_before, dtype=np.float32).copy()
@@ -625,6 +880,7 @@ class PPOSequenceLearner:
                 "done": bool(done),
                 "logprob": float(logprob),
                 "mask": np.asarray(action_mask, dtype=np.float32),
+                "moved": 1.0 if moved else 0.0,
             }
         )
 
@@ -664,6 +920,7 @@ class PPOSequenceLearner:
             masks=np.ones((length, n_actions), dtype=np.float32),
             valid=np.zeros(length, dtype=np.float32),
             bootstrap_obs=steps[-1]["next_obs"],
+            moved=np.zeros(length, dtype=np.float32),
         )
         for i, s in enumerate(steps[:length]):
             chunk.obs[i] = s["obs"]
@@ -673,6 +930,7 @@ class PPOSequenceLearner:
             chunk.logprobs[i] = s["logprob"]
             chunk.masks[i] = s["mask"]
             chunk.valid[i] = 1.0
+            chunk.moved[i] = s.get("moved", 0.0)
 
         self.replay_buffer.add(chunk)
         self._steps = []
@@ -721,13 +979,36 @@ class PPOSequenceLearner:
         rewards_t = torch.as_tensor(
             np.stack([c.rewards for c in chunks]), device=device
         )
+        moved_t = torch.as_tensor(
+            np.stack(
+                [
+                    (
+                        c.moved
+                        if c.moved is not None
+                        else np.zeros(self.seq_len, dtype=np.float32)
+                    )
+                    for c in chunks
+                ]
+            ),
+            device=device,
+        )
         n_valid = torch.clamp(valid.sum(), min=1.0)
+
+        # Dual-discount critic (v4 §4.3). A v4 genome carries its own
+        # advantage mix, so the population evolves its own planning horizon;
+        # v2/v3 brains have one value output and beta is forced to 0.
+        n_values = self._mirror.n_values
+        beta = self.advantage_mix if n_values > 1 else 0.0
+        genome_beta = getattr(brain, "advantage_mix", None)
+        if n_values > 1 and genome_beta is not None:
+            beta = float(np.clip(genome_beta, 0.0, 1.0))
+        gammas = [self.discount_factor] + ([self.long_gamma] if n_values > 1 else [])
 
         # Advantages/targets from the CURRENT network (recomputed once,
         # before the optimisation epochs — standard PPO practice).
         with torch.no_grad():
             _, values_now, v_boot, zs_ng, hs_ng = self._mirror.forward_sequence(
-                obs, h0, boot_obs
+                obs, h0, boot_obs, actions, rewards_t, moved_t
             )
             # Model-quality diagnostic: k-step open-loop rollout error on the
             # sampled real sequences — the quantity the planner's usefulness
@@ -751,38 +1032,64 @@ class PPOSequenceLearner:
                     if ema is None
                     else self._wm_ema_beta * ema + (1.0 - self._wm_ema_beta) * errs[-1]
                 )
-        advantages_np = np.zeros((len(chunks), self.seq_len), dtype=np.float32)
-        targets_np = np.zeros((len(chunks), self.seq_len), dtype=np.float32)
+        n_chunks = len(chunks)
+        advantages_np = np.zeros((n_values, n_chunks, self.seq_len), dtype=np.float32)
+        targets_np = np.zeros((n_values, n_chunks, self.seq_len), dtype=np.float32)
         values_now_np = values_now.cpu().numpy()
         v_boot_np = v_boot.cpu().numpy()
-        for i, c in enumerate(chunks):
-            last_done = (
-                bool(c.dones[c.valid.astype(bool)][-1]) if c.valid.any() else True
-            )
-            boot = 0.0 if last_done else float(v_boot_np[i])
-            adv, tgt = compute_gae(
-                c.rewards,
-                values_now_np[i],
-                boot,
-                c.dones,
-                self.discount_factor,
-                self.gae_lambda,
-            )
-            advantages_np[i] = adv
-            targets_np[i] = tgt
+        for head, gamma in enumerate(gammas):
+            for i, c in enumerate(chunks):
+                last_done = (
+                    bool(c.dones[c.valid.astype(bool)][-1]) if c.valid.any() else True
+                )
+                boot = 0.0 if last_done else float(v_boot_np[i, head])
+                adv, tgt = compute_gae(
+                    c.rewards,
+                    values_now_np[i, :, head],
+                    boot,
+                    c.dones,
+                    gamma,
+                    self.gae_lambda,
+                )
+                advantages_np[head, i] = adv
+                targets_np[head, i] = tgt
 
-        advantages = torch.as_tensor(advantages_np, device=device)
+        advantages_all = torch.as_tensor(advantages_np, device=device)
         targets = torch.as_tensor(targets_np, device=device)
-        # Normalise advantages over valid steps (variance reduction)
-        adv_mean = (advantages * valid).sum() / n_valid
-        adv_std = torch.sqrt(
-            ((advantages - adv_mean) ** 2 * valid).sum() / n_valid + 1e-8
-        )
-        advantages = (advantages - adv_mean) / adv_std
+
+        # Value-target scaling: the long head's returns are ~1/(1-gamma_l)
+        # times larger than the short head's, so regressing both at the same
+        # loss weight would make the critic loss all about the long head.
+        # Targets are divided by a running percentile spread per head and the
+        # critic predicts in that scaled space (Dreamer-V3's trick).
+        if self.return_scale:
+            for head in range(n_values):
+                flat = targets[head][valid > 0]
+                if flat.numel() > 1:
+                    lo = torch.quantile(flat, 0.05)
+                    hi = torch.quantile(flat, 0.95)
+                    spread = float(torch.clamp(hi - lo, min=1.0))
+                    self._return_spread[head] = (
+                        0.95 * self._return_spread[head] + 0.05 * spread
+                    )
+                targets[head] = targets[head] / self._return_spread[head]
+
+        # Per-head advantage normalisation, then the evolved mixture.
+        normalised = []
+        for head in range(n_values):
+            a = advantages_all[head]
+            a_mean = (a * valid).sum() / n_valid
+            a_std = torch.sqrt(((a - a_mean) ** 2 * valid).sum() / n_valid + 1e-8)
+            normalised.append((a - a_mean) / a_std)
+        advantages = normalised[0]
+        if n_values > 1 and beta > 0.0:
+            advantages = (1.0 - beta) * normalised[0] + beta * normalised[1]
 
         total_loss = 0.0
         for _ in range(self.epochs):
-            logits, values, _, zs, hs = self._mirror.forward_sequence(obs, h0, boot_obs)
+            logits, values, _, zs, hs = self._mirror.forward_sequence(
+                obs, h0, boot_obs, actions, rewards_t, moved_t
+            )
             logits = logits.masked_fill(masks <= 0, -1e9)
             log_probs_all = torch.log_softmax(logits, dim=-1)
             new_logprobs = torch.gather(
@@ -798,7 +1105,16 @@ class PPOSequenceLearner:
             )
             policy_loss = -(torch.min(surr1, surr2) * valid).sum() / n_valid
 
-            value_loss = (0.5 * (values - targets) ** 2 * valid).sum() / n_valid
+            # One regression per discount head, in the scaled target space.
+            scale = torch.as_tensor(
+                self._return_spread[:n_values], device=device, dtype=values.dtype
+            )
+            scaled_values = values / scale if self.return_scale else values
+            value_loss = (
+                0.5
+                * ((scaled_values - targets.permute(1, 2, 0)) ** 2).sum(dim=-1)
+                * valid
+            ).sum() / n_valid
 
             probs = torch.softmax(logits, dim=-1)
             entropy = (

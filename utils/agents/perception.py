@@ -73,8 +73,13 @@ def build_observation(agent: "Agent", world: "World") -> np.ndarray:
 
     # 5. EXTRA block — Observation v2 (social/climate), Brain v3.5 (6 features).
     #    Appended only under the v2 layout so the 0–71 prefix is unchanged.
-    if get_active_observation_spec().version >= 2:
+    spec = get_active_observation_spec()
+    if spec.version >= 2:
         obs.extend(_encode_extra(agent, world))
+
+    # 6. Observation v4 tail — kin, communication channels, neighbour tag.
+    if spec.version >= 4:
+        obs.extend(_encode_v4_tail(agent, world, spec))
 
     return np.array(obs, dtype=np.float32)
 
@@ -461,7 +466,33 @@ def _encode_inventory(agent: "Agent", world: "World") -> list[float]:
 
 # ---------------------------------------------------------------------------
 # 5. EXTRA block — Observation v2 / Brain v3.5  (6 social/climate features)
+#    and the Observation v4 tail (kin, comm channels, neighbour tag)
 # ---------------------------------------------------------------------------
+
+
+def _nearest_other_agent(agent: "Agent", world: "World"):
+    """
+    Nearest living other agent within AGENT_SCAN_RADIUS (Manhattan).
+
+    Args:
+        agent: The observing agent
+        world: The world
+
+    Returns:
+        (distance, other_agent) — distance is AGENT_SCAN_RADIUS + 1 and the
+        agent is None when nobody is in range.
+    """
+    best = AGENT_SCAN_RADIUS + 1
+    nearest = None
+    for other in world.agents.values():
+        if other is agent or not getattr(other, "alive", True):
+            continue
+        d = abs(other.x - agent.x) + abs(other.y - agent.y)
+        if d < best:
+            best = d
+            nearest = other
+    return best, nearest
+
 
 # Manhattan radius for the nearest-other-agent scan
 AGENT_SCAN_RADIUS = 5
@@ -492,17 +523,14 @@ def _encode_extra(agent: "Agent", world: "World") -> list[float]:
     tod_cos = 0.5 * (1.0 + math.cos(2.0 * math.pi * tod))
     temperature = max(0.0, min(1.0, float(getattr(env, "temperature", 0.5))))
 
-    # Nearest other living agent (bounded Manhattan scan)
-    best = AGENT_SCAN_RADIUS + 1
-    for other in world.agents.values():
-        if other is agent or not getattr(other, "alive", True):
-            continue
-        d = abs(other.x - agent.x) + abs(other.y - agent.y)
-        if d < best:
-            best = d
+    # Nearest other living agent (bounded Manhattan scan). Cached on the
+    # agent for this tick so the v4 tail reuses the SAME neighbour — "someone
+    # is this close AND this related" has to be about one individual.
+    best, nearest = _nearest_other_agent(agent, world)
     agent_prox = 0.0
     if best <= AGENT_SCAN_RADIUS:
         agent_prox = max(0.0, 1.0 - best / AGENT_SCAN_RADIUS)
+    agent._perception_nearest = nearest
 
     # Strongest signal in the 3×3 neighbourhood of the pheromone field
     signal = 0.0
@@ -530,3 +558,77 @@ def _encode_extra(agent: "Agent", world: "World") -> list[float]:
                 break
 
     return [tod_sin, tod_cos, temperature, agent_prox, signal, on_hazard]
+
+
+# ---------------------------------------------------------------------------
+# 6. Observation v4 tail — kin, communication channels, neighbour identity
+# ---------------------------------------------------------------------------
+
+
+def _encode_v4_tail(agent: "Agent", world: "World", spec) -> list[float]:
+    """
+    The Brain v4 social tail (docs/BRAIN_V4_PROPOSAL.md §4.1).
+
+    Features (1 + 2C + T, all in [0, 1]):
+      [0]            nearest_agent_kin — graded relatedness to the SAME
+                     neighbour the v2 block reported the proximity of, from
+                     the birth-time genome fingerprint (§4.7)
+      [1 .. C]       comm_mean — per-channel mean of the communication field
+                     over the 3x3 neighbourhood, remapped from [-1,1]
+      [C+1 .. 2C]    comm_max  — per-channel max over the same window
+      [2C+1 .. ]     neighbour_tag — that neighbour's visible identity tag
+
+    Every feature degrades to a neutral 0.5 / 0.0 when its subsystem is off:
+    no neighbour in range gives kin 0.5 (the "unrelated" midpoint) and a zero
+    tag; no communication field gives 0.5 on every channel (the zero symbol).
+
+    Args:
+        agent: The observing agent
+        world: The world being observed
+        spec: The active ObservationSpec (v4)
+
+    Returns:
+        List of (1 + 2C + T) floats
+    """
+    from agents.genome import kin_similarity
+
+    channels = spec.comm_mean.stop - spec.comm_mean.start
+    tag_dim = spec.neighbour_tag.stop - spec.neighbour_tag.start
+
+    # The v2 EXTRA block already located the nearest agent this tick.
+    nearest = getattr(agent, "_perception_nearest", None)
+
+    kin = 0.5
+    tag = [0.0] * tag_dim
+    if nearest is not None:
+        kin = kin_similarity(
+            getattr(agent.genome, "fingerprint", None),
+            getattr(nearest.genome, "fingerprint", None),
+        )
+        other_tag = getattr(nearest.brain, "identity_tag", None)
+        if other_tag is not None:
+            values = np.asarray(other_tag, dtype=np.float32).ravel()
+            for i in range(min(tag_dim, values.shape[0])):
+                tag[i] = float(values[i])
+
+    # Communication field: mean and max per channel over the 3x3 window.
+    # The field is signed; remap to [0, 1] so the whole vector stays
+    # non-negative like every other observation feature.
+    comm_mean = [0.5] * channels
+    comm_max = [0.5] * channels
+    field = getattr(world, "comm_field", None)
+    if field is not None:
+        x0 = max(0, agent.x - 1)
+        x1 = min(world.width, agent.x + 2)
+        y0 = max(0, agent.y - 1)
+        y1 = min(world.height, agent.y + 2)
+        window = field[y0:y1, x0:x1, :]
+        if window.size:
+            n = min(channels, window.shape[2])
+            means = 0.5 * (1.0 + np.clip(window.mean(axis=(0, 1)), -1.0, 1.0))
+            maxes = 0.5 * (1.0 + np.clip(window.max(axis=(0, 1)), -1.0, 1.0))
+            for i in range(n):
+                comm_mean[i] = float(means[i])
+                comm_max[i] = float(maxes[i])
+
+    return [kin] + comm_mean + comm_max + tag

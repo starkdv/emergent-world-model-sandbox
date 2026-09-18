@@ -699,10 +699,22 @@ def execute_signal(agent: "Agent", world: "World") -> ActionResult:
     and is sensed by nearby agents via the EXTRA observation block. If the
     field is off (signalling disabled) this is a no-op success.
     """
-    world.emit_signal(agent.x, agent.y)
+    # Brain v4 §4.6: a v4 brain emits a C-channel SYMBOL, and pays for its
+    # amplitude. Costly signalling (Zahavi's handicap) is the standard
+    # precondition for honest signals to be evolutionarily stable; the v3.5
+    # scalar field is recovered by passing no vector and a zero surcharge.
+    cost = float(getattr(world, "signal_cost", 0.12))
+    vector = None
+    emit = getattr(getattr(agent, "brain", None), "comm_vector", None)
+    if emit is not None and getattr(world, "comm_field", None) is not None:
+        vector = emit(agent.h)
+        cost += float(getattr(world, "signal_amplitude_cost", 0.0)) * float(
+            np.abs(vector).sum()
+        )
+    world.emit_signal(agent.x, agent.y, vector=vector)
     return ActionResult(
         True,
-        float(getattr(world, "signal_cost", 0.12)),
+        round(cost, 3),
         "Signalled",
         target_x=agent.x,
         target_y=agent.y,

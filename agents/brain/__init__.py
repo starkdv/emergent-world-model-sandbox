@@ -28,8 +28,10 @@ from agents.brain import modules
 from agents.brain.instincts import InstinctModule
 from agents.brain.spec import (
     OBSERVATION_SPEC_V2,
+    OBSERVATION_SPEC_V4,
     build_brain_param_spec,
     build_brain_v3_param_spec,
+    build_brain_v4_param_spec,
     build_nested_params,
     migrate_genome,
 )
@@ -38,6 +40,22 @@ from agents.brain.spec import (
 def _is_v35(version) -> bool:
     """True if the brain version selects the v3.5 (social) attention brain."""
     return version == 3.5 or str(version) in ("3.5", "3_5")
+
+
+def _is_v4(version) -> bool:
+    """True if the brain version selects the v4 multi-timescale brain."""
+    return version == 4 or str(version) in ("4", "4.0")
+
+
+def _v4_state_inputs() -> int:
+    """Non-vision input count for the v4 observation layout (= 41)."""
+    s = OBSERVATION_SPEC_V4
+    return (
+        (s.agent_state.stop - s.agent_state.start)
+        + (s.stimulus.stop - s.stimulus.start)
+        + (s.inventory.stop - s.inventory.start)
+        + (s.extra.stop - s.extra.start)
+    )
 
 
 def _v35_state_inputs() -> int:
@@ -458,6 +476,23 @@ def _v3_kwargs(brain_config: dict) -> dict:
     }
 
 
+def _v4_kwargs(brain_config: dict) -> dict:
+    """Extract BrainV4 size kwargs from a ``brain`` config dict."""
+    v3 = brain_config.get("v3", {}) or {}
+    v4 = brain_config.get("v4", {}) or {}
+    return {
+        "embed_dim": v4.get("embed_dim", v3.get("embed_dim", 8)),
+        "state_dim": v4.get("state_dim", v3.get("state_dim", 40)),
+        "gru_hidden_size": v4.get("gru_hidden_size", v3.get("gru_hidden_size", 48)),
+        "slow_hidden_size": v4.get("slow_hidden", 24),
+        "value_hidden": v4.get("value_hidden", v3.get("value_hidden", 16)),
+        "memory_slots": v4.get("memory_slots", 8),
+        "comm_channels": v4.get("comm_channels", 4),
+        "output_size": 9,
+        "world_model_hidden": _world_model_hidden(brain_config),
+    }
+
+
 def create_brain(
     genome: "Genome",
     brain_config: Optional[dict] = None,
@@ -476,6 +511,15 @@ def create_brain(
     """
     cfg = brain_config or {}
     version = cfg.get("version", 2)
+    if _is_v4(version):
+        from agents.brain.v4 import BrainV4
+
+        return BrainV4(
+            genome,
+            instincts=instincts,
+            obs_spec=OBSERVATION_SPEC_V4,
+            **_v4_kwargs(cfg),
+        )
     if _is_v35(version):
         # Brain v3.5 = v3 attention brain with the Observation-v2 input block
         # (78-dim, state encoder 28→S) and the SIGNAL action (output 9).
@@ -506,6 +550,48 @@ def create_brain(
     )
 
 
+def observation_version_for(brain_config: Optional[dict] = None) -> int:
+    """
+    Observation layout a brain config needs: 1 (72-dim), 2 (78) or 4 (91).
+
+    Args:
+        brain_config: ``brain`` config dict
+
+    Returns:
+        Observation version number
+    """
+    version = (brain_config or {}).get("version", 2)
+    if _is_v4(version):
+        return 4
+    return 2 if _is_v35(version) else 1
+
+
+def activate_brain_layout(brain_config: Optional[dict] = None) -> int:
+    """
+    Make perception, the brain and freshly randomised genomes agree.
+
+    Sets the process-wide observation spec *and* the genome layout, the latter
+    so ``Genome.random`` can apply the v4 structured priors (the slow core's
+    leak ladder, the drive-weight default). Call once at startup, before any
+    agent is created.
+
+    Args:
+        brain_config: ``brain`` config dict
+
+    Returns:
+        The observation version that was activated
+    """
+    from agents.brain.spec import set_active_param_spec, set_observation_version
+
+    version = observation_version_for(brain_config)
+    set_observation_version(version)
+    if version >= 4:
+        set_active_param_spec(_v4_spec_for(brain_config or {}))
+    else:
+        set_active_param_spec(None)
+    return version
+
+
 def calculate_weight_count_for_config(brain_config: Optional[dict] = None) -> int:
     """
     Genome length required by the ``brain`` config section.
@@ -518,6 +604,14 @@ def calculate_weight_count_for_config(brain_config: Optional[dict] = None) -> in
     """
     cfg = brain_config or {}
     version = cfg.get("version", 2)
+    if _is_v4(version):
+        from agents.brain.v4 import BrainV4
+
+        k = dict(_v4_kwargs(cfg))
+        # memory_slots is runtime state, not genome — the slot array lives in
+        # the packed hidden state, so it does not change the weight count.
+        k.pop("memory_slots", None)
+        return BrainV4.calculate_v4_weight_count(state_inputs=_v4_state_inputs(), **k)
     if _is_v35(version) or version == 3:
         from agents.brain.v3 import BrainV3
 
@@ -547,6 +641,13 @@ def calculate_weight_count_for_config(brain_config: Optional[dict] = None) -> in
         output_size=cfg.get("output_size", 8),
         world_model_hidden=_world_model_hidden(cfg),
     )
+
+
+def _v4_spec_for(cfg: dict):
+    """Build the v4 ParamSpec for the given ``brain`` config."""
+    k = dict(_v4_kwargs(cfg))
+    k.pop("memory_slots", None)
+    return build_brain_v4_param_spec(state_inputs=_v4_state_inputs(), **k)
 
 
 def _v3_spec_for(cfg: dict, state_inputs: int, output_size: int):
@@ -597,5 +698,17 @@ def adapt_loaded_genome(flat, brain_config: Optional[dict] = None):
                 cfg, state_inputs=_v35_state_inputs(), output_size=9
             )
             return migrate_genome(flat, old_spec, new_spec)
+
+    if _is_v4(cfg.get("version", 2)):
+        # v4 accepts either prior v3-family layout: v3 (22 inputs, 8 actions)
+        # or v3.5 (28 inputs, 9 actions). Every shape change is append-only,
+        # so the shipped top-left copy carries the weights across and the new
+        # rows/columns stay zero — except slow.rho and drive.lam, which carry
+        # structured priors (see agents/brain/spec.py).
+        new_spec = _v4_spec_for(cfg)
+        for inputs, actions in ((_v35_state_inputs(), 9), (22, 8)):
+            old_spec = _v3_spec_for(cfg, state_inputs=inputs, output_size=actions)
+            if flat.shape == (old_spec.count(),):
+                return migrate_genome(flat, old_spec, new_spec)
 
     return None

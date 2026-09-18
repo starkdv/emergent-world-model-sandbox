@@ -269,12 +269,9 @@ Examples:
         # Activate the observation layout BEFORE any logger is created, so the
         # world-model logger sizes its obs_* columns to the active vector
         # (78-dim under Brain v3.5, 72 otherwise).
-        from agents.brain import _is_v35 as _is_v35_early
-        from agents.brain.spec import set_observation_version as _set_obs_ver_early
+        from agents.brain import activate_brain_layout as _activate_layout
 
-        _set_obs_ver_early(
-            2 if _is_v35_early(config.get("brain", {}).get("version", 2)) else 1
-        )
+        _activate_layout(config.get("brain", {}))
 
         # Activate the reward-shaping diet (W6c). Default is the legacy dense
         # shaping; `reward.preset: minimal` strips it to eat/death/energy-delta.
@@ -640,10 +637,9 @@ Examples:
         # Brain v3.5 uses the Observation-v2 layout (78-dim) + SIGNAL action;
         # activate it globally so perception and the brain agree before any
         # agent is created.
-        from agents.brain import _is_v35
-        from agents.brain.spec import set_observation_version
+        from agents.brain import activate_brain_layout
 
-        set_observation_version(2 if _is_v35(brain_cfg.get("version", 2)) else 1)
+        activate_brain_layout(brain_cfg)
         weight_count = calculate_weight_count_for_config(brain_cfg)
         _wm_cfg = brain_cfg.get("world_model", {}) or {}
         print(

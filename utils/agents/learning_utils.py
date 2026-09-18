@@ -38,6 +38,14 @@ class RewardConfig:
       * ``legacy`` (default) — the full dense shaping that has been tuned
         across the Brain v2/v3 work (exploration, anti-loop, anti-spin,
         turn-toward-food, eat bonuses, …). Bit-identical to before W6c.
+      * ``drives`` — no hand-written shaping at all (Brain v4 §4.5). The
+        reward is ``lambda . (homeostasis, empowerment, curiosity, social)``
+        with **lambda in the genome**, so the objective itself is selected on
+        reproductive success rather than written down. The homeostasis term
+        is potential-based (``Phi = -(1 - e/e_max)^2``), so by Ng, Harada &
+        Russell (1999) it provably does not distort the optimal policy of the
+        underlying survival MDP — unlike every term in the legacy diet.
+        Requires a v4 brain; falls back to ``minimal`` otherwise.
       * ``minimal`` — strips shaping down to **eat / death / energy-delta
         only**: a successful net-positive EAT is rewarded, dying is penalised,
         and per-step metabolism loss is a small penalty. Nothing else. This is
@@ -55,19 +63,28 @@ class RewardConfig:
     eat_energy_gain_coef: float = 0.2
     metabolism_penalty_coef: float = 0.01
     death_penalty: float = 10.0
+    # `drives` preset (Brain v4 §4.5): scale of each drive before the evolved
+    # genome weight multiplies it, plus the social neighbourhood radius.
+    drive_social_radius: int = 3
+    drive_empowerment_scale: float = 1.0
+    drive_social_scale: float = 0.02
 
     @classmethod
     def from_dict(cls, cfg: Optional[dict]) -> "RewardConfig":
         cfg = cfg or {}
         preset = str(cfg.get("preset", "legacy")).lower()
-        if preset not in ("legacy", "minimal"):
+        if preset not in ("legacy", "minimal", "drives"):
             preset = "legacy"
+        drives = cfg.get("drives", {}) or {}
         return cls(
             preset=preset,
             eat_base=float(cfg.get("eat_base", 5.0)),
             eat_energy_gain_coef=float(cfg.get("eat_energy_gain_coef", 0.2)),
             metabolism_penalty_coef=float(cfg.get("metabolism_penalty_coef", 0.01)),
             death_penalty=float(cfg.get("death_penalty", 10.0)),
+            drive_social_radius=int(drives.get("social_radius", 3)),
+            drive_empowerment_scale=float(drives.get("empowerment_scale", 1.0)),
+            drive_social_scale=float(drives.get("social_scale", 0.02)),
         )
 
 

@@ -28,7 +28,7 @@ from utils.agents.evolution_utils import EvolutionStats
 
 if __name__ != "__main__":
     from agents.agent import Agent
-    from agents.genome import Genome
+    from agents.genome import Genome, genome_fingerprint
 
 
 class EvolutionConfig:
@@ -174,6 +174,9 @@ def mutate_genome_weights(genome: Genome, std: float = 0.02):
     # Apply Gaussian noise to all weights
     noise = np.random.normal(0.0, std, size=genome.weights.shape)
     genome.weights += noise
+    # Relatedness follows inheritance, so the fingerprint is refreshed here
+    # (at birth) and nowhere else — notably not by the Lamarckian write-back.
+    genome.fingerprint = genome_fingerprint(genome.weights)
 
 
 def next_generation(
