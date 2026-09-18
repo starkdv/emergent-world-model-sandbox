@@ -256,3 +256,82 @@ def test_clone_passes_base_not_phenotype():
     child = clone_agent(parent=parent, mutate=False)
     assert child.base_metabolism_rate == pytest.approx(parent.base_metabolism_rate)
     assert child.base_max_energy == pytest.approx(parent.base_max_energy)
+
+
+# --- world growth ---------------------------------------------------------
+
+
+class TestWorldGrowth:
+    """Frontier expansion must not move the ground under living agents."""
+
+    def _world(self, **kw):
+        from world.world import World
+
+        return World(width=24, height=24, seed=7, **kw)
+
+    def test_grow_preserves_every_existing_tile(self):
+        world = self._world()
+        before = [
+            (t.terrain_type, t.fertility, t.moisture)
+            for row in world.tiles
+            for t in row
+        ]
+        assert world.grow(8)
+        assert (world.width, world.height) == (32, 32)
+        after = [
+            (
+                world.tiles[y][x].terrain_type,
+                world.tiles[y][x].fertility,
+                world.tiles[y][x].moisture,
+            )
+            for y in range(24)
+            for x in range(24)
+        ]
+        assert before == after, "growth must not disturb the existing map"
+
+    def test_grow_preserves_object_coordinates(self):
+        from world.object_registry import ObjectRegistry, register_builtin_objects
+
+        register_builtin_objects()
+        world = self._world()
+        placed = []
+        for x, y in ((1, 1), (5, 9), (20, 3)):
+            tile = world.get_tile(x, y)
+            if tile is None or not tile.is_passable():
+                continue
+            obj = ObjectRegistry.create("berry", x, y)
+            if obj is not None and world.add_object(obj):
+                placed.append((obj.id, x, y))
+        assert placed, "fixture needs at least one placed object"
+        world.grow(8)
+        for obj_id, x, y in placed:
+            obj = world.objects.get(obj_id)
+            assert obj is not None, "growth must not drop objects"
+            assert (obj.x, obj.y) == (x, y)
+
+    def test_grow_extends_the_signal_fields_with_zeros(self):
+        world = self._world(
+            signal_config={"enabled": True, "channels": 3, "strength": 1.0}
+        )
+        world.emit_signal(2, 2, vector=np.array([1.0, -1.0, 0.5]))
+        before = float(world.pheromones[2, 2])
+        before_vec = world.comm_field[2, 2].copy()
+        world.grow(8)
+        assert world.pheromones.shape == (32, 32)
+        assert world.comm_field.shape == (32, 32, 3)
+        assert float(world.pheromones[2, 2]) == pytest.approx(before)
+        assert np.allclose(world.comm_field[2, 2], before_vec)
+        # Frontier starts silent
+        assert float(world.pheromones[30, 30]) == 0.0
+
+    def test_growth_is_off_by_default_and_density_gated(self):
+        world = self._world()
+        assert world.growth_config == {}
+        for _ in range(3):
+            world._maybe_grow()
+        assert (world.width, world.height) == (24, 24)
+
+    def test_grow_rejects_nonpositive_steps(self):
+        world = self._world()
+        assert world.grow(0) is False
+        assert (world.width, world.height) == (24, 24)

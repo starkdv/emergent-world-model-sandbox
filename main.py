@@ -476,6 +476,7 @@ Examples:
             signal_config=config.get("signal", None),
             social_config=config.get("social", None),
             performance_config=config.get("performance", None),
+            growth_config=(config.get("world", {}) or {}).get("growth", None),
             # System configuration parameters
             plant_mature_age=plant_cfg["mature_age"],
             plant_max_age=plant_cfg["max_age"],
@@ -618,6 +619,19 @@ Examples:
         print(
             f"Resources added: {len(world.objects)} objects (plants: {plants_added}, berries: {berries_added}, seeds: {seeds_added})"
         )
+
+        # Founding resource density, so a growing world seeds its frontier at
+        # the same richness rather than diluting carrying capacity (World.grow).
+        world._founding_resource_density = len(world.objects) / float(
+            world.width * world.height
+        )
+        _growth_cfg = (config.get("world", {}) or {}).get("growth", None) or {}
+        if _growth_cfg.get("enabled", False):
+            print(
+                f"World growth: ON (step {_growth_cfg.get('step', 16)}, "
+                f"max {_growth_cfg.get('max_size', 256)}, "
+                f"density>{_growth_cfg.get('density_threshold', 0.02)})"
+            )
 
         # Spawn custom objects that have a spawn.initial_count > 0
         custom_spawned = 0

@@ -86,6 +86,7 @@ class World:
         signal_config: dict = None,
         social_config: dict = None,
         performance_config: dict = None,
+        growth_config: dict = None,
     ):
         """
         Initialize a new world with generated terrain.
@@ -282,8 +283,19 @@ class World:
             fire_config=fire_config,
         )
 
-        # Generate terrain (legacy uniform shuffle, or W2 heightmap)
+        # Generate terrain (legacy uniform shuffle, or W2 heightmap).
+        # The generator parameters are kept so the map can be regrown on a
+        # larger canvas later (see World.grow).
         self.terrain_generator = terrain_generator
+        self._gen_soil_ratio = soil_ratio
+        self._gen_rock_ratio = rock_ratio
+        self._gen_water_ratio = water_ratio
+        self._gen_sand_ratio = sand_ratio
+        self._gen_fertility_range = fertility_range
+        self._gen_moisture_range = moisture_range
+        self.growth_config = growth_config or {}
+        self.growth_events = 0
+        self._founding_resource_density = 0.0
         self.heightmap_config = heightmap_config or {}
         if str(terrain_generator).lower() in ("heightmap", "biomes"):
             self._generate_terrain_heightmap(
@@ -452,6 +464,171 @@ class World:
             self.tiles.append(row)
 
         self._spawn_sand_objects()
+
+    # -----------------------------------------------------------------
+    # World growth (frontier expansion)
+    # -----------------------------------------------------------------
+
+    def grow(self, step: int) -> bool:
+        """
+        Extend the map by ``step`` tiles on the +x and +y edges.
+
+        Growth is one-sided on purpose: every existing (x, y) keeps its
+        meaning, so agents, objects, the pheromone/comm fields and any saved
+        coordinates stay valid. The new region is produced by re-running the
+        configured terrain generator at the larger size and keeping only the
+        frontier; the previously generated block is preserved exactly as it
+        was. That leaves a seam where the new heightmap meets the old one —
+        biomes are patchy anyway, and the alternative (regenerating the whole
+        map) would move the ground out from under living agents.
+
+        Why grow at all: with the reproduction subsidy withdrawn
+        (agents/ecology.py) carrying capacity becomes ecological rather than
+        administrative, and a fixed map then imposes a hard ceiling that has
+        nothing to do with the agents. A frontier lets the population expand
+        into unexploited territory, which is where range expansion and spatial
+        trait structure can appear.
+
+        Args:
+            step: Tiles to add on each axis
+
+        Returns:
+            True if the world grew
+        """
+        if step <= 0:
+            return False
+        import numpy as _np
+
+        old_w, old_h = self.width, self.height
+        old_tiles = self.tiles
+        new_w, new_h = old_w + step, old_h + step
+
+        # Regenerate at the new size, then restore the old block verbatim.
+        self.width, self.height = new_w, new_h
+        self.tiles = []
+        if str(self.terrain_generator).lower() in ("heightmap", "biomes"):
+            self._generate_terrain_heightmap(
+                self._gen_rock_ratio,
+                self._gen_water_ratio,
+                self._gen_sand_ratio,
+                self._gen_fertility_range,
+                self._gen_moisture_range,
+            )
+        else:
+            self._generate_terrain(
+                self._gen_soil_ratio,
+                self._gen_rock_ratio,
+                self._gen_water_ratio,
+                self._gen_sand_ratio,
+                self._gen_fertility_range,
+                self._gen_moisture_range,
+            )
+        for y in range(old_h):
+            for x in range(old_w):
+                self.tiles[y][x] = old_tiles[y][x]
+
+        # Pheromone / communication fields follow the map, zero on the frontier.
+        if self.pheromones is not None:
+            grown = _np.zeros((new_h, new_w), dtype=_np.float32)
+            grown[:old_h, :old_w] = self.pheromones
+            self.pheromones = grown
+        if self.comm_field is not None:
+            grown = _np.zeros(
+                (new_h, new_w, self.comm_field.shape[2]), dtype=_np.float32
+            )
+            grown[:old_h, :old_w, :] = self.comm_field
+            self.comm_field = grown
+
+        # The spatial index is sized to the map; rebuild it over live objects.
+        if self.food_index is not None:
+            from world.spatial_index import SpatialIndex
+
+            self.food_index = SpatialIndex(
+                new_w, new_h, cell_size=self.food_index.cell_size
+            )
+            for obj in self.objects.values():
+                try:
+                    self.food_index.add(obj)
+                except Exception:
+                    pass
+
+        self.growth_events = getattr(self, "growth_events", 0) + 1
+        return True
+
+    def _maybe_grow(self) -> None:
+        """
+        Grow the map when the population density crosses the threshold.
+
+        Density is agents per tile, so the trigger is scale-free: a world that
+        doubles in area needs twice the population to trigger again.
+        """
+        cfg = self.growth_config
+        if not cfg.get("enabled", False):
+            return
+        interval = max(1, int(cfg.get("check_interval", 500)))
+        if self.tick % interval:
+            return
+        max_size = int(cfg.get("max_size", 256))
+        if self.width >= max_size:
+            return
+        alive = sum(1 for a in self.agents.values() if getattr(a, "alive", True))
+        density = alive / float(self.width * self.height)
+        if density < float(cfg.get("density_threshold", 0.02)):
+            return
+        if self.grow(int(cfg.get("step", 16))):
+            self.spawn_frontier_resources(int(cfg.get("step", 16)))
+
+    def spawn_frontier_resources(self, step: int) -> int:
+        """
+        Seed the newly added frontier with resources at the founding density.
+
+        Without this the frontier is barren and growth is a pure dilution of
+        carrying capacity rather than an expansion of it.
+
+        Args:
+            step: The width of the frontier strip just added
+
+        Returns:
+            Number of objects spawned
+        """
+        from world.object_registry import ObjectRegistry
+
+        density = getattr(self, "_founding_resource_density", 0.0)
+        if density <= 0.0:
+            return 0
+        frontier_area = self.width * self.height - (self.width - step) * (
+            self.height - step
+        )
+        target = int(density * frontier_area)
+        if target <= 0:
+            return 0
+        spawnable = [
+            d
+            for d in ObjectRegistry.all_definitions().values()
+            if getattr(d, "spawn", None) is not None
+        ]
+        if not spawnable:
+            return 0
+        spawned = 0
+        for _ in range(target * 4):
+            if spawned >= target:
+                break
+            x = random.randint(0, self.width - 1)
+            y = random.randint(0, self.height - 1)
+            # Frontier only: at least one coordinate in the new strip
+            if x < self.width - step and y < self.height - step:
+                continue
+            tile = self.get_tile(x, y)
+            if tile is None or not tile.is_passable():
+                continue
+            defn = random.choice(spawnable)
+            try:
+                obj = ObjectRegistry.create(defn.type_id, x, y)
+            except Exception:
+                continue
+            if obj is not None and self.add_object(obj):
+                spawned += 1
+        return spawned
 
     def get_tile(self, x: int, y: int) -> Optional[Tile]:
         """
@@ -785,6 +962,7 @@ class World:
 
         # Pheromone field decays (and optionally diffuses) each tick (W4)
         self._update_pheromones()
+        self._maybe_grow()
 
         # Invalidate cached world counts (lazily recomputed on first use)
         self._cached_counts = None
