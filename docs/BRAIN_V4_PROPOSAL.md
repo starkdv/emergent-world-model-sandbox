@@ -1,9 +1,15 @@
 # Brain v4 — architecture proposal for emergent behaviour
 
-**Status: PROPOSED. Nothing in §4 is built.** This document is the design
-review that §2's measurements argue for. It supersedes nothing: Brain v3.5 is
-what ships today, and Brain v3.6 (`BRAIN_V3_PROPOSAL.md` §9) is *absorbed*
-into v4 rather than skipped.
+**Status: IMPLEMENTED.** §4 is built and shipping; §9 below documents what
+changed between the design and the as-built code, and §10 reports the
+validation campaign. Brain v3.6 (`BRAIN_V3_PROPOSAL.md` §9) is *absorbed*
+into v4 (§4.7) rather than skipped, and finally exists in code.
+
+- **V4.0** (scoring integrity) — `agents/scoring.py`, `config/v4_baseline.yaml`
+- **V4.1-V4.4** (the architecture) — `agents/brain/v4.py`,
+  `agents/brain/spec.py`, `agents/ppo.py`, `config/v4_full.yaml`
+- Tests — `tests/test_scoring_v40.py`, `tests/test_brain_v4.py`,
+  `tests/test_ppo_v4.py`
 
 **Author:** Karan Vasa · **Date:** September 2026
 **Inputs reviewed:** the codebase at `eaaf53d`, `docs/PAPER.md`,
@@ -887,6 +893,10 @@ Totals (E=8, S=40, H_f=48, H_s=24, V=16, A=9, C=4, M=8, wm=32):
 | **v4 full** | **27,756** | **+31.5%** |
 | v4 lean (H_f=40, H_s=20) | 22,976 | +8.9% |
 
+> These are the design-time estimates. The as-built numbers are in §9.6
+> (27,689 with the world model); the small difference is §9.1's move of the
+> memory compressor from the write side to the read side.
+
 Group breakdown of v4 full: GRU 15,120 (54%), dynamics 4,505 (16%), value
 2,098, state encoder 1,680, slow core 1,776, episodic memory 1,136, policy
 657, comm 292, attention 448, tile embed 40, drives 4.
@@ -1039,3 +1049,89 @@ v4.
   ecology, with the existing object packs.
 - It does not touch the DOI'd paper's numbers. v4 is a new architecture line;
   corrections are made by banner and new study, never by rewriting history.
+
+---
+
+## 9. As built — where the code differs from §4
+
+§4 is the design as reviewed. Five things changed while building it; each is
+a correction, not a compromise, and each is locked by a test.
+
+### 9.1 A memory slot stores the raw latent, not a compressed one
+
+§4.4 had a write-time compressor `w = tanh(W_c [s || e] + b_c)` into `R^8`.
+The as-built slot stores the **uncompressed** `z_pre = [s || e]` (48 dims) and
+the token embedding does the compression on the read side:
+`mem.Wtok: (52, E)` over `[ z_pre | d_right | d_ahead | salience | age ]`.
+
+Why: with a write-side compressor the only gradient path to `W_c` runs
+through a slot written many ticks ago, which is either a very deep graph or
+(if detached, as it must be for replay) no gradient at all. Moving the
+projection to the read side means every parameter in the memory subsystem
+gets gradient on every step from the slot contents it is reading *now*. Slot
+*contents* remain a stop-gradient record — memory is what happened, not a
+second path for the encoder's gradient.
+
+Cost: the memory subsystem is 1,064 genome parameters, and a slot is 52
+floats of runtime state.
+
+### 9.2 Concatenation order is chosen for the migration, not for readability
+
+The critic reads `[ z_pre | h_fast | memory_read | h_slow ]` and the dynamics
+head reads `[ h_fast | onehot(a) | h_slow ]` — not the natural `[z | core]`
+and `[core | onehot]`.
+
+Why: `migrate_genome` is a **top-left copy**. If a block grows in the
+*middle* of a concatenation, a v3.5 genome's rows land on the wrong inputs
+and the migration is silently wrong rather than loudly broken. Both new
+blocks (the memory read, the slow core) therefore sit at the end of every
+concatenation they join. `test_v35_genome_migrates_to_v4_with_identical_behaviour`
+is what caught this, and is what keeps it fixed.
+
+### 9.3 A write needs a margin, or the memory is just a short GRU
+
+§4.4's rule was "write when this step's salience beats the weakest slot".
+Under the `drives` reward the homeostatic term is small but **never exactly
+zero**, so that rule fires every single tick and the eight slots end up
+holding the last eight ticks — which is what the GRU is already for. The
+as-built rule requires `salience > 1.5 x weakest`, which (with the 0.999
+per-tick salience decay) means the slots settle after the initial fill and
+only a genuinely more salient event displaces one.
+
+### 9.4 Path integration follows the outcome, so `moved` is plumbed through
+
+A blocked `MOVE_FORWARD` must not shift every stored displacement by a tile.
+That means the replay needs to know whether each logged move *succeeded*, so
+`SequenceChunk` gains a `moved` array and `store_step` a `moved` argument.
+`test_replay_of_a_chunk_without_memory_signals_would_diverge` is the control
+that shows this matters: withhold `moved` and the replayed critic values
+diverge from what the agent actually computed.
+
+### 9.5 `beta` lives with the drive weights
+
+§4.3 and §4.5 described `beta` and `lambda` as separate genome scalars. They
+are one tensor, `drive.lam` of width 5: four drive weights plus `beta_raw`,
+with `beta = sigmoid(beta_raw)`. The prior sets `beta_raw = -4`
+(`beta ~ 0.018`), so a migrated genome behaves as v3.5 did until selection
+finds a use for the long-horizon head. Drive weights are clipped to
+`[-4, 4]` at read time: mutation is unbounded, and an agent whose curiosity
+weight random-walked to 1e3 would not be exploring, it would be diverging.
+
+### 9.6 Final sizes
+
+| Build | Params | vs v3.5 + world model |
+|---|---|---|
+| v3.5 | 17,626 | — |
+| v3.5 + world model | 21,099 | baseline |
+| v4 | 23,183 | +9.9% |
+| **v4 + world model** | **27,689** | **+31.2%** |
+
+Observation v4 is 91 dims (78 + kin + 2x4 comm + 4 tag); the state encoder
+grows 28 → 41 inputs. The packed recurrent state is
+`48 (fast) + 24 (slow) + 8 x 52 (slots) = 488` floats — runtime state, not
+genome, so `brain.v4.memory_slots` can be changed or zeroed without touching
+the genome length.
+
+Measured cost: ~4 min per 1,000 ticks at 30 agents on one core, against
+~50 s for v3.5 — roughly 5x, from `seq_len` 8 → 32, the second attention
+pool, the empowerment term and the multi-step world-model loss.

@@ -691,7 +691,7 @@ add `--save-state run.pkl` and open it with
 > **[BRAIN_V3_PROPOSAL.md §9](docs/BRAIN_V3_PROPOSAL.md)**, and it is now
 > **absorbed into the Brain v4 proposal** (§4.7) rather than shipped alone.
 >
-> **▶ Brain v4 — proposed, not built.** A 24-run baseline campaign
+> **▶ Brain v4 — BUILT (`brain.version: 4`).** A 24-run baseline campaign
 > ([docs/sample_v35_emergence_baseline/](docs/sample_v35_emergence_baseline/))
 > measures what the shipped brain actually does: 75–96% of all behaviour is
 > one of the five always-legal actions, `SIGNAL` (the cheapest action in the
@@ -702,7 +702,11 @@ add `--save-state run.pkl` and open it with
 > hand-written objective, add a slow recurrent state with **evolved time
 > constants**, a dual-discount critic, an episodic place memory with exact
 > path integration, and a **drive basis whose weights live in the genome** —
-> is in **[BRAIN_V4_PROPOSAL.md](docs/BRAIN_V4_PROPOSAL.md)**.
+> is in **[BRAIN_V4_PROPOSAL.md](docs/BRAIN_V4_PROPOSAL.md)** (§9 documents the
+> as-built code, §10 the validation campaign). Run it with
+> `python main.py --no-viz --config config/v4_full.yaml --mode rl`; the
+> scoring-only half is `config/v4_baseline.yaml`. v3/v3.5 genomes migrate in
+> and behave identically until selection finds the new wires.
 
 #### v3 size presets — small / base / large
 

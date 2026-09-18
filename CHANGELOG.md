@@ -1,5 +1,83 @@
 # Changelog
 
+## [Unreleased] — Brain v4: multi-timescale memory, place memory, evolved drives
+
+A 24-run baseline campaign (`docs/sample_v35_emergence_baseline/`, 3 simulation
+types x 2 evolution modes x 4 seeds) measured what the shipped v3.5 system
+actually does, with a new instrument (`scripts/analyze_emergence.py`) that
+pairs every behavioural claim with a null model:
+
+- **75-96% of all behaviour is one of the five always-legal actions.**
+- **`SIGNAL` costs 0.12 energy — less than `WAIT` (0.18) — always succeeds and
+  has no reward term. The population spends 26-55% of its life on it**, and the
+  effect is *strongest under pure neuroevolution*, where no reward function
+  exists at all (the ecology arm grows 41% → 59% across the run). A property of
+  the action-cost table, not of reward shaping or PPO.
+- **Planting pays the planter nothing**: a planted tile is harvested by its
+  planter at fruit-bearing latency (≥160 ticks) 4-21% of the time, against
+  26-63% for a tile the population merely walked on. Arithmetic: BPTT is 8
+  ticks and `0.95^160 = 2.6e-4`, so cultivation has no gradient path at all.
+- `role_MI` beats its shuffled null by 3-5x (individual differentiation is
+  real), but territory overlap is 1-2% and agents see 22-102 tiles of a
+  4,096-9,216-tile world (spatial structure is not).
+
+Design and full diagnosis: **`docs/BRAIN_V4_PROPOSAL.md`**.
+
+### V4.0 — scoring integrity (`agents/scoring.py`, `config/v4_baseline.yaml`)
+
+Two config-gated models, both defaulting to the legacy behaviour so existing
+configs are bit-unchanged:
+
+- `reward.action_cost_model: flat` — an action costs a constant of the action
+  plus whatever the *world* charges (slope climb, hazard contact). The
+  escalating turn/wait costs and the turn→move discount in
+  `Agent.execute_action` are skipped. The table asserts its own invariant at
+  import: **no always-legal action may be cheaper than `WAIT`**.
+- `evolution.fitness_model: reproduction` — fitness is offspring that
+  themselves reached reproductive age, plus a small lifespan tiebreak. The
+  per-action `+0.1/-0.05`, the death penalty and `BestAgentTracker`'s
+  age/energy/generation bonuses are all skipped.
+- `SIGNAL`'s cost moves out of the executor onto the world
+  (`signal.energy_cost`, default 0.12 = unchanged).
+
+### V4.1-V4.4 — the architecture (`brain.version: 4`)
+
+One batched, append-only genome break. A v3 or v3.5 genome migrates in and
+behaves identically to float tolerance.
+
+- **Observation v4 (91 dims)**, append-only over v2 (0..77 byte-identical):
+  `nearest_agent_kin` (78), 4-channel communication mean/max (79..86), the
+  nearest agent's identity tag (87..90). The kin sense is **Brain v3.6 §9.4,
+  finally shipped**: `f = normalize(P w)` at birth, `kin = (f·f' + 1)/2`.
+- **Slow leaky core with evolved time constants** — 24 units with
+  `alpha = sigmoid(rho)`, `rho` in the genome, prior a geometric ladder over
+  2..512 ticks. Gradient decays as `exp(-k/tau)` instead of `~2^-k`, so a
+  `tau = 300` unit carries 0.59 of the gradient across the ~160 ticks from
+  seed to fruit. The population evolves its own memory horizons.
+- **Episodic place memory** — 8 slots (latent snapshot, egocentric
+  displacement, salience, age) read by a second attention pool. Path
+  integration is exact integer arithmetic on the 4-heading grid and follows
+  the move *outcome*, so a blocked move does not shift stored places.
+- **Dual-discount critic** — one value MLP, two outputs (γ 0.95 / 0.999), each
+  with its own GAE, mixed by `beta = sigmoid(beta_raw)` from the genome, with
+  per-head return scaling.
+- **Evolved intrinsic motivation** (`reward.preset: drives`) —
+  `r = lambda · (homeostasis, empowerment, curiosity, social)` with `lambda`
+  **in the genome**. Homeostasis is potential-based, so by Ng, Harada & Russell
+  (1999) it provably does not distort the optimal policy; empowerment is the
+  across-action variance of the predicted next latent; the social weight is
+  deliberately unsigned (altruism, spite and indifference are all reachable).
+- **Costly vector signalling** — `SIGNAL` emits `tanh(core W_u + b_u)` into a
+  C-channel field and pays `signal_cost + amplitude_cost · ||u||_1`.
+- `seq_len` 8 → 32 (`batch_size` 8 → 4). PPO replays the packed state
+  `[h_fast | h_slow | slots]` and re-derives the memory from the chunk's
+  actions, rewards and move outcomes, so a replayed trajectory is the one the
+  agent actually had — asserted step for step in `tests/test_ppo_v4.py`.
+
+Sizes: v4 23,183 params (27,689 with the world model) vs v3.5's 17,626 /
+21,099. `config/v4_full.yaml` runs it; `brain.v4.memory_slots: 0` and
+`signal.channels: 1` ablate components without a genome change.
+
 ## [Unreleased] — readiness gate measured downstream (does not rescue CEM+imagination)
 
 A/B of the M2 readiness gate at the sweep's exact conditions
