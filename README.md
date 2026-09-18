@@ -703,7 +703,17 @@ add `--save-state run.pkl` and open it with
 > constants**, a dual-discount critic, an episodic place memory with exact
 > path integration, and a **drive basis whose weights live in the genome** —
 > is in **[BRAIN_V4_PROPOSAL.md](docs/BRAIN_V4_PROPOSAL.md)** (§9 documents the
-> as-built code, §10 the validation campaign). Run it with
+> as-built code, §10 the validation campaign).
+>
+> **▶ And v4 loses.** A 12-run ladder
+> ([docs/sample_v4_ladder/](docs/sample_v4_ladder/)) finds v4 flat or worse
+> than v3.5 on every pre-registered metric, with the **episodic place memory
+> specifically harmful**: ablating it (same genome length) improves eating,
+> lifespan and behavioural diversity, and cuts the world model's open-loop
+> error from 4.02 ± 2.2 to 1.18 ± 1.1. The memory read is a *discontinuous*
+> part of the latent the dynamics head must predict. `brain.version: 3.5`
+> remains the recommended architecture; run v4 with
+> `brain.v4.memory_slots: 0`. Run it with
 > `python main.py --no-viz --config config/v4_full.yaml --mode rl`; the
 > scoring-only half is `config/v4_baseline.yaml`. v3/v3.5 genomes migrate in
 > and behave identically until selection finds the new wires.

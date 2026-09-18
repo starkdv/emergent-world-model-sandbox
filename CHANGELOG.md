@@ -78,6 +78,45 @@ Sizes: v4 23,183 params (27,689 with the world model) vs v3.5's 17,626 /
 21,099. `config/v4_full.yaml` runs it; `brain.v4.memory_slots: 0` and
 `signal.channels: 1` ablate components without a genome change.
 
+### Validation — v4 LOSES to v3.5 (`docs/sample_v4_ladder/`, 12 runs)
+
+3 arms x 4 seeds x 5,000 ticks, same world as the baseline's arm B.
+
+- **V4.0 is a null result and refutes the L2 diagnosis.** Making `SIGNAL`
+  cost the same as `WAIT` does NOT collapse the always-valid-action
+  attractor: 31.0 → 28.6% SIGNAL, with the always-valid share *rising*
+  93.2 → 95.3%. Per-seed spread is 19.0 / 33.3 / 49.4 / 12.6% — the spread is
+  the result. Removing the shaping and the instincts costs foraging
+  (1.24 → 0.95 eats/agent/1k) and planting (1.33 → 0.29) and leaves survival
+  flat. Prediction P4's first half fails; its second half holds.
+- **The architecture does not deliver its two headline predictions.**
+  Return-to-patch index 1.30 ± 0.11 against v3.5's 1.30 ± 0.03 (P3 fails);
+  plant→self-harvest at maturity latency 0.118 ± 0.10 against a matched null
+  of 0.347 ± 0.18, still below the null (P2 fails). Both falsifiers stated in
+  the proposal are met.
+- **The episodic place memory is the component that hurts.** The
+  `memory_slots: 0` ablation, at identical genome length, beats the full
+  build on eats (1.24 vs 0.69), lifespan (607 vs 557), trigram entropy (5.14
+  vs 4.82) and SIGNAL share (12.1 vs 25.2%). Mechanism: `wm_rollout_error`
+  4.02 ± 2.2 vs 1.18 ± 1.1, and across all 8 v4 runs
+  `corr(wm_rollout_error, eats) = -0.74`. The memory read is part of the
+  latent the dynamics head must predict and it is **discontinuous** — a slot
+  write replaces 48 dimensions in one tick — so the world model is regressing
+  onto steps it cannot anticipate, and the empowerment drive, the multi-step
+  loss and curiosity all degrade with it. Fix (a new study, not a patch):
+  keep the memory read out of the dynamics head's target.
+- **Recommended defaults unchanged**: `brain.version: 3.5` stays the
+  recommended architecture; run v4 with `memory_slots: 0`.
+- **Not concluded**: that the slow core, dual-discount critic, evolved drives
+  or comm channel fail (only the memory is ablation-isolated), or that v4
+  cannot work — 5,000 ticks is ~5 lifetimes for a model with 31% more
+  parameters and 512-tick time constants, and undertraining is the prime
+  suspect.
+
+A first pass of this campaign ran on a learner with a return-scaling bug and
+reported v4.0 *improving* survival and halving signal-spam. That data was
+discarded and the campaign re-run; see BRAIN_V4_PROPOSAL.md §10.6.
+
 ## [Unreleased] — readiness gate measured downstream (does not rescue CEM+imagination)
 
 A/B of the M2 readiness gate at the sweep's exact conditions

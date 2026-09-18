@@ -1,8 +1,28 @@
 # Brain v4 — architecture proposal for emergent behaviour
 
-**Status: IMPLEMENTED.** §4 is built and shipping; §9 below documents what
-changed between the design and the as-built code, and §10 reports the
-validation campaign. Brain v3.6 (`BRAIN_V3_PROPOSAL.md` §9) is *absorbed*
+> ### ⚠ Correction banner — read §10 before §3
+>
+> The validation campaign (§10, `docs/sample_v4_ladder/`) **refutes two
+> claims made below and supports none of the three architectural
+> predictions**:
+>
+> - **§3 L2 is wrong.** Making `SIGNAL` cost the same as `WAIT` does *not*
+>   collapse the always-valid-action attractor (31.0 → 28.6%, share of
+>   always-valid actions *rises*). Action costs are not what decides this
+>   behaviour. **Prediction P4's first half fails**; its second half
+>   ("survival gets worse") holds.
+> - **Predictions P2 (cultivation) and P3 (return-to-patch) fail.** Both
+>   metrics are flat against v3.5.
+> - **The episodic place memory of §4.4 is actively harmful** at this budget,
+>   and §10.3 gives a mechanism.
+>
+> Nothing below is edited away — corrections are made by banner and new
+> study, not by rewriting history. §3's other limits (L1, L3, L4, L6, L7)
+> are untested by this campaign, not confirmed by it.
+
+**Status: IMPLEMENTED, NOT VALIDATED.** §4 is built and shipping; §9
+documents what changed between the design and the as-built code, and §10
+reports the validation campaign, which v4 loses. Brain v3.6 (`BRAIN_V3_PROPOSAL.md` §9) is *absorbed*
 into v4 (§4.7) rather than skipped, and finally exists in code.
 
 - **V4.0** (scoring integrity) — `agents/scoring.py`, `config/v4_baseline.yaml`
@@ -1145,3 +1165,119 @@ the genome length.
 Measured cost: ~4 min per 1,000 ticks at 30 agents on one core, against
 ~50 s for v3.5 — roughly 5x, from `seq_len` 8 → 32, the second attention
 pool, the empowerment term and the multi-step world-model loss.
+
+---
+
+## 10. Validation — Brain v4 loses to Brain v3.5
+
+**12 runs: 3 arms x 4 seeds x 5,000 ticks.** Full data, per-seed numbers and
+caveats in `docs/sample_v4_ladder/`. The world is identical to arm B of the
+v3.5 baseline, so the ladder moves one group of knobs at a time.
+
+| metric | v3.5 B/rl | V4.0 scoring | v4 full | v4 no-memory |
+|---|---|---|---|---|
+| SIGNAL share % | 31.0 ± 10 | 28.6 ± 14 | 25.2 ± 10 | **12.1 ± 3.2** |
+| always-valid share % | 93.2 ± 5.1 | 95.3 ± 4.3 | 96.2 ± 3.3 | 92.5 ± 6.0 |
+| eats/agent/1k | **1.24 ± 0.41** | 0.95 ± 0.80 | 0.69 ± 0.69 | **1.24 ± 0.73** |
+| trigram entropy | **5.79 ± 0.60** | 5.64 ± 0.91 | 4.82 ± 1.2 | 5.14 ± 0.50 |
+| agents collapsed | 0.58 ± 0.15 | 0.56 ± 0.18 | 0.64 ± 0.19 | 0.69 ± 0.08 |
+| **E1 patch-return index** | 1.30 ± 0.03 | 1.33 ± 0.07 | **1.30 ± 0.11** | 1.26 ± 0.09 |
+| **E2 plant→self @≥160** | 0.21 ± 0.04 | 0.20 ± 0.08 | **0.12 ± 0.10** | 0.10 ± 0.04 |
+| E2 matched null | 0.59 ± 0.14 | 0.41 ± 0.11 | 0.35 ± 0.18 | 0.48 ± 0.13 |
+| mean lifespan | **625 ± 22** | 609 ± 42 | 557 ± 69 | 607 ± 35 |
+| `wm_rollout_error` | — | — | **4.02 ± 2.2** | **1.18 ± 1.1** |
+
+### 10.1 V4.0 is a null result, and L2 is wrong
+
+§3's L2 blamed the always-valid-action attractor on the cost inversion
+(`SIGNAL` 0.12 < `WAIT` 0.18) and P4 predicted cost parity would collapse it.
+It does not: **31.0 → 28.6% SIGNAL, with the always-valid share rising
+93.2 → 95.3%.** Per-seed SIGNAL share under V4.0 is 19.0 / 33.3 / 49.4 /
+12.6% — the spread is the result, not the mean.
+
+The better explanation on this evidence: under the `minimal` diet with
+instincts off there is **almost no gradient signal at all** (`EAT` is 0.7% of
+steps), so each seed drifts into whatever attractor it finds first. The
+action-cost table sets *which* filler action is cheapest; it does not decide
+*that* the policy fills. Removing the hand-written objective cost foraging
+(1.24 → 0.95) and planting (1.33 → 0.29) and left survival flat.
+
+P4's second half — "survival gets worse, and that is the point" — holds.
+
+### 10.2 The architecture does not deliver P2 or P3
+
+`v4_full` is flat on both metrics it was built for and worse on the rest:
+
+- **P3 / E1 (return to a known patch)**: 1.30 ± 0.11, against v3.5's
+  1.30 ± 0.03. §4.4's episodic place memory changes nothing. Its stated
+  falsifier — "if the index and `tiles_per_agent` do not rise above baseline,
+  the slots are not carrying place information and §4.4 is wasted
+  parameters" — is met.
+- **P2 / E2 (cultivation with intent)**: plant→self-harvest at maturity
+  latency 0.118 ± 0.10 against a matched null of 0.347 ± 0.18 — still below
+  the null. §4.3's falsifier — "if it does not rise above the null, delayed
+  credit assignment is not the binding constraint" — is met.
+
+### 10.3 The episodic place memory is the component that hurts
+
+`v4_nomem` is `v4_full` with `brain.v4.memory_slots: 0`, same genome length,
+and it is better on nearly everything: eats 1.24 vs 0.69, lifespan 607 vs
+557, trigram entropy 5.14 vs 4.82, SIGNAL share 12.1 vs 25.2%.
+
+The mechanism is visible in the world model. Per-seed `wm_rollout_error`:
+
+```
+  v4 full     5.93  0.23  5.36  4.57      3 of 4 seeds above 2.0
+  v4 no-mem   0.53  0.34  0.73  3.14      1 of 4 seeds above 2.0
+```
+
+and across all 8 v4 runs `corr(wm_rollout_error, eats/agent/1k) = -0.74`,
+`corr(wm_rollout_error, lifespan) = -0.64`.
+
+**The design flaw**: the memory read is part of the latent
+`z = [s ‖ vision ‖ memory]` that the dynamics head must predict, and it is
+**discontinuous** — a slot write replaces 48 of its dimensions in one tick.
+The world model is regressing onto a signal with step changes it cannot
+anticipate; its open-loop error blows up; and everything downstream of it
+degrades with it — the empowerment drive (§4.5b), the multi-step consistency
+loss (M3) and the curiosity term all read that model.
+
+The fix is to keep the memory read **out of the dynamics head's prediction
+target** — predict `z_pre` only, while the policy and critic keep reading the
+full `z`. That decouples the two and is a width change to `dyn.Wz`. It is a
+new study with its own 4-seed ladder, not a patch to this one.
+
+### 10.4 What is not concluded
+
+- **Not** that the slow core, the dual-discount critic, the evolved drives or
+  the costly comm channel fail. Only the episodic memory is isolated by an
+  ablation here; everything else moves as a bundle.
+- **Not** that v4 cannot work. 5,000 ticks is ~5 agent lifetimes against a
+  model with 31% more parameters, time constants reaching 512 ticks and a
+  32-step BPTT window. Undertraining is the prime suspect and this campaign
+  cannot rule it out.
+- **Not** an effect size. Every SD here is large relative to its mean.
+
+### 10.5 Recommended defaults, on this evidence
+
+| | |
+|---|---|
+| Recommended architecture | **`brain.version: 3.5`** — v4 is available and correct, not yet better |
+| If running v4 | **`brain.v4.memory_slots: 0`** until §10.3's latent discontinuity is fixed |
+| For emergence work | the V4.0 scoring knobs remain the honest baseline — they cost performance, which was always their point — but they do **not** fix the always-valid-action attractor and must not be sold as doing so |
+
+### 10.6 The methodological note worth keeping
+
+A first pass of this campaign ran on a learner with a return-scaling bug: the
+critic was trained on targets divided by a running percentile spread while
+GAE read its raw output, so the advantage mixed unscaled rewards with scaled
+values (§9.6). That run reported V4.0 *improving* survival (lifespan 690 vs
+625) and *halving* signal-spam (16.3%) — a clean, plausible, and entirely
+false result, which on correct code became a null (609, 28.6%). The data was
+discarded and the campaign re-run from scratch.
+
+It is worth recording because the bug was invisible to every test: the
+learner converged, the losses were finite, nothing crashed. Only re-reading
+the advantage arithmetic found it. A negative result that replicates is worth
+more than a positive one that does not, and this repository has now been
+saved from publishing the latter twice.
