@@ -1,0 +1,2 @@
+generation,tick,alive_agents,total_food,total_plants,total_seeds,mean_energy,mean_age,max_age,mean_fitness,avg_fertility,avg_moisture,wm_rollout_error,max_generation,mean_generation,lineages,birth_subsidy,eats_per_agent_per_1k,energy_income_per_tick,energy_burn_per_tick,energy_ratio,body_size_mean,body_size_sd,body_size_bc,visual_acuity_mean,visual_acuity_sd,visual_acuity_bc,diet_mean,diet_sd,diet_bc
+1,1000,40,370,223,616,128.109,133.85,247,26.887,0.9222,0.0589,,14,11.4,2,0.6667,7.35,27.6665,12.0968,2.2871,0.957,0.1259,0.2412,1.2016,0.1657,0.6724,0.3862,0.0742,0.4532
