@@ -9,11 +9,15 @@
   collision; **Part 2 shipped the Observation-v2 input block + the SIGNAL
   action / pheromone field** (`brain.version: 3.5`). See ../CHANGELOG.md
   ("Phase W4") and §8 below, which now documents the *as-built* design.
-- **v3.6 — DESIGNED & OPEN (the next item taken up)** — the kin-similarity
-  sense / Observation v3, deferred from World-upgrade **W5**. A single
-  append-only input feature — `nearest_agent_kin` — bundled as the next batched
-  genome bump rather than slipped in mid-cycle. **This is the current open
-  work item.** Full design in **§9**; tracked in
+- **v3.6 — DESIGNED, NOT BUILT; now absorbed into Brain v4.** Its design
+  (§9) stands unchanged and is adopted verbatim as §4.7 of
+  **[BRAIN_V4_PROPOSAL.md](BRAIN_V4_PROPOSAL.md)**, which batches it with the
+  rest of the v4 observation break instead of shipping a genome bump for one
+  scalar. Read §9 for the mechanism; read the v4 proposal for when it lands.
+  It is the kin-similarity sense / Observation v3, deferred from
+  World-upgrade **W5**: a single append-only input feature —
+  `nearest_agent_kin` — batched into a named genome bump rather than slipped
+  in mid-cycle. Full design in **§9**; tracked in
   `WORLD_UPGRADE_PROPOSAL.md` (W5 "Deferred").
 
 **Scope:** `agents/brain.py`, `utils/agents/brain_utils.py`, `agents/learning.py`,
@@ -563,11 +567,13 @@ are both met.
 
 ## 9. Brain v3.6 — the kin-similarity sense (Observation v3, World phase W5)
 
-> **Status: DESIGNED & OPEN — the next work item.** This section is a
+> **Status: DESIGNED, NOT BUILT — now adopted verbatim as §4.7 of
+> [BRAIN_V4_PROPOSAL.md](BRAIN_V4_PROPOSAL.md).** This section is a
 > *proposal* in the same sense §3 was a proposal before v3 shipped: it
-> documents the next batched genome bump so it is on record, reviewable, and
-> ready to build. No code for it exists yet — it is **explicitly the open item
-> taken up next**. W5 shipped its non-genome half (inventory transfer + the
+> documents the mechanism so it is on record, reviewable, and ready to build.
+> No code for it exists yet. It ships with the v4 observation break rather
+> than as a standalone genome bump for one scalar; nothing about the design
+> below changes. W5 shipped its non-genome half (inventory transfer + the
 > SOCIETY/ROLES analyzer); the genome-touching half — a kin sense — is this
 > Brain v3.6.
 
