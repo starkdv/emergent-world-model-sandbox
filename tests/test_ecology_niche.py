@@ -335,3 +335,95 @@ class TestWorldGrowth:
         world = self._world()
         assert world.grow(0) is False
         assert (world.width, world.height) == (24, 24)
+
+
+# --- trait heritability ---------------------------------------------------
+
+
+class TestTraitMutation:
+    """
+    Traits must be able to change across generations, or every niche axis is
+    inert. clone_agent mutates weights only; without mutate_genome_traits the
+    in-world reproduction path freezes traits per lineage, and a selective
+    sweep to one lineage then pins trait variance at exactly zero forever.
+    """
+
+    def _genome(self):
+        from agents.genome import Genome, create_default_trait_config
+
+        ecology.set_active_ecology(EcologyConfig(enabled=True))
+        np.random.seed(3)
+        return Genome.random(16, create_default_trait_config())
+
+    def test_zero_std_is_a_no_op(self):
+        from agents.evolution import mutate_genome_traits
+
+        genome = self._genome()
+        before = dict(genome.traits)
+        mutate_genome_traits(genome, 0.0)
+        assert genome.traits == before
+
+    def test_mutation_moves_traits_and_respects_bounds(self):
+        from agents.evolution import mutate_genome_traits
+
+        genome = self._genome()
+        before = dict(genome.traits)
+        for _ in range(50):
+            mutate_genome_traits(genome, 0.2)
+        assert genome.traits != before
+        for name, (lo, hi) in ecology.TRAIT_RANGES.items():
+            assert lo <= genome.traits[name] <= hi, name
+        assert 0.5 <= genome.traits["metabolism_rate"] <= 2.0
+
+    def test_trait_variance_survives_a_lineage_sweep(self):
+        """
+        The measurement that motivated the fix: clone a single founder many
+        times and check the descendants are not all identical.
+        """
+        from agents.agent import Agent
+        from agents.brain import Brain
+        from agents.evolution import clone_agent
+        from agents.genome import Genome, create_default_trait_config
+
+        ecology.set_active_ecology(EcologyConfig(enabled=True))
+        np.random.seed(4)
+        genome = Genome.random(
+            weight_count=Brain.calculate_weight_count(),
+            trait_config=create_default_trait_config(),
+        )
+        founder = Agent(x=0, y=0, genome=genome)
+
+        frozen = [
+            clone_agent(founder, mutate=True, mutation_std=0.02) for _ in range(20)
+        ]
+        assert (
+            len({round(a.traits["diet"], 6) for a in frozen}) == 1
+        ), "without trait mutation a lineage is phenotypically frozen"
+
+        varied = [
+            clone_agent(
+                founder, mutate=True, mutation_std=0.02, trait_mutation_std=0.05
+            )
+            for _ in range(20)
+        ]
+        assert len({round(a.traits["diet"], 6) for a in varied}) > 10
+        assert np.std([a.traits["body_size"] for a in varied]) > 0.0
+
+    def test_agent_traits_track_the_mutated_genome(self):
+        """The phenotype the agent uses must match its mutated genome."""
+        from agents.agent import Agent
+        from agents.brain import Brain
+        from agents.evolution import clone_agent
+        from agents.genome import Genome, create_default_trait_config
+
+        ecology.set_active_ecology(EcologyConfig(enabled=True))
+        np.random.seed(5)
+        genome = Genome.random(
+            weight_count=Brain.calculate_weight_count(),
+            trait_config=create_default_trait_config(),
+        )
+        parent = Agent(x=0, y=0, genome=genome)
+        child = clone_agent(
+            parent, mutate=True, mutation_std=0.02, trait_mutation_std=0.1
+        )
+        assert child.traits == child.genome.traits

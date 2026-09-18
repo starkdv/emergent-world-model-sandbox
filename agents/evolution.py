@@ -85,8 +85,46 @@ def select_parents(population: List[Agent], config: EvolutionConfig) -> List[Age
     return sorted_agents[: config.parent_count]
 
 
+def mutate_genome_traits(genome: Genome, std: float = 0.0) -> None:
+    """
+    Apply Gaussian mutation to the genome's phenotypic traits.
+
+    Without this, ``clone_agent`` mutates **weights only** -- traits are
+    deep-copied unchanged -- so on the in-world reproduction path that
+    ``main.py`` actually uses, phenotypic traits never mutate at all. They are
+    drawn once at founding and then frozen per lineage. Once a selective sweep
+    takes the population to a single lineage (measured: ``lineages = 1`` in
+    every arm of the ecology campaign), trait variance is exactly zero forever
+    and trait evolution is structurally impossible.
+
+    The ``evolution.trait_mutation_std`` knob that every shipped config carries
+    feeds only ``Genome.mate``, which the live simulation never calls.
+
+    Args:
+        genome: Genome whose traits to mutate, in place
+        std: Standard deviation of the Gaussian perturbation (0 = no-op)
+    """
+    if std <= 0.0:
+        return
+    from agents import ecology
+
+    for name in list(genome.traits.keys()):
+        genome.traits[name] = float(genome.traits[name] + np.random.randn() * std)
+    # Legacy trait ranges, then the niche-trait ranges
+    genome.traits["metabolism_rate"] = float(
+        np.clip(genome.traits.get("metabolism_rate", 1.0), 0.5, 2.0)
+    )
+    genome.traits["vision_radius"] = float(
+        np.clip(genome.traits.get("vision_radius", 5.0), 2.0, 10.0)
+    )
+    ecology.clamp_traits(genome.traits)
+
+
 def clone_agent(
-    parent: Agent, mutate: bool = False, mutation_std: float = 0.02
+    parent: Agent,
+    mutate: bool = False,
+    mutation_std: float = 0.02,
+    trait_mutation_std: float = 0.0,
 ) -> Agent:
     """
     Create offspring by cloning parent agent.
@@ -148,6 +186,11 @@ def clone_agent(
     # Apply mutation if requested
     if mutate:
         mutate_genome_weights(child.genome, mutation_std)
+        # Traits are heritable phenotype, not decoration: without this they
+        # are frozen for the lifetime of a lineage (see mutate_genome_traits).
+        if trait_mutation_std > 0.0:
+            mutate_genome_traits(child.genome, trait_mutation_std)
+            child.traits = child.genome.traits.copy()
         # Re-bind brain parameter views to the mutated genome
         # (architecture-agnostic: works for Brain v2 and v3)
         child.brain.rebind(child.genome)

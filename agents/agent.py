@@ -935,15 +935,25 @@ class Agent:
         if config is None:
             energy_split = 0.6
             mutation_std = 0.02
+            trait_mutation_std = 0.0
         else:
             energy_split = config.get("energy_split", 0.6)
             mutation_std = config.get("mutation_std", 0.02)
+            # Phenotypic traits only mutate if asked to. Default 0 keeps
+            # existing configs bit-identical, but it means traits are frozen
+            # per lineage -- see agents/evolution.mutate_genome_traits.
+            trait_mutation_std = config.get("trait_mutation_std", 0.0)
 
         # Import here to avoid circular dependency
         from agents.evolution import clone_agent
 
         # Create offspring using evolution system
-        offspring = clone_agent(parent=self, mutate=True, mutation_std=mutation_std)
+        offspring = clone_agent(
+            parent=self,
+            mutate=True,
+            mutation_std=mutation_std,
+            trait_mutation_std=trait_mutation_std,
+        )
 
         # Give offspring FULL energy for best survival chance
         # Parent loses energy based on split ratio
