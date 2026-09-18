@@ -193,6 +193,17 @@ def _encode_vision(agent: "Agent", world: "World") -> list[float]:
             features.append(t_enc)
             features.append(v_enc)
 
+    # Visual acuity (agents/ecology.py): a tile at Chebyshev distance r is
+    # attenuated by 1/(1 + (r/R)^4). Sharp-eyed agents see the whole window
+    # and pay k*R^2 per tick for it; dim-eyed agents are cheap and half-blind.
+    # The rolloff is smooth on purpose — the v4 ladder measured what a
+    # discontinuity in the world model's prediction target costs.
+    weights = getattr(agent, "acuity_weights", None)
+    if weights is not None:
+        for i, w in enumerate(weights):
+            features[2 * i] *= w
+            features[2 * i + 1] *= w
+
     return features
 
 

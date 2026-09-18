@@ -217,6 +217,10 @@ def session_from_config(
 
     set_active_scoring_config(ScoringConfig.from_config(config))
 
+    from agents.ecology import EcologyConfig, set_active_ecology
+
+    set_active_ecology(EcologyConfig.from_config(config))
+
     world = World(
         width=wcfg.get("width", 100),
         height=wcfg.get("height", 100),

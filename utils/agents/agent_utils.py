@@ -9,6 +9,8 @@ Date: February 14, 2026
 """
 
 import numpy as np
+
+from agents import ecology
 import random
 from typing import TYPE_CHECKING
 
@@ -267,7 +269,7 @@ def execute_move_forward(agent: "Agent", world: "World") -> ActionResult:
     # elevation gained. Flat terrain (legacy) → no change.
     src = world.tiles[agent.y][agent.x]
     climb = dest.elevation - src.elevation
-    energy_cost = 0.20
+    energy_cost = 0.20 * ecology.movement_cost_multiplier(getattr(agent, "traits", {}))
     if climb > 0.0:
         energy_cost += SLOPE_CLIMB_COST * climb
 
@@ -475,7 +477,16 @@ def execute_eat(agent: "Agent", world: "World") -> ActionResult:
         edible = obj.get_component(EdibleComponent)
         if edible is not None:
             # Net energy: calories minus a toxicity penalty (W3)
-            gain = edible.calories * edible.freshness
+            # Assimilation: how much of this species' calories THIS agent can
+            # extract, from the Gaussian diet kernel (agents/ecology.py). Eating
+            # depletes food locally, so a shared diet grazes out its own
+            # resource — negative frequency dependence, and the precondition
+            # for evolutionary branching in the diet trait.
+            species_id = getattr(obj, "type_id", "") or "food"
+            efficiency = ecology.assimilation_efficiency(
+                getattr(agent, "traits", {}), species_id
+            )
+            gain = edible.calories * edible.freshness * efficiency
             toxic_loss = edible.toxicity * edible.freshness * TOXICITY_DAMAGE
             energy_delta = gain - toxic_loss
             # Cap at max energy; net loss can drive energy below 0 (the death

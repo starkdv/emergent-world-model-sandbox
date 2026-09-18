@@ -121,6 +121,13 @@ class AgentLogger:
                 "vision_radius",
                 "generation",
                 "lineage_id",
+                # Niche traits (agents/ecology.py). Constant at their defaults
+                # when the ecology is off; the evolution instrument reads these
+                # to detect branching.
+                "body_size",
+                "visual_acuity",
+                "diet",
+                "offspring_matured",
             ]
         )
         # Headers must be on disk immediately — consumers (tests, live
@@ -228,6 +235,10 @@ class AgentLogger:
                         agent.vision_radius,
                         agent.genome.generation,
                         agent.genome.lineage_id,
+                        round(float(agent.traits.get("body_size", 1.0)), 4),
+                        round(float(agent.traits.get("visual_acuity", 2.0)), 4),
+                        round(float(agent.traits.get("diet", 0.5)), 4),
+                        int(getattr(agent, "offspring_matured", 0)),
                     ]
                 )
             # State snapshots are low-volume and read while the run is

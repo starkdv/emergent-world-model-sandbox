@@ -19,6 +19,7 @@ from agents.actions import Action, ActionResult, DIRECTIONS
 from agents.brain import Brain, create_brain  # noqa: F401 (Brain re-exported)
 from agents.brain.instincts import InstinctModule
 from agents.genome import Genome
+from agents import ecology
 from utils.agents.learning_utils import get_active_reward_config
 from agents.scoring import (
     FLAT_ACTION_ENERGY_COST,
@@ -173,9 +174,24 @@ class Agent:
         # Previous tick's energy, for the v4 `social` drive (a neighbour's
         # energy delta is the only thing an agent can "care" about).
         self._energy_last_tick = self.energy
-        # Apply trait-based modifications
-        self.metabolism_rate = metabolism_rate * self.traits.get("metabolism_rate", 1.0)
+        # Apply trait-based modifications. Under the ecology (agents/ecology.py)
+        # body size sets storage linearly and basal burn as S^0.75 (Kleiber),
+        # so famine endurance E_max/B scales as S^0.25 while the energy needed
+        # to reach the reproduction threshold scales as S — the tradeoff that
+        # makes body size a real niche axis instead of a free lunch.
+        self.metabolism_rate = (
+            metabolism_rate
+            * self.traits.get("metabolism_rate", 1.0)
+            * ecology.metabolic_multiplier(self.traits)
+        )
+        self.max_energy = max_energy * ecology.capacity_multiplier(self.traits)
         self.vision_radius = int(self.traits.get("vision_radius", 5.0))
+        # Per-tile visibility weights for this agent's acuity; None = full sight.
+        self.acuity_weights = None
+        if ecology.get_active_ecology().enabled and ecology.get_active_ecology().acuity:
+            self.acuity_weights = ecology.acuity_attenuation(
+                2, ecology.visual_acuity(self.traits)
+            )
 
     def update(self, world: "World") -> None:
         """
@@ -204,6 +220,9 @@ class Agent:
         # when the environment engine is enabled — W1)
         energy_before = self.energy
         self.energy -= self.metabolism_rate * world.environment.metabolism_multiplier
+        # Eyes are expensive tissue, charged whether or not they are used:
+        # light gathering scales with aperture area, so the cost is k*R^2.
+        self.energy -= ecology.acuity_upkeep(self.traits)
 
         # Check for death conditions
         if self.energy <= 0 or self.age >= self.max_age:
@@ -920,7 +939,16 @@ class Agent:
         # Parent loses energy based on split ratio
         energy_cost = self.energy * energy_split
         self.energy -= energy_cost
-        offspring.energy = offspring.max_energy  # Start with FULL energy!
+        # Legacy: the offspring gets a free full tank, which CREATES ~82% of a
+        # tank of energy per birth and makes foraging skill nearly irrelevant
+        # to fitness. Under the ecology, it receives exactly what the parent
+        # gave up (see agents/ecology.offspring_starting_energy).
+        offspring.energy = ecology.offspring_starting_energy(
+            energy_cost,
+            offspring.max_energy,
+            offspring.max_energy,
+            int(getattr(world, "tick", 0)),
+        )
 
         # Find nearby empty position for offspring
         spawn_positions = [

@@ -295,6 +295,34 @@ Examples:
 
         _scoring_cfg = _ScoringConfig.from_config(config)
         _set_scoring_cfg(_scoring_cfg)
+
+        # Activate the ecological niche physics (agents/ecology.py). Default
+        # off, so existing configs are unchanged. When on, it gives body size,
+        # visual acuity and diet real costs, and closes the free-energy
+        # fountain at reproduction.
+        from agents.ecology import (
+            EcologyConfig as _EcologyConfig,
+            calibrate_species_chemistry as _calibrate_chemistry,
+            set_active_ecology as _set_ecology,
+        )
+
+        _eco_cfg = _EcologyConfig.from_config(config)
+        _set_ecology(_eco_cfg)
+        if _eco_cfg.enabled:
+            print(
+                "Ecology: ON ("
+                + ", ".join(
+                    n
+                    for n, on in (
+                        ("allometry", _eco_cfg.allometry),
+                        ("acuity", _eco_cfg.acuity),
+                        ("diet", _eco_cfg.diet),
+                        ("energy-conservation", _eco_cfg.energy_conservation),
+                    )
+                    if on
+                )
+                + ")"
+            )
         if _scoring_cfg.action_cost_model != "legacy":
             print(f"Action costs: {_scoring_cfg.action_cost_model.upper()}")
         if _scoring_cfg.fitness_model != "legacy":
@@ -411,6 +439,24 @@ Examples:
                     )
             else:
                 print(f"Warning: Objects file not found: {args.objects}")
+
+        # Calibrate the diet axis once the full object pack is registered, so
+        # the food species are spread evenly across the chemistry range
+        # whatever pack is in play (agents/ecology.calibrate_species_chemistry).
+        if _eco_cfg.enabled and _eco_cfg.diet:
+            _edible_ids = [
+                type_id
+                for type_id, defn in ObjectRegistry.all_definitions().items()
+                if defn.edible is not None
+            ]
+            _chem = _calibrate_chemistry(_edible_ids)
+            print(
+                "Diet axis: "
+                + ", ".join(
+                    f"{t}={v:.2f}"
+                    for t, v in sorted(_chem.items(), key=lambda kv: kv[1])
+                )
+            )
 
         world = World(
             width=world_cfg["width"],

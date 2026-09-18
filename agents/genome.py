@@ -263,6 +263,10 @@ class Genome:
         child_traits["vision_radius"] = np.clip(
             child_traits.get("vision_radius", 5.0), 2.0, 10.0
         )
+        # Niche traits (body_size, visual_acuity, diet) when the ecology is on
+        from agents import ecology
+
+        ecology.clamp_traits(child_traits)
 
         return child_traits
 
@@ -364,8 +368,16 @@ def create_default_trait_config() -> dict[str, tuple[float, float]]:
     Returns:
         Dictionary mapping trait names to (min, max) ranges
     """
-    return {
+    from agents import ecology
+
+    config = {
         "metabolism_rate": (0.5, 2.0),  # Energy consumption multiplier
         "vision_radius": (2.0, 10.0),  # How far agent can see
         "movement_speed": (0.5, 1.5),  # Movement speed multiplier
     }
+    # When the ecology is enabled, add the traits that actually cost something:
+    # body_size, visual_acuity and diet (see agents/ecology.py). The three
+    # above are legacy — movement_speed is read only by the renderer's debug
+    # text, vision_radius is never read by perception at all, and
+    # metabolism_rate is a free lunch with no downside anywhere.
+    return ecology.extend_trait_config(config)
