@@ -702,7 +702,7 @@ def execute_signal(agent: "Agent", world: "World") -> ActionResult:
     world.emit_signal(agent.x, agent.y)
     return ActionResult(
         True,
-        0.12,
+        float(getattr(world, "signal_cost", 0.12)),
         "Signalled",
         target_x=agent.x,
         target_y=agent.y,

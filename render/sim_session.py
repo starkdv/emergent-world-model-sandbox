@@ -214,6 +214,10 @@ def session_from_config(
     set_observation_version(2 if _is_v35(brain_cfg.get("version", 2)) else 1)
     set_active_reward_config(RewardConfig.from_dict(config.get("reward", None)))
 
+    from agents.scoring import ScoringConfig, set_active_scoring_config
+
+    set_active_scoring_config(ScoringConfig.from_config(config))
+
     world = World(
         width=wcfg.get("width", 100),
         height=wcfg.get("height", 100),

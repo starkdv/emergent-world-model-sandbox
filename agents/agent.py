@@ -19,6 +19,11 @@ from agents.actions import Action, ActionResult, DIRECTIONS
 from agents.brain import Brain, create_brain  # noqa: F401 (Brain re-exported)
 from agents.brain.instincts import InstinctModule
 from agents.genome import Genome
+from agents.scoring import (
+    FLAT_ACTION_ENERGY_COST,
+    LEGACY_BASE_COST,
+    get_active_scoring_config,
+)
 import utils.agents.agent_utils as agent_utils
 
 if TYPE_CHECKING:
@@ -129,6 +134,13 @@ class Agent:
         self.cohort = "default"
         self.traits = genome.traits.copy()
         self.fitness = 0.0
+        # Reproduction bookkeeping for the `reproduction` fitness model
+        # (agents/scoring.py): who my parent is, how many children I have had,
+        # and how many of them reached reproductive age themselves.
+        self.parent_agent_id: Optional[int] = None
+        self.offspring_count = 0
+        self.offspring_matured = 0
+        self._credited_parent = False
 
         # GRU hidden state (memory)
         self.h = self.brain.initial_state()
@@ -177,6 +189,11 @@ class Agent:
 
         # Age the agent
         self.age += 1
+
+        # Fitness bookkeeping under the `reproduction` model: once this agent
+        # reaches reproductive age it counts toward its parent's fitness, and
+        # its own fitness is recomputed from descendants + lifespan.
+        self._refresh_fitness(world)
 
         # Consume energy for metabolism (temperature extremes cost more
         # when the environment engine is enabled — W1)
@@ -341,6 +358,44 @@ class Agent:
             # Store current observation and hidden state for next step
             self.last_observation = obs_after.copy()
             self.last_hidden_state = self.h.copy()
+
+    def _refresh_fitness(self, world: "World") -> None:
+        """
+        Recompute fitness under the `reproduction` scoring model.
+
+        Fitness is the number of offspring that themselves reached
+        reproductive age, plus a small per-tick lifespan tiebreak. Nothing
+        about *what* the agent did enters it — that is the point (see
+        agents/scoring.py and docs/BRAIN_V4_PROPOSAL.md §4.5).
+
+        Crediting is done by the child, not the parent: the first time a
+        child reaches `offspring_maturity_ticks` it increments its parent's
+        `offspring_matured`. A parent that has already died is not credited —
+        its fitness is no longer read by anything.
+
+        Args:
+            world: The world (used to find the parent agent)
+        """
+        scoring = get_active_scoring_config()
+        if not scoring.reproduction_fitness:
+            return
+
+        if (
+            not self._credited_parent
+            and self.age >= scoring.offspring_maturity_ticks
+            and self.parent_agent_id is not None
+        ):
+            self._credited_parent = True
+            parent = world.agents.get(self.parent_agent_id)
+            if parent is not None and parent.alive:
+                parent.offspring_matured += 1
+                parent.fitness = float(parent.offspring_matured) + (
+                    scoring.fitness_lifespan_coef * parent.age
+                )
+
+        self.fitness = float(self.offspring_matured) + (
+            scoring.fitness_lifespan_coef * self.age
+        )
 
     def choose_action(
         self, observation: np.ndarray, action_mask: np.ndarray
@@ -509,10 +564,24 @@ class Agent:
         elif action == Action.SIGNAL:
             result = agent_utils.execute_signal(self, world)
 
-        # Dynamic energy shaping (behavior economics, not reward shaping)
+        # Action cost model (agents/scoring.py).
+        #   flat   — the cost is a constant of the action plus whatever the
+        #            world charged (slope, hazard). Nothing depends on what
+        #            the agent did last tick.
+        #   legacy — the shipped "behaviour economics" below.
+        scoring = get_active_scoring_config()
         effective_energy_cost = result.energy_cost
 
-        if action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
+        if scoring.flat_costs:
+            base = FLAT_ACTION_ENERGY_COST.get(action)
+            if base is not None and result.success:
+                # Keep the world-derived surcharge (slope climb, hazard
+                # contact) that the executor added on top of its own base.
+                surcharge = max(0.0, result.energy_cost - LEGACY_BASE_COST[action])
+                effective_energy_cost = base + surcharge
+            self._consecutive_turns = 0
+            self._consecutive_waits = 0
+        elif action in [Action.TURN_LEFT, Action.TURN_RIGHT]:
             self._consecutive_turns += 1
             self._consecutive_waits = 0
             # Mild escalating turn cost — only punishes extended spin loops.
@@ -526,7 +595,7 @@ class Agent:
             # Very gentle escalating wait cost — WAIT should remain affordable
             extra_wait_penalty = max(0, self._consecutive_waits - 2)
             effective_energy_cost += min(0.02 * extra_wait_penalty, 0.10)
-        elif action == Action.MOVE_FORWARD:
+        elif action == Action.MOVE_FORWARD:  # noqa: E501 — legacy branch
             # Reward turn->move transition with a tiny cost discount
             if result.success and self._previous_action in [
                 Action.TURN_LEFT,
@@ -548,17 +617,21 @@ class Agent:
         # Track action for next-step energy shaping
         self._previous_action = action
 
-        # Update fitness based on action outcomes.
-        # Successful turns should not be penalized; otherwise the policy
-        # is structurally biased toward MOVE_FORWARD.
-        if result.success:
-            if action == Action.WAIT:
-                # WAIT is neutral from a fitness perspective.
-                self.fitness += 0.0
+        # Fitness model (agents/scoring.py). Under `reproduction`, fitness
+        # counts descendants, not actions, so nothing accrues here — see
+        # _refresh_fitness().
+        if not scoring.reproduction_fitness:
+            # Update fitness based on action outcomes.
+            # Successful turns should not be penalized; otherwise the policy
+            # is structurally biased toward MOVE_FORWARD.
+            if result.success:
+                if action == Action.WAIT:
+                    # WAIT is neutral from a fitness perspective.
+                    self.fitness += 0.0
+                else:
+                    self.fitness += 0.1  # Small reward for successful action
             else:
-                self.fitness += 0.1  # Small reward for successful action
-        else:
-            self.fitness -= 0.05  # Small penalty for failed action
+                self.fitness -= 0.05  # Small penalty for failed action
 
         # Log action if logger is enabled
         if Agent.logger is not None:
@@ -582,17 +655,22 @@ class Agent:
         # Reset hidden state (agent's memory is lost on death)
         self.h = self.brain.initial_state()
 
-        # Death penalty to fitness (proportional to how early the death was)
-        # Dying young = big penalty, dying old = small penalty
-        age_ratio = self.age / self.max_age
-        death_penalty = 10.0 * (
-            1.0 - age_ratio
-        )  # Max -10 for instant death, 0 for old age
-        self.fitness -= death_penalty
+        # Death penalty to fitness (legacy fitness model only). Under the
+        # `reproduction` model, dying young already costs fitness — you stop
+        # accruing lifespan and stop producing offspring — so no extra
+        # hand-written penalty is applied (agents/scoring.py).
+        if not get_active_scoring_config().reproduction_fitness:
+            # proportional to how early the death was:
+            # dying young = big penalty, dying old = small penalty
+            age_ratio = self.age / self.max_age
+            death_penalty = 10.0 * (
+                1.0 - age_ratio
+            )  # Max -10 for instant death, 0 for old age
+            self.fitness -= death_penalty
 
-        # Extra penalty for starvation (should have eaten!)
-        if self.energy <= 0:
-            self.fitness -= 5.0  # Starvation penalty
+            # Extra penalty for starvation (should have eaten!)
+            if self.energy <= 0:
+                self.fitness -= 5.0  # Starvation penalty
 
         # Drop all inventory items with stacking configuration check
         for obj_id in self.inventory:
@@ -751,6 +829,13 @@ class Agent:
 
                     # Inherit parent's temperature
                     offspring.temperature = self.temperature
+
+                    # Reproduction fitness bookkeeping (agents/scoring.py)
+                    offspring.parent_agent_id = self.id
+                    offspring.offspring_count = 0
+                    offspring.offspring_matured = 0
+                    offspring._credited_parent = False
+                    self.offspring_count += 1
 
                     return offspring
 

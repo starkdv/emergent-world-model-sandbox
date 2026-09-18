@@ -746,6 +746,15 @@ class BestAgentTracker:
         Returns:
             Fitness score
         """
+        from agents.scoring import get_active_scoring_config
+
+        # Under the `reproduction` fitness model, Agent.fitness is already the
+        # whole story (descendants + lifespan tiebreak) and the hand-written
+        # bonuses below would put the acting-vs-living confusion straight back
+        # in. See agents/scoring.py.
+        if get_active_scoring_config().reproduction_fitness:
+            return agent.fitness
+
         # Base fitness from agent's own fitness calculation
         fitness = agent.fitness
 

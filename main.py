@@ -288,6 +288,21 @@ Examples:
         if _reward_cfg.preset != "legacy":
             print(f"Reward diet: {_reward_cfg.preset.upper()} (ablated shaping)")
 
+        # Activate the scoring rules (V4.0): how an action is paid for and
+        # what fitness means. Defaults are the legacy models, so existing
+        # configs are unchanged; `config/v4_baseline.yaml` turns both over.
+        from agents.scoring import (
+            ScoringConfig as _ScoringConfig,
+            set_active_scoring_config as _set_scoring_cfg,
+        )
+
+        _scoring_cfg = _ScoringConfig.from_config(config)
+        _set_scoring_cfg(_scoring_cfg)
+        if _scoring_cfg.action_cost_model != "legacy":
+            print(f"Action costs: {_scoring_cfg.action_cost_model.upper()}")
+        if _scoring_cfg.fitness_model != "legacy":
+            print(f"Fitness model: {_scoring_cfg.fitness_model.upper()}")
+
         # Initialize agent logger if requested
         agent_logger = None
         if args.log:

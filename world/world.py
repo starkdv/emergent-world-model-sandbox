@@ -146,6 +146,14 @@ class World:
         self.signal_strength = float(sig.get("strength", 1.0))
         self.signal_decay = float(sig.get("decay", 0.9))
         self.signal_diffuse = float(sig.get("diffuse", 0.0))
+        # Energy an agent pays to emit. The legacy value (0.12) makes SIGNAL
+        # the cheapest always-legal action, which the v3.5 baseline campaign
+        # shows the population exploiting; `config/v4_baseline.yaml` raises it
+        # to WAIT's cost. See agents/scoring.py.
+        self.signal_cost = float(sig.get("energy_cost", 0.12))
+        # Per-unit-amplitude surcharge for the v4 vector channel (costly
+        # signalling); 0 under the legacy scalar field.
+        self.signal_amplitude_cost = float(sig.get("amplitude_cost", 0.0))
         # The field is only allocated when signalling is on (None = no field,
         # which perception reads as "no signal anywhere").
         self.pheromones = None
