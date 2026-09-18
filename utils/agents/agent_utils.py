@@ -497,6 +497,12 @@ def execute_eat(agent: "Agent", world: "World") -> ActionResult:
             agent.inventory.remove(obj_id)
             world.remove_object(obj_id)
 
+            # Population energy bookkeeping (utils/agents/metrics.py)
+            world.eat_energy_total = (
+                getattr(world, "eat_energy_total", 0.0) + energy_delta
+            )
+            world.eat_count_total = getattr(world, "eat_count_total", 0) + 1
+
             # Fitness tracks the realised energy outcome (poison hurts)
             agent.fitness += energy_delta * 0.1
 

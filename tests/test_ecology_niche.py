@@ -195,3 +195,64 @@ def test_offspring_never_exceeds_its_own_capacity():
     _on(energy_conservation=True, birth_subsidy=0.0)
     # A huge transfer into a small body is capped by the body
     assert ecology.offspring_starting_energy(1e6, 50.0, 50.0) == pytest.approx(50.0)
+
+
+# --- genotype / phenotype -------------------------------------------------
+
+
+def test_trait_multipliers_do_not_compound_across_generations():
+    """
+    clone_agent must hand the child the BASE values, not the parent's
+    phenotype. Re-applying a multiplier every generation compounds it: with
+    the shipped trait mean of ~0.64 that drove metabolism from 0.5 to 3e-4
+    within ~20 generations, i.e. agents that never need to eat.
+    """
+    from agents.agent import Agent
+    from agents.brain import Brain
+    from agents.evolution import clone_agent
+    from agents.genome import Genome, create_default_trait_config
+
+    ecology.set_active_ecology(EcologyConfig(enabled=False))
+    np.random.seed(0)
+    genome = Genome.random(
+        weight_count=Brain.calculate_weight_count(),
+        trait_config=create_default_trait_config(),
+    )
+    genome.traits["metabolism_rate"] = 0.6  # a below-1 multiplier
+    agent = Agent(x=0, y=0, genome=genome, metabolism_rate=0.5, max_energy=200.0)
+    assert agent.metabolism_rate == pytest.approx(0.30)
+    assert agent.base_metabolism_rate == pytest.approx(0.50)
+
+    # Twenty generations of cloning with the multiplier held fixed
+    current = agent
+    for _ in range(20):
+        current = clone_agent(parent=current, mutate=False)
+        current.genome.traits["metabolism_rate"] = 0.6
+        current.traits["metabolism_rate"] = 0.6
+        current.metabolism_rate = current.base_metabolism_rate * 0.6
+
+    assert current.base_metabolism_rate == pytest.approx(0.50)
+    assert current.metabolism_rate == pytest.approx(
+        0.30
+    ), "metabolism must not decay across generations"
+    assert current.base_max_energy == pytest.approx(200.0)
+
+
+def test_clone_passes_base_not_phenotype():
+    """The direct regression: one clone must not shrink the base."""
+    from agents.agent import Agent
+    from agents.brain import Brain
+    from agents.evolution import clone_agent
+    from agents.genome import Genome, create_default_trait_config
+
+    ecology.set_active_ecology(EcologyConfig(enabled=False))
+    np.random.seed(1)
+    genome = Genome.random(
+        weight_count=Brain.calculate_weight_count(),
+        trait_config=create_default_trait_config(),
+    )
+    genome.traits["metabolism_rate"] = 0.5
+    parent = Agent(x=0, y=0, genome=genome, metabolism_rate=0.5, max_energy=200.0)
+    child = clone_agent(parent=parent, mutate=False)
+    assert child.base_metabolism_rate == pytest.approx(parent.base_metabolism_rate)
+    assert child.base_max_energy == pytest.approx(parent.base_max_energy)

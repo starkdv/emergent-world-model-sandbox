@@ -153,6 +153,12 @@ class World:
         # shows the population exploiting; `config/v4_baseline.yaml` raises it
         # to WAIT's cost. See agents/scoring.py.
         self.signal_cost = float(sig.get("energy_cost", 0.12))
+        # Running totals of realised foraging income, so the per-generation
+        # metrics can report income against burn without per-tick agent logs.
+        # The baseline runs at ~3.5% -- the population is funded by the birth
+        # subsidy rather than by eating (see agents/ecology.py).
+        self.eat_energy_total = 0.0
+        self.eat_count_total = 0
         # Per-unit-amplitude surcharge for the v4 vector channel (costly
         # signalling); 0 under the legacy scalar field.
         self.signal_amplitude_cost = float(sig.get("amplitude_cost", 0.0))

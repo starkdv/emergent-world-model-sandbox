@@ -179,6 +179,16 @@ class Agent:
         # so famine endurance E_max/B scales as S^0.25 while the energy needed
         # to reach the reproduction threshold scales as S — the tradeoff that
         # makes body size a real niche axis instead of a free lunch.
+        # GENOTYPE vs PHENOTYPE. The arguments are the *base* (species-level)
+        # values; the traits are multipliers applied to them. Both are kept,
+        # because clone_agent has to hand the BASE to the child: passing the
+        # parent's phenotype instead re-applies the multiplier every
+        # generation, so it compounds geometrically. With the shipped trait
+        # mean of ~0.64 that drove metabolism from 0.5 to 3e-4 within ~20
+        # generations -- agents that can live essentially forever without
+        # eating, which is one of the reasons EAT is ~1% of all actions.
+        self.base_metabolism_rate = metabolism_rate
+        self.base_max_energy = max_energy
         self.metabolism_rate = (
             metabolism_rate
             * self.traits.get("metabolism_rate", 1.0)

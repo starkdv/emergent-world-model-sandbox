@@ -124,10 +124,14 @@ def clone_agent(
             x=0,  # Will be repositioned
             y=0,
             genome=child_genome,
-            max_energy=parent.max_energy,
+            max_energy=getattr(parent, "base_max_energy", parent.max_energy),
             max_age=parent.max_age,
             inventory_size=parent.inventory_size,
-            metabolism_rate=parent.metabolism_rate,
+            # The BASE, not the parent's phenotype: traits are multipliers and
+            # re-applying them each generation compounds them (see Agent.__init__).
+            metabolism_rate=getattr(
+                parent, "base_metabolism_rate", parent.metabolism_rate
+            ),
         )
     finally:
         Agent.brain_config = prev_cfg
