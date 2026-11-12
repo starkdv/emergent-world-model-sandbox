@@ -237,7 +237,10 @@ class LatentPlanner:
     ) -> Tuple[List[int], float]:
         """Roll the dynamics ``depth`` steps; actions come from ``action_provider``."""
         h_sim = h
-        z_sim = None
+        # Residual dynamics heads predict the CHANGE in z, so they need the
+        # current latent: the real one first, then the imagined ones.
+        residual = bool(getattr(brain, "world_model_residual", False))
+        z_sim = getattr(brain, "last_latent", None) if residual else None
         rewards: List[float] = []
         values: List[float] = []
         seq: List[int] = []
@@ -245,7 +248,10 @@ class LatentPlanner:
         for k in range(self.depth):
             a = int(action_provider(k, h_sim))
             seq.append(a)
-            z_sim, r_pred = brain.predict_next_latent(h_sim, a)
+            if residual:
+                z_sim, r_pred = brain.predict_next_latent(h_sim, a, z=z_sim)
+            else:
+                z_sim, r_pred = brain.predict_next_latent(h_sim, a)
             if self.normalize:
                 self._rstat.update(r_pred)
                 r_pred = self._rstat.z(r_pred)

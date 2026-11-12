@@ -101,6 +101,7 @@ class BrainV3(Brain):
         instincts: Optional[InstinctModule] = None,
         obs_spec: Optional[ObservationSpec] = None,
         world_model_hidden: Optional[int] = None,
+        world_model_residual: bool = False,
     ):
         """
         Initialize Brain v3 from genome.
@@ -116,6 +117,8 @@ class BrainV3(Brain):
             obs_spec: Observation layout specification
             world_model_hidden: Hidden width of the latent dynamics head
                 (None = no world model)
+            world_model_residual: Residual dynamics head (reads z, predicts
+                the change in z)
         """
         # Deliberately not calling Brain.__init__ — v3 has its own
         # architecture parameters and spec; shared behaviour
@@ -133,6 +136,8 @@ class BrainV3(Brain):
         self.value_hidden = value_hidden
         self.output_size = output_size
         self.world_model_hidden = world_model_hidden
+        self.world_model_residual = bool(world_model_residual)
+        self.last_latent: Optional[np.ndarray] = None
         self.instincts = instincts if instincts is not None else InstinctModule()
 
         # Non-vision features: agent_state + stimulus + inventory + extra.
@@ -155,6 +160,7 @@ class BrainV3(Brain):
             value_hidden=value_hidden,
             output_size=output_size,
             world_model_hidden=world_model_hidden,
+            world_model_residual=self.world_model_residual,
         )
         self.named_params = self.spec.unpack(genome.weights)
         self.params = self._build_nested(self.named_params)
@@ -225,6 +231,7 @@ class BrainV3(Brain):
         value_hidden: int = 16,
         output_size: int = 8,
         world_model_hidden: Optional[int] = None,
+        world_model_residual: bool = False,
     ) -> int:
         """
         Calculate total number of weights for the v3 network.
@@ -250,4 +257,5 @@ class BrainV3(Brain):
             value_hidden,
             output_size,
             world_model_hidden=world_model_hidden,
+            world_model_residual=world_model_residual,
         ).count()

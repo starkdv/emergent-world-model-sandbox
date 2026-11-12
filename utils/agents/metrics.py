@@ -29,6 +29,8 @@ FIELDS = [
     "avg_fertility",
     "avg_moisture",
     "wm_rollout_error",
+    "wm_rel_persistence",
+    "wm_rel_variance",
 ]
 
 
@@ -72,6 +74,19 @@ class MetricsWriter:
         ]
         wm_err = round(sum(wm_errs) / len(wm_errs), 5) if wm_errs else ""
 
+        def _mean_attr(name: str):
+            vals = [
+                v
+                for a in agents
+                if (v := getattr(getattr(a, "learner", None), name, None)) is not None
+            ]
+            return round(sum(vals) / len(vals), 5) if vals else ""
+
+        # Readable versions of that error: ÷ the do-nothing (z' = z) error
+        # (< 1 means the model beats persistence) and ÷ the latent variance.
+        wm_rel_pers = _mean_attr("wm_rel_persistence_ema")
+        wm_rel_var = _mean_attr("wm_rel_variance_ema")
+
         row = {
             "generation": generation,
             "tick": world.tick,
@@ -86,6 +101,8 @@ class MetricsWriter:
             "avg_fertility": round(float(avg_fert), 4),
             "avg_moisture": round(float(avg_moist), 4),
             "wm_rollout_error": wm_err,
+            "wm_rel_persistence": wm_rel_pers,
+            "wm_rel_variance": wm_rel_var,
         }
         self._writer.writerow(row)
         self._fh.flush()

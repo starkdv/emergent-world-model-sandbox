@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] — World-model reality check: baselines, zero init, residual head
+
+`docs/sample_wm_residual/` (4 arms x 4 seeds): measured against a do-nothing
+baseline, the ecology world model's 3-step error (~2.9) is **23x worse than
+predicting "the latent does not change"**. Most of it is the N(0, 0.5^2) genome
+init of the head's output layer; zeroing it at birth cuts the error ~10x. A
+residual head does not help here. No arm beats persistence; no fitness change.
+
+- **Instrument**: `TorchBrainMirror.baseline_errors` (persistence error per
+  horizon + latent variance, same windows as M1); learner
+  `wm_persistence_error`, `wm_latent_var`, `wm_rel_persistence_ema`,
+  `wm_rel_variance_ema`; metrics CSV columns `wm_rel_persistence`,
+  `wm_rel_variance`.
+- **`brain.world_model.zero_init`** (default false): structured prior zeroing
+  `dyn.Wz`/`dyn.bz` in fresh genomes (via the active ParamSpec).
+- **`brain.world_model.residual`** (default false, v2/v3/v3.5; v4 rejects it):
+  `z' = z + delta([h, onehot(a), z])`. Adds z rows to `dyn.W1`, append-only, so
+  legacy heads migrate. `predict_next_latent(h, a, z=None)` defaults z to the
+  latent of the last `forward`; the planner threads imagined latents through.
+- Defaults leave every existing config and genome bit-unchanged.
+
 ## [Unreleased] — Brain v4: multi-timescale memory, place memory, evolved drives
 
 A 24-run baseline campaign (`docs/sample_v35_emergence_baseline/`, 3 simulation

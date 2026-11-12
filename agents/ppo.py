@@ -218,6 +218,9 @@ class TorchBrainMirror:
         self.n_values = (
             int(self.params["value.W2"].shape[1]) if "value.W2" in self.params else 1
         )
+        # Residual dynamics head: inferred from the genome layout (its W1 has
+        # extra rows for the current latent z) so no flag has to be threaded.
+        self.wm_residual = bool(getattr(brain, "world_model_residual", False))
 
     def matches(self, brain: "Brain") -> bool:
         """True if this mirror still corresponds to the brain's spec."""
@@ -460,10 +463,26 @@ class TorchBrainMirror:
         return "dyn.W1" in self.params
 
     def _dynamics(
-        self, h: "torch.Tensor", actions_onehot: "torch.Tensor"
+        self,
+        h: "torch.Tensor",
+        actions_onehot: "torch.Tensor",
+        z: Optional["torch.Tensor"] = None,
     ) -> tuple["torch.Tensor", "torch.Tensor"]:
-        """Batched dynamics head: (h, onehot a) → (ẑ', r̂)."""
+        """Batched dynamics head: (h, onehot a[, z]) → (ẑ', r̂).
+
+        The residual head needs the current latent ``z`` (detach it at the
+        call site when it comes from the encoder, so the encoder is not
+        pushed toward temporally-flat latents that make Δ trivially small).
+        """
         p = self.params
+        if self.wm_residual:
+            if z is None:
+                raise ValueError("residual dynamics head needs the current z")
+            head = torch.cat([h, actions_onehot, z], dim=1)
+            d = torch.tanh(head @ p["dyn.W1"] + p["dyn.b1"])
+            z_pred = z + d @ p["dyn.Wz"] + p["dyn.bz"]
+            r_pred = (d @ p["dyn.Wr"] + p["dyn.br"]).squeeze(-1)
+            return z_pred, r_pred
         if self.is_v4:
             # Migration-safe order [h_fast ‖ onehot ‖ h_slow]; see
             # BrainV4.dynamics_input.
@@ -614,13 +633,14 @@ class TorchBrainMirror:
         n_actions = int(self.params["policy.b"].shape[0])
         n_win = length - k + 1  # windows start at t = 0..L-k
         cur = hs[:, :n_win, :].reshape(batch * n_win, h_size)
+        z_cur = zs[:, :n_win, :].reshape(batch * n_win, -1).detach()
         ok = valid * (1.0 - dones)  # step is real and successor in-episode
         win_ok = torch.ones(batch * n_win, device=hs.device)
         lat_errs, rew_errs = [], []
         for j in range(k):
             act = actions[:, j : j + n_win].reshape(-1)
             onehot = torch.nn.functional.one_hot(act, n_actions).float()
-            z_pred, r_pred = self._dynamics(cur, onehot)
+            z_pred, r_pred = self._dynamics(cur, onehot, z_cur)
             win_ok = win_ok * ok[:, j : j + n_win].reshape(-1)
             n = torch.clamp(win_ok.sum(), min=1.0)
             z_tgt = zs[:, j + 1 : j + 1 + n_win, :].reshape(batch * n_win, -1).detach()
@@ -628,7 +648,44 @@ class TorchBrainMirror:
             lat_errs.append((((z_pred - z_tgt) ** 2).mean(dim=1) * win_ok).sum() / n)
             rew_errs.append(((r_pred - r_tgt) ** 2 * win_ok).sum() / n)
             cur = self._advance_core(z_pred, cur)
+            z_cur = z_pred
         return torch.stack(lat_errs), torch.stack(rew_errs)
+
+    @staticmethod
+    def baseline_errors(
+        zs: "torch.Tensor",
+        valid: "torch.Tensor",
+        dones: "torch.Tensor",
+        k: int,
+    ) -> tuple["torch.Tensor", "torch.Tensor"]:
+        """
+        Reference points for the open-loop rollout error (same windows and
+        masks as ``multistep_errors``), so the raw MSE can be read:
+
+        - persistence: error of the do-nothing guess ``ẑ_{t+j} = z_t`` at
+          each horizon j = 1..k. A model that cannot beat this has learned
+          nothing about how the latent moves.
+        - variance: mean per-dimension variance of the real target latents
+          (error of predicting the batch mean; R² = 1 - mse / variance).
+
+        Returns:
+            (persistence_mse (k,), latent_variance scalar)
+        """
+        batch, length = valid.shape
+        k = max(1, min(int(k), length))
+        n_win = length - k + 1
+        z0 = zs[:, :n_win, :].reshape(batch * n_win, -1)
+        ok = valid * (1.0 - dones)
+        win_ok = torch.ones(batch * n_win, device=zs.device)
+        errs = []
+        for j in range(k):
+            win_ok = win_ok * ok[:, j : j + n_win].reshape(-1)
+            n = torch.clamp(win_ok.sum(), min=1.0)
+            z_tgt = zs[:, j + 1 : j + 1 + n_win, :].reshape(batch * n_win, -1)
+            errs.append((((z0 - z_tgt) ** 2).mean(dim=1) * win_ok).sum() / n)
+        real = zs[:, 1:, :][ok > 0]
+        var = real.var(dim=0).mean() if real.shape[0] > 1 else zs.new_tensor(0.0)
+        return torch.stack(errs), var
 
     def imagine_loss(
         self,
@@ -637,6 +694,7 @@ class TorchBrainMirror:
         gamma: float,
         lam: float,
         entropy_coef: float,
+        z0: Optional["torch.Tensor"] = None,
     ) -> "torch.Tensor":
         """
         Dreamer-style actor-critic in imagination (Planning proposal P3).
@@ -654,6 +712,7 @@ class TorchBrainMirror:
         p = self.params
         n_actions = p["policy.b"].shape[0]
         h = h0
+        z = z0
         logps, ents, vals, rews = [], [], [], []
         for _ in range(horizon):
             logits = h @ p["policy.W"] + p["policy.b"]
@@ -663,7 +722,7 @@ class TorchBrainMirror:
             logp = logp_all.gather(1, a.unsqueeze(-1)).squeeze(-1)
             ent = -(probs * torch.clamp(logp_all, min=-30.0)).sum(-1)
             onehot = torch.nn.functional.one_hot(a, n_actions).float()
-            z, r = self._dynamics(h, onehot)
+            z, r = self._dynamics(h, onehot, z)
             h = self._advance_core(z, h)
             v = self._value(z, h)
             logps.append(logp)
@@ -815,6 +874,13 @@ class PPOSequenceLearner:
         self._return_spread = [1.0, 1.0]
         self.wm_rollout_error: Optional[list] = None
         self.wm_rollout_error_ema: Optional[float] = None
+        # Reference points for reading that error (same windows/masks):
+        # do-nothing persistence error per horizon, the latent variance, and
+        # EMAs of model/persistence and model/variance at horizon k.
+        self.wm_persistence_error: Optional[list] = None
+        self.wm_latent_var: Optional[float] = None
+        self.wm_rel_persistence_ema: Optional[float] = None
+        self.wm_rel_variance_ema: Optional[float] = None
         self._wm_ema_beta = 0.9
         self.compute_backend = "torch"
         self.compute_device = compute_device
@@ -825,6 +891,12 @@ class PPOSequenceLearner:
         self._mirror: Optional[TorchBrainMirror] = None
         self._steps: list[dict] = []  # current, not-yet-finalized chunk
         self._chunk_h0: Optional[np.ndarray] = None
+
+    def _ema(self, prev: Optional[float], x: float) -> float:
+        """Exponential moving average with the world-model EMA rate."""
+        if prev is None:
+            return float(x)
+        return self._wm_ema_beta * prev + (1.0 - self._wm_ema_beta) * float(x)
 
     def imagination_active(self) -> bool:
         """True when the imagination loss should run now: enabled, past the
@@ -1032,6 +1104,20 @@ class PPOSequenceLearner:
                     if ema is None
                     else self._wm_ema_beta * ema + (1.0 - self._wm_ema_beta) * errs[-1]
                 )
+                pers, var = self._mirror.baseline_errors(
+                    zs_ng, valid, dones, self.rollout_metric_k
+                )
+                self.wm_persistence_error = [float(e) for e in pers]
+                self.wm_latent_var = float(var)
+                if self.wm_persistence_error[-1] > 0.0:
+                    self.wm_rel_persistence_ema = self._ema(
+                        self.wm_rel_persistence_ema,
+                        errs[-1] / self.wm_persistence_error[-1],
+                    )
+                if self.wm_latent_var > 0.0:
+                    self.wm_rel_variance_ema = self._ema(
+                        self.wm_rel_variance_ema, errs[-1] / self.wm_latent_var
+                    )
         n_chunks = len(chunks)
         advantages_np = np.zeros((n_values, n_chunks, self.seq_len), dtype=np.float32)
         targets_np = np.zeros((n_values, n_chunks, self.seq_len), dtype=np.float32)
@@ -1134,7 +1220,10 @@ class PPOSequenceLearner:
                 onehot = torch.nn.functional.one_hot(
                     actions.reshape(-1), num_classes=logits.shape[-1]
                 ).float()
-                z_pred, r_pred = self._mirror._dynamics(hs.reshape(-1, h_size), onehot)
+                z_now = zs[:, :-1, :].reshape(batch_n * length, -1).detach()
+                z_pred, r_pred = self._mirror._dynamics(
+                    hs.reshape(-1, h_size), onehot, z_now
+                )
                 z_target = zs[:, 1:, :].reshape(batch_n * length, -1).detach()
                 # Steps whose successor crosses a terminal/padding boundary
                 # are excluded via the valid/done masks
@@ -1164,18 +1253,22 @@ class PPOSequenceLearner:
                 # policy without perturbing representation learning.
                 if self.imagination_active():
                     flat_h = hs.reshape(-1, hs.shape[-1])
+                    flat_z = zs[:, :-1, :].reshape(flat_h.shape[0], -1)
                     keep = valid.reshape(-1) > 0
                     flat_h = flat_h[keep]
+                    flat_z = flat_z[keep]
                     if flat_h.shape[0] > 0:
                         if flat_h.shape[0] > self.imag_batch:
                             sel = torch.randperm(flat_h.shape[0])[: self.imag_batch]
                             flat_h = flat_h[sel]
+                            flat_z = flat_z[sel]
                         imag_loss = self._mirror.imagine_loss(
                             flat_h.detach(),
                             self.imag_horizon,
                             self.discount_factor,
                             self.imag_lambda,
                             self.imag_entropy,
+                            z0=flat_z.detach(),
                         )
                         loss = loss + self.imag_weight * imag_loss
 

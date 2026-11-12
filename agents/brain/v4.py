@@ -481,9 +481,13 @@ class BrainV4(BrainV3):
         return modules.softmax(logits)
 
     def predict_next_latent(
-        self, h: np.ndarray, action_idx: int
+        self, h: np.ndarray, action_idx: int, z: Optional[np.ndarray] = None
     ) -> Tuple[np.ndarray, float]:
-        """Dynamics head over the combined core (see Brain.predict_next_latent)."""
+        """Dynamics head over the combined core (see Brain.predict_next_latent).
+
+        ``z`` is accepted for interface parity and ignored: v4 has no
+        residual head.
+        """
         if not self.has_world_model:
             raise RuntimeError("Brain has no world model (dynamics head)")
         dyn = self.params["dynamics"]

@@ -99,6 +99,15 @@ brain:
   world_model:
     enabled: false
     hidden: 32           # dynamics MLP hidden width
+    # Residual head: also read the current latent z and predict its CHANGE,
+    # z' = z + delta(h, a, z). Adds z rows to dyn.W1 (append-only migration).
+    # See docs/sample_wm_residual: it did NOT help in this ecology.
+    residual: false
+    # Zero the head's output layer in freshly randomised genomes. With the
+    # default N(0, 0.5^2) genome init the head starts ~10x off and per-agent
+    # PPO never fully undoes it; zero init cut the 3-step rollout error ~10x
+    # (docs/sample_wm_residual). Off by default only so older runs reproduce.
+    zero_init: false
     planner:
       enabled: false     # model-based action selection (costly per tick)
       depth: 3           # imagination horizon
