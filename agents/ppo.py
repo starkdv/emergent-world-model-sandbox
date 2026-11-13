@@ -39,6 +39,7 @@ Author: Karan Vasa
 Date: June 2026
 """
 
+from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
@@ -787,6 +788,7 @@ class PPOSequenceLearner:
         long_gamma: float = 0.999,
         advantage_mix: float = 0.0,
         return_scale: bool = True,
+        cascade: Optional[dict] = None,
     ):
         """
         Initialize the PPO learner.
@@ -823,6 +825,13 @@ class PPOSequenceLearner:
                 percentile spread before regression, so the long head (whose
                 returns are ~1/(1-gamma_l) times larger) does not swamp the
                 policy loss.
+            cascade: Optional ``{enabled, max_len}`` -- multi-scale BPTT.
+                Besides the usual ``seq_len`` chunks, train on the most
+                recent window of ``seq_len * 2^j`` steps every ``2^j``
+                chunks (8 every chunk, 16 every 2nd, 32 every 4th, ... up
+                to ``max_len``), so gradients reach far back without
+                delaying or replacing the short-window updates. Each level
+                costs about one extra BPTT step per tick. Off by default.
         """
         if not TORCH_AVAILABLE:
             raise RuntimeError(
@@ -832,6 +841,8 @@ class PPOSequenceLearner:
         self.discount_factor = discount_factor
         self.batch_size = batch_size
         self.seq_len = seq_len
+        # Completed learn() updates over this learner's lifetime.
+        self.update_count = 0
         self.gae_lambda = gae_lambda
         self.clip_epsilon = clip_epsilon
         self.value_coef = value_coef
@@ -886,6 +897,17 @@ class PPOSequenceLearner:
         self.compute_device = compute_device
 
         self.replay_buffer = _ChunkBuffer(chunk_capacity)
+
+        # Multi-scale BPTT cascade (opt-in). History of the last max_len
+        # steps (with each step's pre-step hidden state); long windows are
+        # queued at chunk boundaries and trained after the regular update.
+        cas = cascade or {}
+        self.cascade_enabled = bool(cas.get("enabled", False))
+        self.cascade_max_len = max(int(seq_len), int(cas.get("max_len", 512)))
+        self.cascade_updates = 0
+        self._history: deque = deque(maxlen=self.cascade_max_len)
+        self._n_chunks = 0
+        self._pending_long: dict[int, SequenceChunk] = {}
         self.reward_shaper = RewardShaper()
 
         self._mirror: Optional[TorchBrainMirror] = None
@@ -943,18 +965,25 @@ class PPOSequenceLearner:
         if not self._steps:
             self._chunk_h0 = np.asarray(hidden_before, dtype=np.float32).copy()
 
-        self._steps.append(
-            {
-                "obs": np.asarray(observation, dtype=np.float32),
-                "action": int(action),
-                "reward": float(reward),
-                "next_obs": np.asarray(next_observation, dtype=np.float32),
-                "done": bool(done),
-                "logprob": float(logprob),
-                "mask": np.asarray(action_mask, dtype=np.float32),
-                "moved": 1.0 if moved else 0.0,
-            }
-        )
+        step = {
+            "obs": np.asarray(observation, dtype=np.float32),
+            "action": int(action),
+            "reward": float(reward),
+            "next_obs": np.asarray(next_observation, dtype=np.float32),
+            "done": bool(done),
+            "logprob": float(logprob),
+            "mask": np.asarray(action_mask, dtype=np.float32),
+            "moved": 1.0 if moved else 0.0,
+        }
+        self._steps.append(step)
+        if self.cascade_enabled:
+            if done:
+                self._history.clear()
+                self._pending_long.clear()
+            else:
+                self._history.append(
+                    (step, np.asarray(hidden_before, dtype=np.float32).copy())
+                )
 
         if len(self._steps) >= self.seq_len or done:
             self._finalize_chunk()
@@ -1007,6 +1036,40 @@ class PPOSequenceLearner:
         self.replay_buffer.add(chunk)
         self._steps = []
         self._chunk_h0 = None
+        if self.cascade_enabled and len(steps) == length and not steps[-1]["done"]:
+            self._n_chunks += 1
+            self._queue_long_windows()
+
+    def _queue_long_windows(self) -> None:
+        """Queue the most recent ``seq_len * 2^j`` steps for every level j
+        whose period ``2^j`` divides the chunk count (binary-counter
+        cascade). One pending window per length; a newer one replaces it."""
+        j = 1
+        while True:
+            length = self.seq_len * (2**j)
+            if length > self.cascade_max_len:
+                break
+            if self._n_chunks % (2**j) == 0 and len(self._history) >= length:
+                self._pending_long[length] = self._window_chunk(length)
+            j += 1
+
+    def _window_chunk(self, length: int) -> SequenceChunk:
+        """Build a full (unpadded) SequenceChunk from the last ``length``
+        history steps, starting from the hidden state before its first step."""
+        window = list(self._history)[-length:]
+        steps = [s for s, _ in window]
+        return SequenceChunk(
+            obs=np.stack([s["obs"] for s in steps]),
+            h0=window[0][1],
+            actions=np.array([s["action"] for s in steps], dtype=np.int64),
+            rewards=np.array([s["reward"] for s in steps], dtype=np.float32),
+            dones=np.zeros(length, dtype=np.float32),
+            logprobs=np.array([s["logprob"] for s in steps], dtype=np.float32),
+            masks=np.stack([s["mask"] for s in steps]),
+            valid=np.ones(length, dtype=np.float32),
+            bootstrap_obs=steps[-1]["next_obs"],
+            moved=np.array([s["moved"] for s in steps], dtype=np.float32),
+        )
 
     # -- learning ----------------------------------------------------------
 
@@ -1034,7 +1097,30 @@ class PPOSequenceLearner:
             )
 
         chunks = self.replay_buffer.sample(self.batch_size)
+        self.update_count += 1
+        total_loss = self._update(chunks, brain, measure=True)
+
+        # Multi-scale cascade: one update per queued long window, shortest
+        # first. The diagnostics above stay on the regular chunks so the
+        # wm_* columns remain comparable with non-cascade runs.
+        if self._pending_long:
+            for length in sorted(self._pending_long):
+                self._update([self._pending_long[length]], brain, measure=False)
+                self.cascade_updates += 1
+            self._pending_long.clear()
+
+        # Write trained weights back to the brain, then Lamarckian-sync
+        # them into the genome so offspring inherit them.
+        self._mirror.sync_to_brain(brain)
+        brain.genome.weights = brain.spec.pack(brain.named_params)
+
+        return total_loss
+
+    def _update(self, chunks: list, brain: "Brain", measure: bool) -> float:
+        """PPO + world-model optimisation on equal-length chunks. With
+        ``measure`` the model-quality diagnostics are refreshed too."""
         device = self._mirror.device
+        seq_len = chunks[0].obs.shape[0]
 
         obs = torch.as_tensor(np.stack([c.obs for c in chunks]), device=device)
         h0 = torch.as_tensor(np.stack([c.h0 for c in chunks]), device=device)
@@ -1057,7 +1143,7 @@ class PPOSequenceLearner:
                     (
                         c.moved
                         if c.moved is not None
-                        else np.zeros(self.seq_len, dtype=np.float32)
+                        else np.zeros(seq_len, dtype=np.float32)
                     )
                     for c in chunks
                 ]
@@ -1086,7 +1172,7 @@ class PPOSequenceLearner:
             # sampled real sequences — the quantity the planner's usefulness
             # actually depends on. Cheap (no_grad) and observable via the
             # metrics CSV / readiness gating.
-            if self._mirror.has_world_model and self.rollout_metric_k > 0:
+            if measure and self._mirror.has_world_model and self.rollout_metric_k > 0:
                 lat_err, _ = self._mirror.multistep_errors(
                     hs_ng,
                     zs_ng,
@@ -1119,8 +1205,8 @@ class PPOSequenceLearner:
                         self.wm_rel_variance_ema, errs[-1] / self.wm_latent_var
                     )
         n_chunks = len(chunks)
-        advantages_np = np.zeros((n_values, n_chunks, self.seq_len), dtype=np.float32)
-        targets_np = np.zeros((n_values, n_chunks, self.seq_len), dtype=np.float32)
+        advantages_np = np.zeros((n_values, n_chunks, seq_len), dtype=np.float32)
+        targets_np = np.zeros((n_values, n_chunks, seq_len), dtype=np.float32)
         values_now_np = values_now.cpu().numpy()
         v_boot_np = v_boot.cpu().numpy()
         for head, gamma in enumerate(gammas):
@@ -1277,10 +1363,5 @@ class PPOSequenceLearner:
             torch.nn.utils.clip_grad_norm_(self._mirror.params.values(), self.grad_clip)
             self._mirror.optimizer.step()
             total_loss = float(loss.detach().cpu().item())
-
-        # Write trained weights back to the brain, then Lamarckian-sync
-        # them into the genome so offspring inherit them.
-        self._mirror.sync_to_brain(brain)
-        brain.genome.weights = brain.spec.pack(brain.named_params)
 
         return total_loss

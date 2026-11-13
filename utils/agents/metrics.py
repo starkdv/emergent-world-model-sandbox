@@ -31,6 +31,8 @@ FIELDS = [
     "wm_rollout_error",
     "wm_rel_persistence",
     "wm_rel_variance",
+    "frac_trained",
+    "mean_updates",
 ]
 
 
@@ -87,6 +89,20 @@ class MetricsWriter:
         wm_rel_pers = _mean_attr("wm_rel_persistence_ema")
         wm_rel_var = _mean_attr("wm_rel_variance_ema")
 
+        # How much in-lifetime learning the living agents actually got:
+        # share with >= 1 PPO update, and mean updates per learning agent.
+        counts_upd = [
+            c
+            for a in agents
+            if (c := getattr(getattr(a, "learner", None), "update_count", None))
+            is not None
+        ]
+        if counts_upd:
+            frac_trained = round(sum(c > 0 for c in counts_upd) / len(counts_upd), 4)
+            mean_updates = round(sum(counts_upd) / len(counts_upd), 2)
+        else:
+            frac_trained = mean_updates = ""
+
         row = {
             "generation": generation,
             "tick": world.tick,
@@ -103,6 +119,8 @@ class MetricsWriter:
             "wm_rollout_error": wm_err,
             "wm_rel_persistence": wm_rel_pers,
             "wm_rel_variance": wm_rel_var,
+            "frac_trained": frac_trained,
+            "mean_updates": mean_updates,
         }
         self._writer.writerow(row)
         self._fh.flush()

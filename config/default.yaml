@@ -298,6 +298,11 @@ learning:
     epochs: 2             # optimisation passes per sampled batch
     grad_clip: 0.5        # max gradient norm
     chunk_buffer: 64      # chunks kept in the replay buffer
+    # Multi-scale BPTT cascade (docs/sample_long_context): also train on the
+    # last seq_len*2^j steps every 2^j chunks, up to max_len. Off by default.
+    # cascade:
+    #   enabled: false
+    #   max_len: 512
     world_model_coef: 1.0 # weight of the dynamics-head auxiliary loss
     # Model-quality diagnostic: every learn(), measure the k-step OPEN-LOOP
     # rollout error of the dynamics head on real sequences (predictions fed

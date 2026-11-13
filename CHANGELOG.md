@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased] - Long-context training: the 8-to-512 cascade
+
+`docs/sample_long_context/` (3 arms x 4 seeds): a multi-scale BPTT cascade
+(last 8 ticks every chunk, 16 every 2nd, ... 512 every 64th) lowers world-model
+error in gens 1-4 and converges equal by gen 6; no fitness change. A plain
+512-tick window is too slow to be practical. Side finding: the learning-slot
+cap means only 40% of agents ever train in their lifetime.
+
+- **`learning.ppo.cascade: {enabled, max_len}`** (default off; bit-identical
+  training when off).
+- Learner `update_count` / `cascade_updates`; metrics CSV columns
+  `frac_trained`, `mean_updates`.
+
 ## [Unreleased] — World-model reality check: baselines, zero init, residual head
 
 `docs/sample_wm_residual/` (4 arms x 4 seeds): measured against a do-nothing
