@@ -1050,6 +1050,8 @@ class Agent:
                     long_gamma=ppo.get("long_gamma", 0.999),
                     advantage_mix=ppo.get("advantage_mix", 0.0),
                     return_scale=ppo.get("return_scale", True),
+                    cascade=ppo.get("cascade", None),
+                    world_model_shared=ppo.get("world_model_shared", None),
                 )
                 self._ppo_config = ppo_config
                 self.learning_enabled = True

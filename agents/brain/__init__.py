@@ -95,6 +95,11 @@ class Brain:
         instincts (InstinctModule): Bootstrap biases (None = pure network)
     """
 
+    # Class-level defaults so subclasses that build their own state (v4)
+    # still answer these attributes.
+    world_model_residual: bool = False
+    last_latent: Optional[np.ndarray] = None
+
     def __init__(
         self,
         genome: "Genome",
@@ -104,6 +109,7 @@ class Brain:
         output_size: int = 8,
         instincts: Optional[InstinctModule] = None,
         world_model_hidden: Optional[int] = None,
+        world_model_residual: bool = False,
     ):
         """
         Initialize brain from genome.
@@ -118,6 +124,8 @@ class Brain:
                        pass InstinctModule(enabled=False) for a pure network)
             world_model_hidden: Hidden width of the latent dynamics head
                 (None = no world model)
+            world_model_residual: Residual dynamics head — reads the current
+                latent and predicts its change (see spec._dynamics_entries)
         """
         self.genome = genome
         self.input_size = input_size
@@ -125,6 +133,8 @@ class Brain:
         self.gru_hidden_size = gru_hidden_size
         self.output_size = output_size
         self.world_model_hidden = world_model_hidden
+        self.world_model_residual = bool(world_model_residual)
+        self.last_latent: Optional[np.ndarray] = None
         self.instincts = instincts if instincts is not None else InstinctModule()
 
         # Declarative genome layout — single source of truth for
@@ -135,6 +145,7 @@ class Brain:
             self.gru_hidden_size,
             self.output_size,
             world_model_hidden=world_model_hidden,
+            world_model_residual=self.world_model_residual,
         )
 
         # Views into genome.weights (zero-copy), in two addressings:
@@ -155,7 +166,7 @@ class Brain:
         return self._encode(observation)
 
     def predict_next_latent(
-        self, h: np.ndarray, action_idx: int
+        self, h: np.ndarray, action_idx: int, z: Optional[np.ndarray] = None
     ) -> Tuple[np.ndarray, float]:
         """
         World-model prediction: next latent and reward from the
@@ -165,9 +176,16 @@ class Brain:
             ẑ' = d·Wz + bz
             r̂  = d·Wr + br
 
+        Residual head (``world_model_residual``): the current latent is an
+        extra input and the head predicts the change,
+        ``d = tanh([h ‖ onehot(a) ‖ z]·W1 + b1)``, ``ẑ' = z + d·Wz + bz``.
+
         Args:
             h: GRU hidden state AFTER processing the current observation
             action_idx: Index of the action to imagine taking
+            z: Current latent (residual head only). Defaults to the latent
+                of the last ``forward`` call — the right one right after
+                acting; pass the imagined latent when rolling forward.
 
         Returns:
             (predicted_next_latent, predicted_reward)
@@ -180,8 +198,16 @@ class Brain:
         dyn = self.params["dynamics"]
         onehot = np.zeros(self.output_size, dtype=np.float32)
         onehot[action_idx] = 1.0
-        d = np.tanh(np.concatenate([h, onehot]) @ dyn["W1"] + dyn["b1"])
-        z_pred = d @ dyn["Wz"] + dyn["bz"]
+        if self.world_model_residual:
+            if z is None:
+                z = self.last_latent
+            if z is None:
+                z = np.zeros(dyn["Wz"].shape[1], dtype=np.float32)
+            d = np.tanh(np.concatenate([h, onehot, z]) @ dyn["W1"] + dyn["b1"])
+            z_pred = z + d @ dyn["Wz"] + dyn["bz"]
+        else:
+            d = np.tanh(np.concatenate([h, onehot]) @ dyn["W1"] + dyn["b1"])
+            z_pred = d @ dyn["Wz"] + dyn["bz"]
         r_pred = float((d @ dyn["Wr"] + dyn["br"]).item())
         return z_pred, r_pred
 
@@ -243,6 +269,7 @@ class Brain:
         """
         # 1. Encode observation into the latent fed to the GRU
         z = self._encode(observation)
+        self.last_latent = z  # read by the residual dynamics head
 
         # 2. GRU: Update hidden state with memory
         h_next = self._gru_step(z, h)
@@ -399,6 +426,7 @@ class Brain:
         gru_hidden_size: int = 32,
         output_size: int = 8,
         world_model_hidden: Optional[int] = None,
+        world_model_residual: bool = False,
     ) -> int:
         """
         Calculate total number of weights needed for the network.
@@ -410,6 +438,7 @@ class Brain:
             gru_hidden_size: Size of GRU hidden state
             output_size: Number of actions
             world_model_hidden: Dynamics-head hidden width (None = none)
+            world_model_residual: Residual dynamics head (adds z inputs)
 
         Returns:
             Total number of weights (including biases)
@@ -420,6 +449,7 @@ class Brain:
             gru_hidden_size,
             output_size,
             world_model_hidden=world_model_hidden,
+            world_model_residual=world_model_residual,
         ).count()
 
     def get_action_preferences(
@@ -463,6 +493,12 @@ def _world_model_hidden(brain_config: dict) -> Optional[int]:
     return None
 
 
+def _world_model_residual(brain_config: dict) -> bool:
+    """Read ``brain.world_model.residual`` (default False = legacy head)."""
+    wm = brain_config.get("world_model", {}) or {}
+    return bool(wm.get("enabled", False) and wm.get("residual", False))
+
+
 def _v3_kwargs(brain_config: dict) -> dict:
     """Extract BrainV3 size kwargs from a ``brain`` config dict."""
     v3 = brain_config.get("v3", {}) or {}
@@ -473,6 +509,7 @@ def _v3_kwargs(brain_config: dict) -> dict:
         "value_hidden": v3.get("value_hidden", 16),
         "output_size": brain_config.get("output_size", 8),
         "world_model_hidden": _world_model_hidden(brain_config),
+        "world_model_residual": _world_model_residual(brain_config),
     }
 
 
@@ -514,6 +551,8 @@ def create_brain(
     if _is_v4(version):
         from agents.brain.v4 import BrainV4
 
+        if _world_model_residual(cfg):
+            raise ValueError("brain.world_model.residual is not supported for Brain v4")
         return BrainV4(
             genome,
             instincts=instincts,
@@ -547,6 +586,7 @@ def create_brain(
         output_size=cfg.get("output_size", 8),
         instincts=instincts,
         world_model_hidden=_world_model_hidden(cfg),
+        world_model_residual=_world_model_residual(cfg),
     )
 
 
@@ -585,11 +625,57 @@ def activate_brain_layout(brain_config: Optional[dict] = None) -> int:
 
     version = observation_version_for(brain_config)
     set_observation_version(version)
+    cfg = brain_config or {}
     if version >= 4:
-        set_active_param_spec(_v4_spec_for(brain_config or {}))
+        set_active_param_spec(_v4_spec_for(cfg))
+    elif _world_model_zero_init(cfg):
+        set_active_param_spec(_zero_init_dynamics(_spec_for_config(cfg)))
     else:
         set_active_param_spec(None)
     return version
+
+
+def _world_model_zero_init(brain_config: dict) -> bool:
+    """Read ``brain.world_model.zero_init`` (default False = legacy init)."""
+    wm = brain_config.get("world_model", {}) or {}
+    return bool(wm.get("enabled", False) and wm.get("zero_init", False))
+
+
+def _spec_for_config(cfg: dict):
+    """The v2 / v3 / v3.5 ParamSpec a ``brain`` config builds."""
+    version = cfg.get("version", 2)
+    if _is_v35(version):
+        return _v3_spec_for(cfg, state_inputs=_v35_state_inputs(), output_size=9)
+    if version == 3:
+        return _v3_spec_for(cfg, state_inputs=22, output_size=cfg.get("output_size", 8))
+    return build_brain_param_spec(
+        cfg.get("input_size", 72),
+        cfg.get("encoder_layers"),
+        cfg.get("gru_hidden_size", 32),
+        cfg.get("output_size", 8),
+        world_model_hidden=_world_model_hidden(cfg),
+        world_model_residual=_world_model_residual(cfg),
+    )
+
+
+def _zero_init_dynamics(spec):
+    """
+    Same layout, plus a structured prior that zeroes the dynamics head's
+    OUTPUT layer (``dyn.Wz``, ``dyn.bz``) in freshly randomised genomes.
+
+    With the default N(0, 0.5²) genome init, the head's first predictions are
+    ~N(0, 2²) per latent dimension, an order of magnitude larger than the
+    latent's own spread, and per-agent PPO updates take most of a run to
+    shrink them. Zero output weights start the legacy head at "predict 0"
+    and the residual head exactly at persistence (ẑ' = z).
+    """
+    import dataclasses
+
+    def zeros(shape):
+        return np.zeros(shape, dtype=np.float32)
+
+    extra = (("dyn.Wz", zeros), ("dyn.bz", zeros))
+    return dataclasses.replace(spec, inits=tuple(spec.inits) + extra)
 
 
 def calculate_weight_count_for_config(brain_config: Optional[dict] = None) -> int:
@@ -632,6 +718,7 @@ def calculate_weight_count_for_config(brain_config: Optional[dict] = None) -> in
             value_hidden=kwargs["value_hidden"],
             output_size=output_size,
             world_model_hidden=kwargs["world_model_hidden"],
+            world_model_residual=kwargs["world_model_residual"],
         )
 
     return Brain.calculate_weight_count(
@@ -640,6 +727,7 @@ def calculate_weight_count_for_config(brain_config: Optional[dict] = None) -> in
         gru_hidden_size=cfg.get("gru_hidden_size", 32),
         output_size=cfg.get("output_size", 8),
         world_model_hidden=_world_model_hidden(cfg),
+        world_model_residual=_world_model_residual(cfg),
     )
 
 
@@ -661,6 +749,7 @@ def _v3_spec_for(cfg: dict, state_inputs: int, output_size: int):
         value_hidden=k["value_hidden"],
         output_size=output_size,
         world_model_hidden=k["world_model_hidden"],
+        world_model_residual=k["world_model_residual"],
     )
 
 

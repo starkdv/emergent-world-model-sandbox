@@ -1,0 +1,2 @@
+generation,tick,alive_agents,total_food,total_plants,total_seeds,mean_energy,mean_age,max_age,mean_fitness,avg_fertility,avg_moisture,wm_rollout_error,wm_rel_persistence,wm_rel_variance,frac_trained,mean_updates
+1,1000,30,293,133,361,110.019,385.93,751,40.723,0.9489,0.1811,0.48844,2.78959,3.20959,0.2667,11.6

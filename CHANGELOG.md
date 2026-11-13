@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased] - Every agent trains; shared world model; bigger brain
+
+`docs/sample_population_learning/` (3 arms x 4 seeds): lifting the learning-slot
+cap (`learning.max_updates_per_tick` 4 -> 16) raises training coverage from 40%
+to 93% of agents and cuts world-model error over persistence from 2.4x to 1.4x.
+Population-shared world-model training adds nothing on top; a bigger brain is
+worse (3.3x). No fitness change.
+
+- **`learning.ppo.world_model_shared: {enabled, batch, coef, pool}`** (default
+  off): a process-wide pool of every agent's chunks; each update adds a
+  world-model loss on pooled chunks encoded by the agent's own brain.
+
+## [Unreleased] - Long-context training: the 8-to-512 cascade
+
+`docs/sample_long_context/` (3 arms x 4 seeds): a multi-scale BPTT cascade
+(last 8 ticks every chunk, 16 every 2nd, ... 512 every 64th) lowers world-model
+error in gens 1-4 and converges equal by gen 6; no fitness change. A plain
+512-tick window is too slow to be practical. Side finding: the learning-slot
+cap means only 40% of agents ever train in their lifetime.
+
+- **`learning.ppo.cascade: {enabled, max_len}`** (default off; bit-identical
+  training when off).
+- Learner `update_count` / `cascade_updates`; metrics CSV columns
+  `frac_trained`, `mean_updates`.
+
+## [Unreleased] — World-model reality check: baselines, zero init, residual head
+
+`docs/sample_wm_residual/` (4 arms x 4 seeds): measured against a do-nothing
+baseline, the ecology world model's 3-step error (~2.9) is **23x worse than
+predicting "the latent does not change"**. Most of it is the N(0, 0.5^2) genome
+init of the head's output layer; zeroing it at birth cuts the error ~10x. A
+residual head does not help here. No arm beats persistence; no fitness change.
+
+- **Instrument**: `TorchBrainMirror.baseline_errors` (persistence error per
+  horizon + latent variance, same windows as M1); learner
+  `wm_persistence_error`, `wm_latent_var`, `wm_rel_persistence_ema`,
+  `wm_rel_variance_ema`; metrics CSV columns `wm_rel_persistence`,
+  `wm_rel_variance`.
+- **`brain.world_model.zero_init`** (default false): structured prior zeroing
+  `dyn.Wz`/`dyn.bz` in fresh genomes (via the active ParamSpec).
+- **`brain.world_model.residual`** (default false, v2/v3/v3.5; v4 rejects it):
+  `z' = z + delta([h, onehot(a), z])`. Adds z rows to `dyn.W1`, append-only, so
+  legacy heads migrate. `predict_next_latent(h, a, z=None)` defaults z to the
+  latent of the last `forward`; the planner threads imagined latents through.
+- Defaults leave every existing config and genome bit-unchanged.
+
 ## [Unreleased] — Brain v4: multi-timescale memory, place memory, evolved drives
 
 A 24-run baseline campaign (`docs/sample_v35_emergence_baseline/`, 3 simulation

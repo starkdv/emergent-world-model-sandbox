@@ -39,6 +39,7 @@ Author: Karan Vasa
 Date: June 2026
 """
 
+from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
@@ -122,6 +123,19 @@ class _ChunkBuffer:
 
     def __len__(self) -> int:
         return len(self._chunks)
+
+
+# Population-shared experience for world-model training (opt-in,
+# ``learning.ppo.world_model_shared``). One pool per process: every learner
+# that enables it pushes its finished chunks here and samples other agents'
+# chunks for an extra world-model-only loss.
+SHARED_WM_POOL = _ChunkBuffer(256)
+
+
+def reset_shared_wm_pool(capacity: int = 256) -> None:
+    """Empty the shared pool (new simulation / tests)."""
+    global SHARED_WM_POOL
+    SHARED_WM_POOL = _ChunkBuffer(capacity)
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +232,9 @@ class TorchBrainMirror:
         self.n_values = (
             int(self.params["value.W2"].shape[1]) if "value.W2" in self.params else 1
         )
+        # Residual dynamics head: inferred from the genome layout (its W1 has
+        # extra rows for the current latent z) so no flag has to be threaded.
+        self.wm_residual = bool(getattr(brain, "world_model_residual", False))
 
     def matches(self, brain: "Brain") -> bool:
         """True if this mirror still corresponds to the brain's spec."""
@@ -460,10 +477,26 @@ class TorchBrainMirror:
         return "dyn.W1" in self.params
 
     def _dynamics(
-        self, h: "torch.Tensor", actions_onehot: "torch.Tensor"
+        self,
+        h: "torch.Tensor",
+        actions_onehot: "torch.Tensor",
+        z: Optional["torch.Tensor"] = None,
     ) -> tuple["torch.Tensor", "torch.Tensor"]:
-        """Batched dynamics head: (h, onehot a) → (ẑ', r̂)."""
+        """Batched dynamics head: (h, onehot a[, z]) → (ẑ', r̂).
+
+        The residual head needs the current latent ``z`` (detach it at the
+        call site when it comes from the encoder, so the encoder is not
+        pushed toward temporally-flat latents that make Δ trivially small).
+        """
         p = self.params
+        if self.wm_residual:
+            if z is None:
+                raise ValueError("residual dynamics head needs the current z")
+            head = torch.cat([h, actions_onehot, z], dim=1)
+            d = torch.tanh(head @ p["dyn.W1"] + p["dyn.b1"])
+            z_pred = z + d @ p["dyn.Wz"] + p["dyn.bz"]
+            r_pred = (d @ p["dyn.Wr"] + p["dyn.br"]).squeeze(-1)
+            return z_pred, r_pred
         if self.is_v4:
             # Migration-safe order [h_fast ‖ onehot ‖ h_slow]; see
             # BrainV4.dynamics_input.
@@ -614,13 +647,14 @@ class TorchBrainMirror:
         n_actions = int(self.params["policy.b"].shape[0])
         n_win = length - k + 1  # windows start at t = 0..L-k
         cur = hs[:, :n_win, :].reshape(batch * n_win, h_size)
+        z_cur = zs[:, :n_win, :].reshape(batch * n_win, -1).detach()
         ok = valid * (1.0 - dones)  # step is real and successor in-episode
         win_ok = torch.ones(batch * n_win, device=hs.device)
         lat_errs, rew_errs = [], []
         for j in range(k):
             act = actions[:, j : j + n_win].reshape(-1)
             onehot = torch.nn.functional.one_hot(act, n_actions).float()
-            z_pred, r_pred = self._dynamics(cur, onehot)
+            z_pred, r_pred = self._dynamics(cur, onehot, z_cur)
             win_ok = win_ok * ok[:, j : j + n_win].reshape(-1)
             n = torch.clamp(win_ok.sum(), min=1.0)
             z_tgt = zs[:, j + 1 : j + 1 + n_win, :].reshape(batch * n_win, -1).detach()
@@ -628,7 +662,44 @@ class TorchBrainMirror:
             lat_errs.append((((z_pred - z_tgt) ** 2).mean(dim=1) * win_ok).sum() / n)
             rew_errs.append(((r_pred - r_tgt) ** 2 * win_ok).sum() / n)
             cur = self._advance_core(z_pred, cur)
+            z_cur = z_pred
         return torch.stack(lat_errs), torch.stack(rew_errs)
+
+    @staticmethod
+    def baseline_errors(
+        zs: "torch.Tensor",
+        valid: "torch.Tensor",
+        dones: "torch.Tensor",
+        k: int,
+    ) -> tuple["torch.Tensor", "torch.Tensor"]:
+        """
+        Reference points for the open-loop rollout error (same windows and
+        masks as ``multistep_errors``), so the raw MSE can be read:
+
+        - persistence: error of the do-nothing guess ``ẑ_{t+j} = z_t`` at
+          each horizon j = 1..k. A model that cannot beat this has learned
+          nothing about how the latent moves.
+        - variance: mean per-dimension variance of the real target latents
+          (error of predicting the batch mean; R² = 1 - mse / variance).
+
+        Returns:
+            (persistence_mse (k,), latent_variance scalar)
+        """
+        batch, length = valid.shape
+        k = max(1, min(int(k), length))
+        n_win = length - k + 1
+        z0 = zs[:, :n_win, :].reshape(batch * n_win, -1)
+        ok = valid * (1.0 - dones)
+        win_ok = torch.ones(batch * n_win, device=zs.device)
+        errs = []
+        for j in range(k):
+            win_ok = win_ok * ok[:, j : j + n_win].reshape(-1)
+            n = torch.clamp(win_ok.sum(), min=1.0)
+            z_tgt = zs[:, j + 1 : j + 1 + n_win, :].reshape(batch * n_win, -1)
+            errs.append((((z0 - z_tgt) ** 2).mean(dim=1) * win_ok).sum() / n)
+        real = zs[:, 1:, :][ok > 0]
+        var = real.var(dim=0).mean() if real.shape[0] > 1 else zs.new_tensor(0.0)
+        return torch.stack(errs), var
 
     def imagine_loss(
         self,
@@ -637,6 +708,7 @@ class TorchBrainMirror:
         gamma: float,
         lam: float,
         entropy_coef: float,
+        z0: Optional["torch.Tensor"] = None,
     ) -> "torch.Tensor":
         """
         Dreamer-style actor-critic in imagination (Planning proposal P3).
@@ -654,6 +726,7 @@ class TorchBrainMirror:
         p = self.params
         n_actions = p["policy.b"].shape[0]
         h = h0
+        z = z0
         logps, ents, vals, rews = [], [], [], []
         for _ in range(horizon):
             logits = h @ p["policy.W"] + p["policy.b"]
@@ -663,7 +736,7 @@ class TorchBrainMirror:
             logp = logp_all.gather(1, a.unsqueeze(-1)).squeeze(-1)
             ent = -(probs * torch.clamp(logp_all, min=-30.0)).sum(-1)
             onehot = torch.nn.functional.one_hot(a, n_actions).float()
-            z, r = self._dynamics(h, onehot)
+            z, r = self._dynamics(h, onehot, z)
             h = self._advance_core(z, h)
             v = self._value(z, h)
             logps.append(logp)
@@ -728,6 +801,8 @@ class PPOSequenceLearner:
         long_gamma: float = 0.999,
         advantage_mix: float = 0.0,
         return_scale: bool = True,
+        cascade: Optional[dict] = None,
+        world_model_shared: Optional[dict] = None,
     ):
         """
         Initialize the PPO learner.
@@ -764,6 +839,19 @@ class PPOSequenceLearner:
                 percentile spread before regression, so the long head (whose
                 returns are ~1/(1-gamma_l) times larger) does not swamp the
                 policy loss.
+            cascade: Optional ``{enabled, max_len}`` -- multi-scale BPTT.
+                Besides the usual ``seq_len`` chunks, train on the most
+                recent window of ``seq_len * 2^j`` steps every ``2^j``
+                chunks (8 every chunk, 16 every 2nd, 32 every 4th, ... up
+                to ``max_len``), so gradients reach far back without
+                delaying or replacing the short-window updates. Each level
+                costs about one extra BPTT step per tick. Off by default.
+            world_model_shared: Optional ``{enabled, batch, coef, pool}`` --
+                population-shared world-model training. Finished chunks go
+                into a process-wide pool; each update also samples ``batch``
+                pooled chunks (any agent's), encodes them with THIS brain,
+                and adds ``coef`` x the world-model loss (horizons 1..k) on
+                them. Policy/value losses stay on the agent's own data.
         """
         if not TORCH_AVAILABLE:
             raise RuntimeError(
@@ -773,6 +861,8 @@ class PPOSequenceLearner:
         self.discount_factor = discount_factor
         self.batch_size = batch_size
         self.seq_len = seq_len
+        # Completed learn() updates over this learner's lifetime.
+        self.update_count = 0
         self.gae_lambda = gae_lambda
         self.clip_epsilon = clip_epsilon
         self.value_coef = value_coef
@@ -815,16 +905,48 @@ class PPOSequenceLearner:
         self._return_spread = [1.0, 1.0]
         self.wm_rollout_error: Optional[list] = None
         self.wm_rollout_error_ema: Optional[float] = None
+        # Reference points for reading that error (same windows/masks):
+        # do-nothing persistence error per horizon, the latent variance, and
+        # EMAs of model/persistence and model/variance at horizon k.
+        self.wm_persistence_error: Optional[list] = None
+        self.wm_latent_var: Optional[float] = None
+        self.wm_rel_persistence_ema: Optional[float] = None
+        self.wm_rel_variance_ema: Optional[float] = None
         self._wm_ema_beta = 0.9
         self.compute_backend = "torch"
         self.compute_device = compute_device
 
         self.replay_buffer = _ChunkBuffer(chunk_capacity)
+
+        # Multi-scale BPTT cascade (opt-in). History of the last max_len
+        # steps (with each step's pre-step hidden state); long windows are
+        # queued at chunk boundaries and trained after the regular update.
+        cas = cascade or {}
+        self.cascade_enabled = bool(cas.get("enabled", False))
+        self.cascade_max_len = max(int(seq_len), int(cas.get("max_len", 512)))
+        self.cascade_updates = 0
+        self._history: deque = deque(maxlen=self.cascade_max_len)
+        self._n_chunks = 0
+        self._pending_long: dict[int, SequenceChunk] = {}
+
+        sh = world_model_shared or {}
+        self.shared_wm_enabled = bool(sh.get("enabled", False))
+        self.shared_wm_batch = max(1, int(sh.get("batch", 8)))
+        self.shared_wm_coef = float(sh.get("coef", 1.0))
+        pool_cap = int(sh.get("pool", 256))
+        if self.shared_wm_enabled and SHARED_WM_POOL.capacity != pool_cap:
+            reset_shared_wm_pool(pool_cap)
         self.reward_shaper = RewardShaper()
 
         self._mirror: Optional[TorchBrainMirror] = None
         self._steps: list[dict] = []  # current, not-yet-finalized chunk
         self._chunk_h0: Optional[np.ndarray] = None
+
+    def _ema(self, prev: Optional[float], x: float) -> float:
+        """Exponential moving average with the world-model EMA rate."""
+        if prev is None:
+            return float(x)
+        return self._wm_ema_beta * prev + (1.0 - self._wm_ema_beta) * float(x)
 
     def imagination_active(self) -> bool:
         """True when the imagination loss should run now: enabled, past the
@@ -871,18 +993,25 @@ class PPOSequenceLearner:
         if not self._steps:
             self._chunk_h0 = np.asarray(hidden_before, dtype=np.float32).copy()
 
-        self._steps.append(
-            {
-                "obs": np.asarray(observation, dtype=np.float32),
-                "action": int(action),
-                "reward": float(reward),
-                "next_obs": np.asarray(next_observation, dtype=np.float32),
-                "done": bool(done),
-                "logprob": float(logprob),
-                "mask": np.asarray(action_mask, dtype=np.float32),
-                "moved": 1.0 if moved else 0.0,
-            }
-        )
+        step = {
+            "obs": np.asarray(observation, dtype=np.float32),
+            "action": int(action),
+            "reward": float(reward),
+            "next_obs": np.asarray(next_observation, dtype=np.float32),
+            "done": bool(done),
+            "logprob": float(logprob),
+            "mask": np.asarray(action_mask, dtype=np.float32),
+            "moved": 1.0 if moved else 0.0,
+        }
+        self._steps.append(step)
+        if self.cascade_enabled:
+            if done:
+                self._history.clear()
+                self._pending_long.clear()
+            else:
+                self._history.append(
+                    (step, np.asarray(hidden_before, dtype=np.float32).copy())
+                )
 
         if len(self._steps) >= self.seq_len or done:
             self._finalize_chunk()
@@ -933,8 +1062,44 @@ class PPOSequenceLearner:
             chunk.moved[i] = s.get("moved", 0.0)
 
         self.replay_buffer.add(chunk)
+        if self.shared_wm_enabled:
+            SHARED_WM_POOL.add(chunk)
         self._steps = []
         self._chunk_h0 = None
+        if self.cascade_enabled and len(steps) == length and not steps[-1]["done"]:
+            self._n_chunks += 1
+            self._queue_long_windows()
+
+    def _queue_long_windows(self) -> None:
+        """Queue the most recent ``seq_len * 2^j`` steps for every level j
+        whose period ``2^j`` divides the chunk count (binary-counter
+        cascade). One pending window per length; a newer one replaces it."""
+        j = 1
+        while True:
+            length = self.seq_len * (2**j)
+            if length > self.cascade_max_len:
+                break
+            if self._n_chunks % (2**j) == 0 and len(self._history) >= length:
+                self._pending_long[length] = self._window_chunk(length)
+            j += 1
+
+    def _window_chunk(self, length: int) -> SequenceChunk:
+        """Build a full (unpadded) SequenceChunk from the last ``length``
+        history steps, starting from the hidden state before its first step."""
+        window = list(self._history)[-length:]
+        steps = [s for s, _ in window]
+        return SequenceChunk(
+            obs=np.stack([s["obs"] for s in steps]),
+            h0=window[0][1],
+            actions=np.array([s["action"] for s in steps], dtype=np.int64),
+            rewards=np.array([s["reward"] for s in steps], dtype=np.float32),
+            dones=np.zeros(length, dtype=np.float32),
+            logprobs=np.array([s["logprob"] for s in steps], dtype=np.float32),
+            masks=np.stack([s["mask"] for s in steps]),
+            valid=np.ones(length, dtype=np.float32),
+            bootstrap_obs=steps[-1]["next_obs"],
+            moved=np.array([s["moved"] for s in steps], dtype=np.float32),
+        )
 
     # -- learning ----------------------------------------------------------
 
@@ -962,7 +1127,74 @@ class PPOSequenceLearner:
             )
 
         chunks = self.replay_buffer.sample(self.batch_size)
+        self.update_count += 1
+        total_loss = self._update(chunks, brain, measure=True)
+
+        # Multi-scale cascade: one update per queued long window, shortest
+        # first. The diagnostics above stay on the regular chunks so the
+        # wm_* columns remain comparable with non-cascade runs.
+        if self._pending_long:
+            for length in sorted(self._pending_long):
+                self._update([self._pending_long[length]], brain, measure=False)
+                self.cascade_updates += 1
+            self._pending_long.clear()
+
+        # Write trained weights back to the brain, then Lamarckian-sync
+        # them into the genome so offspring inherit them.
+        self._mirror.sync_to_brain(brain)
+        brain.genome.weights = brain.spec.pack(brain.named_params)
+
+        return total_loss
+
+    @staticmethod
+    def _stack_chunks(chunks: list, device) -> dict:
+        """Stack equal-length chunks into the tensors the WM loss needs."""
+
+        def t(name):
+            return torch.as_tensor(
+                np.stack([getattr(c, name) for c in chunks]), device=device
+            )
+
+        out = {
+            k: t(k)
+            for k in ("obs", "h0", "bootstrap_obs", "actions", "rewards")
+            + ("valid", "dones")
+        }
+        out["moved"] = torch.as_tensor(
+            np.stack(
+                [
+                    c.moved if c.moved is not None else np.zeros(len(c.obs))
+                    for c in chunks
+                ]
+            ).astype(np.float32),
+            device=device,
+        )
+        return out
+
+    def _shared_wm_loss(self, b: dict) -> "torch.Tensor":
+        """World-model loss on pooled chunks from the whole population,
+        encoded by this agent's own encoder/GRU (detached: the pooled data
+        trains the dynamics rollout, not the representation)."""
+        with torch.no_grad():
+            _, _, _, zs, hs = self._mirror.forward_sequence(
+                b["obs"],
+                b["h0"],
+                b["bootstrap_obs"],
+                b["actions"],
+                b["rewards"],
+                b["moved"],
+            )
+        k = max(1, self.ms_k)
+        lat, rew = self._mirror.multistep_errors(
+            hs, zs, b["actions"], b["rewards"], b["valid"], b["dones"], k
+        )
+        return lat.mean() + rew.mean()
+
+    def _update(self, chunks: list, brain: "Brain", measure: bool) -> float:
+        """PPO + world-model optimisation on equal-length chunks. With
+        ``measure`` the model-quality diagnostics are refreshed too."""
         device = self._mirror.device
+        seq_len = chunks[0].obs.shape[0]
 
         obs = torch.as_tensor(np.stack([c.obs for c in chunks]), device=device)
         h0 = torch.as_tensor(np.stack([c.h0 for c in chunks]), device=device)
@@ -985,7 +1217,7 @@ class PPOSequenceLearner:
                     (
                         c.moved
                         if c.moved is not None
-                        else np.zeros(self.seq_len, dtype=np.float32)
+                        else np.zeros(seq_len, dtype=np.float32)
                     )
                     for c in chunks
                 ]
@@ -1014,7 +1246,7 @@ class PPOSequenceLearner:
             # sampled real sequences — the quantity the planner's usefulness
             # actually depends on. Cheap (no_grad) and observable via the
             # metrics CSV / readiness gating.
-            if self._mirror.has_world_model and self.rollout_metric_k > 0:
+            if measure and self._mirror.has_world_model and self.rollout_metric_k > 0:
                 lat_err, _ = self._mirror.multistep_errors(
                     hs_ng,
                     zs_ng,
@@ -1032,9 +1264,23 @@ class PPOSequenceLearner:
                     if ema is None
                     else self._wm_ema_beta * ema + (1.0 - self._wm_ema_beta) * errs[-1]
                 )
+                pers, var = self._mirror.baseline_errors(
+                    zs_ng, valid, dones, self.rollout_metric_k
+                )
+                self.wm_persistence_error = [float(e) for e in pers]
+                self.wm_latent_var = float(var)
+                if self.wm_persistence_error[-1] > 0.0:
+                    self.wm_rel_persistence_ema = self._ema(
+                        self.wm_rel_persistence_ema,
+                        errs[-1] / self.wm_persistence_error[-1],
+                    )
+                if self.wm_latent_var > 0.0:
+                    self.wm_rel_variance_ema = self._ema(
+                        self.wm_rel_variance_ema, errs[-1] / self.wm_latent_var
+                    )
         n_chunks = len(chunks)
-        advantages_np = np.zeros((n_values, n_chunks, self.seq_len), dtype=np.float32)
-        targets_np = np.zeros((n_values, n_chunks, self.seq_len), dtype=np.float32)
+        advantages_np = np.zeros((n_values, n_chunks, seq_len), dtype=np.float32)
+        targets_np = np.zeros((n_values, n_chunks, seq_len), dtype=np.float32)
         values_now_np = values_now.cpu().numpy()
         v_boot_np = v_boot.cpu().numpy()
         for head, gamma in enumerate(gammas):
@@ -1087,6 +1333,17 @@ class PPOSequenceLearner:
         if n_values > 1 and beta > 0.0:
             advantages = (1.0 - beta) * normalised[0] + beta * normalised[1]
 
+        shared = None
+        if (
+            measure
+            and self.shared_wm_enabled
+            and self._mirror.has_world_model
+            and len(SHARED_WM_POOL) >= self.shared_wm_batch
+        ):
+            shared = self._stack_chunks(
+                SHARED_WM_POOL.sample(self.shared_wm_batch), device
+            )
+
         total_loss = 0.0
         for _ in range(self.epochs):
             logits, values, _, zs, hs = self._mirror.forward_sequence(
@@ -1134,7 +1391,10 @@ class PPOSequenceLearner:
                 onehot = torch.nn.functional.one_hot(
                     actions.reshape(-1), num_classes=logits.shape[-1]
                 ).float()
-                z_pred, r_pred = self._mirror._dynamics(hs.reshape(-1, h_size), onehot)
+                z_now = zs[:, :-1, :].reshape(batch_n * length, -1).detach()
+                z_pred, r_pred = self._mirror._dynamics(
+                    hs.reshape(-1, h_size), onehot, z_now
+                )
                 z_target = zs[:, 1:, :].reshape(batch_n * length, -1).detach()
                 # Steps whose successor crosses a terminal/padding boundary
                 # are excluded via the valid/done masks
@@ -1164,30 +1424,32 @@ class PPOSequenceLearner:
                 # policy without perturbing representation learning.
                 if self.imagination_active():
                     flat_h = hs.reshape(-1, hs.shape[-1])
+                    flat_z = zs[:, :-1, :].reshape(flat_h.shape[0], -1)
                     keep = valid.reshape(-1) > 0
                     flat_h = flat_h[keep]
+                    flat_z = flat_z[keep]
                     if flat_h.shape[0] > 0:
                         if flat_h.shape[0] > self.imag_batch:
                             sel = torch.randperm(flat_h.shape[0])[: self.imag_batch]
                             flat_h = flat_h[sel]
+                            flat_z = flat_z[sel]
                         imag_loss = self._mirror.imagine_loss(
                             flat_h.detach(),
                             self.imag_horizon,
                             self.discount_factor,
                             self.imag_lambda,
                             self.imag_entropy,
+                            z0=flat_z.detach(),
                         )
                         loss = loss + self.imag_weight * imag_loss
+
+            if shared is not None:
+                loss = loss + self.shared_wm_coef * self._shared_wm_loss(shared)
 
             self._mirror.optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self._mirror.params.values(), self.grad_clip)
             self._mirror.optimizer.step()
             total_loss = float(loss.detach().cpu().item())
-
-        # Write trained weights back to the brain, then Lamarckian-sync
-        # them into the genome so offspring inherit them.
-        self._mirror.sync_to_brain(brain)
-        brain.genome.weights = brain.spec.pack(brain.named_params)
 
         return total_loss

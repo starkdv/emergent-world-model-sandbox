@@ -59,6 +59,18 @@ has been measured.
    ecology wm_err plateaus ~2.9).
 4. **M3 reduces open-loop error exactly where the model is worst
    (early)**; no downstream fitness change in the ecology.
+5. **The ecology world model is worse than no model**
+   (docs/sample_wm_residual): its 3-step error is 23x the "z' = z"
+   persistence error. Most of it is genome init; `world_model.zero_init:
+   true` cuts it ~10x but it still loses to persistence (2.1x). The residual
+   head does not help here. Read `wm_rollout_error` next to
+   `wm_rel_persistence` (< 1 = beats doing nothing).
+6. **Only ~40% of agents trained in configs with
+   `learning.max_updates_per_tick: 4`** (first-come slots). Raising it to 16
+   (docs/sample_population_learning) gets ~93% training and cuts world-model
+   error over persistence 2.4x -> 1.4x. Shared world-model training, a bigger
+   brain (worse) and the 8-to-512 BPTT cascade (helps early only) did not add
+   to it. None of these changed fitness. Check `frac_trained` in every run.
 
 ## Sibling project
 

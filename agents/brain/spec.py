@@ -184,7 +184,11 @@ def migrate_genome(
 
 
 def _dynamics_entries(
-    latent_size: int, gru_hidden_size: int, output_size: int, hidden: int
+    latent_size: int,
+    gru_hidden_size: int,
+    output_size: int,
+    hidden: int,
+    residual: bool = False,
 ) -> list[tuple[str, tuple[int, ...]]]:
     """
     Genome entries for the latent dynamics head (learned world model).
@@ -199,16 +203,23 @@ def _dynamics_entries(
     Appended at the END of the spec so enabling the world model only
     extends existing genome layouts (prefix stays valid for migration).
 
+    Residual variant (``residual=True``): the head also reads the CURRENT
+    latent z and predicts the change, ``ẑ' = z + d·Wz + bz`` with
+    ``d = tanh([h ‖ onehot(a) ‖ z]·W1 + b1)``. The z rows are appended
+    after the legacy ``[h ‖ onehot]`` rows, so a legacy head migrates into
+    the residual layout append-only.
+
     Args:
         latent_size: Size of the latent z the head must predict
         gru_hidden_size: Size of the GRU hidden state (head input)
         output_size: Number of actions (one-hot size)
         hidden: Hidden layer width of the dynamics MLP
+        residual: Also feed the current latent and predict its change
 
     Returns:
         List of (name, shape) entries
     """
-    d_in = gru_hidden_size + output_size
+    d_in = gru_hidden_size + output_size + (latent_size if residual else 0)
     return [
         ("dyn.W1", (d_in, hidden)),
         ("dyn.b1", (hidden,)),
@@ -225,6 +236,7 @@ def build_brain_param_spec(
     gru_hidden_size: int = 32,
     output_size: int = 8,
     world_model_hidden: Optional[int] = None,
+    world_model_residual: bool = False,
 ) -> ParamSpec:
     """
     Build the ParamSpec for the recurrent Actor-Critic brain.
@@ -275,7 +287,15 @@ def build_brain_param_spec(
 
     # 5. Optional latent dynamics head (world model)
     if world_model_hidden is not None:
-        entries.extend(_dynamics_entries(enc_out, h, output_size, world_model_hidden))
+        entries.extend(
+            _dynamics_entries(
+                enc_out,
+                h,
+                output_size,
+                world_model_hidden,
+                residual=world_model_residual,
+            )
+        )
 
     return ParamSpec(entries=tuple(entries), version=2)
 
@@ -327,6 +347,7 @@ def build_brain_v3_param_spec(
     value_hidden: int = 16,
     output_size: int = 8,
     world_model_hidden: Optional[int] = None,
+    world_model_residual: bool = False,
 ) -> ParamSpec:
     """
     Build the ParamSpec for the Brain v3 architecture.
@@ -392,7 +413,11 @@ def build_brain_v3_param_spec(
 
     # 7. Optional latent dynamics head (world model)
     if world_model_hidden is not None:
-        entries.extend(_dynamics_entries(z, h, output_size, world_model_hidden))
+        entries.extend(
+            _dynamics_entries(
+                z, h, output_size, world_model_hidden, residual=world_model_residual
+            )
+        )
 
     return ParamSpec(entries=tuple(entries), version=3)
 

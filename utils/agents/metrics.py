@@ -29,6 +29,10 @@ FIELDS = [
     "avg_fertility",
     "avg_moisture",
     "wm_rollout_error",
+    "wm_rel_persistence",
+    "wm_rel_variance",
+    "frac_trained",
+    "mean_updates",
 ]
 
 
@@ -72,6 +76,33 @@ class MetricsWriter:
         ]
         wm_err = round(sum(wm_errs) / len(wm_errs), 5) if wm_errs else ""
 
+        def _mean_attr(name: str):
+            vals = [
+                v
+                for a in agents
+                if (v := getattr(getattr(a, "learner", None), name, None)) is not None
+            ]
+            return round(sum(vals) / len(vals), 5) if vals else ""
+
+        # Readable versions of that error: ÷ the do-nothing (z' = z) error
+        # (< 1 means the model beats persistence) and ÷ the latent variance.
+        wm_rel_pers = _mean_attr("wm_rel_persistence_ema")
+        wm_rel_var = _mean_attr("wm_rel_variance_ema")
+
+        # How much in-lifetime learning the living agents actually got:
+        # share with >= 1 PPO update, and mean updates per learning agent.
+        counts_upd = [
+            c
+            for a in agents
+            if (c := getattr(getattr(a, "learner", None), "update_count", None))
+            is not None
+        ]
+        if counts_upd:
+            frac_trained = round(sum(c > 0 for c in counts_upd) / len(counts_upd), 4)
+            mean_updates = round(sum(counts_upd) / len(counts_upd), 2)
+        else:
+            frac_trained = mean_updates = ""
+
         row = {
             "generation": generation,
             "tick": world.tick,
@@ -86,6 +117,10 @@ class MetricsWriter:
             "avg_fertility": round(float(avg_fert), 4),
             "avg_moisture": round(float(avg_moist), 4),
             "wm_rollout_error": wm_err,
+            "wm_rel_persistence": wm_rel_pers,
+            "wm_rel_variance": wm_rel_var,
+            "frac_trained": frac_trained,
+            "mean_updates": mean_updates,
         }
         self._writer.writerow(row)
         self._fh.flush()
