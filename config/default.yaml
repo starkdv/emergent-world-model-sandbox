@@ -303,6 +303,14 @@ learning:
     # cascade:
     #   enabled: false
     #   max_len: 512
+    # Population-shared world-model training (docs/sample_population_learning):
+    # pool every agent's chunks; each update adds a WM loss on `batch` pooled
+    # chunks encoded by the agent's own brain. Off by default.
+    # world_model_shared:
+    #   enabled: false
+    #   batch: 8
+    #   coef: 1.0
+    #   pool: 256
     world_model_coef: 1.0 # weight of the dynamics-head auxiliary loss
     # Model-quality diagnostic: every learn(), measure the k-step OPEN-LOOP
     # rollout error of the dynamics head on real sequences (predictions fed

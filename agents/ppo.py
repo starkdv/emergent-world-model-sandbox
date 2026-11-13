@@ -125,6 +125,19 @@ class _ChunkBuffer:
         return len(self._chunks)
 
 
+# Population-shared experience for world-model training (opt-in,
+# ``learning.ppo.world_model_shared``). One pool per process: every learner
+# that enables it pushes its finished chunks here and samples other agents'
+# chunks for an extra world-model-only loss.
+SHARED_WM_POOL = _ChunkBuffer(256)
+
+
+def reset_shared_wm_pool(capacity: int = 256) -> None:
+    """Empty the shared pool (new simulation / tests)."""
+    global SHARED_WM_POOL
+    SHARED_WM_POOL = _ChunkBuffer(capacity)
+
+
 # ---------------------------------------------------------------------------
 # GAE
 # ---------------------------------------------------------------------------
@@ -789,6 +802,7 @@ class PPOSequenceLearner:
         advantage_mix: float = 0.0,
         return_scale: bool = True,
         cascade: Optional[dict] = None,
+        world_model_shared: Optional[dict] = None,
     ):
         """
         Initialize the PPO learner.
@@ -832,6 +846,12 @@ class PPOSequenceLearner:
                 to ``max_len``), so gradients reach far back without
                 delaying or replacing the short-window updates. Each level
                 costs about one extra BPTT step per tick. Off by default.
+            world_model_shared: Optional ``{enabled, batch, coef, pool}`` --
+                population-shared world-model training. Finished chunks go
+                into a process-wide pool; each update also samples ``batch``
+                pooled chunks (any agent's), encodes them with THIS brain,
+                and adds ``coef`` x the world-model loss (horizons 1..k) on
+                them. Policy/value losses stay on the agent's own data.
         """
         if not TORCH_AVAILABLE:
             raise RuntimeError(
@@ -908,6 +928,14 @@ class PPOSequenceLearner:
         self._history: deque = deque(maxlen=self.cascade_max_len)
         self._n_chunks = 0
         self._pending_long: dict[int, SequenceChunk] = {}
+
+        sh = world_model_shared or {}
+        self.shared_wm_enabled = bool(sh.get("enabled", False))
+        self.shared_wm_batch = max(1, int(sh.get("batch", 8)))
+        self.shared_wm_coef = float(sh.get("coef", 1.0))
+        pool_cap = int(sh.get("pool", 256))
+        if self.shared_wm_enabled and SHARED_WM_POOL.capacity != pool_cap:
+            reset_shared_wm_pool(pool_cap)
         self.reward_shaper = RewardShaper()
 
         self._mirror: Optional[TorchBrainMirror] = None
@@ -1034,6 +1062,8 @@ class PPOSequenceLearner:
             chunk.moved[i] = s.get("moved", 0.0)
 
         self.replay_buffer.add(chunk)
+        if self.shared_wm_enabled:
+            SHARED_WM_POOL.add(chunk)
         self._steps = []
         self._chunk_h0 = None
         if self.cascade_enabled and len(steps) == length and not steps[-1]["done"]:
@@ -1115,6 +1145,50 @@ class PPOSequenceLearner:
         brain.genome.weights = brain.spec.pack(brain.named_params)
 
         return total_loss
+
+    @staticmethod
+    def _stack_chunks(chunks: list, device) -> dict:
+        """Stack equal-length chunks into the tensors the WM loss needs."""
+
+        def t(name):
+            return torch.as_tensor(
+                np.stack([getattr(c, name) for c in chunks]), device=device
+            )
+
+        out = {
+            k: t(k)
+            for k in ("obs", "h0", "bootstrap_obs", "actions", "rewards")
+            + ("valid", "dones")
+        }
+        out["moved"] = torch.as_tensor(
+            np.stack(
+                [
+                    c.moved if c.moved is not None else np.zeros(len(c.obs))
+                    for c in chunks
+                ]
+            ).astype(np.float32),
+            device=device,
+        )
+        return out
+
+    def _shared_wm_loss(self, b: dict) -> "torch.Tensor":
+        """World-model loss on pooled chunks from the whole population,
+        encoded by this agent's own encoder/GRU (detached: the pooled data
+        trains the dynamics rollout, not the representation)."""
+        with torch.no_grad():
+            _, _, _, zs, hs = self._mirror.forward_sequence(
+                b["obs"],
+                b["h0"],
+                b["bootstrap_obs"],
+                b["actions"],
+                b["rewards"],
+                b["moved"],
+            )
+        k = max(1, self.ms_k)
+        lat, rew = self._mirror.multistep_errors(
+            hs, zs, b["actions"], b["rewards"], b["valid"], b["dones"], k
+        )
+        return lat.mean() + rew.mean()
 
     def _update(self, chunks: list, brain: "Brain", measure: bool) -> float:
         """PPO + world-model optimisation on equal-length chunks. With
@@ -1259,6 +1333,17 @@ class PPOSequenceLearner:
         if n_values > 1 and beta > 0.0:
             advantages = (1.0 - beta) * normalised[0] + beta * normalised[1]
 
+        shared = None
+        if (
+            measure
+            and self.shared_wm_enabled
+            and self._mirror.has_world_model
+            and len(SHARED_WM_POOL) >= self.shared_wm_batch
+        ):
+            shared = self._stack_chunks(
+                SHARED_WM_POOL.sample(self.shared_wm_batch), device
+            )
+
         total_loss = 0.0
         for _ in range(self.epochs):
             logits, values, _, zs, hs = self._mirror.forward_sequence(
@@ -1357,6 +1442,9 @@ class PPOSequenceLearner:
                             z0=flat_z.detach(),
                         )
                         loss = loss + self.imag_weight * imag_loss
+
+            if shared is not None:
+                loss = loss + self.shared_wm_coef * self._shared_wm_loss(shared)
 
             self._mirror.optimizer.zero_grad()
             loss.backward()

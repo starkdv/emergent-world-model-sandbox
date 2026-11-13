@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased] - Every agent trains; shared world model; bigger brain
+
+`docs/sample_population_learning/` (3 arms x 4 seeds): lifting the learning-slot
+cap (`learning.max_updates_per_tick` 4 -> 16) raises training coverage from 40%
+to 93% of agents and cuts world-model error over persistence from 2.4x to 1.4x.
+Population-shared world-model training adds nothing on top; a bigger brain is
+worse (3.3x). No fitness change.
+
+- **`learning.ppo.world_model_shared: {enabled, batch, coef, pool}`** (default
+  off): a process-wide pool of every agent's chunks; each update adds a
+  world-model loss on pooled chunks encoded by the agent's own brain.
+
 ## [Unreleased] - Long-context training: the 8-to-512 cascade
 
 `docs/sample_long_context/` (3 arms x 4 seeds): a multi-scale BPTT cascade
